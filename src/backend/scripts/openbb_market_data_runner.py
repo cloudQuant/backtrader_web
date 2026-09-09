@@ -11,13 +11,14 @@ import hashlib
 import json
 import math
 import os
+import re
 import sys
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from importlib import metadata
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any
 
 PROTOCOL_VERSION = "openbb-market-data-v1"
@@ -25,11 +26,10 @@ SELF_CHECK_VERSION = "openbb-market-data-self-check-v1"
 _ALLOWED_ASSET_TYPES = {"stock", "fund", "futures", "fx", "crypto"}
 _YFINANCE_INTERVAL_BY_FREQUENCY = {
     "1d": "1d",
-    "1w": "1W",
-    "1mo": "1M",
 }
+_MAX_YFINANCE_DAILY_WINDOW_DAYS = 3650
 _MAX_RAW_PAYLOAD_BYTES = 4 * 1024 * 1024
-_REQUIRED_DISTRIBUTIONS = ("openbb", "openbb-yfinance")
+_REQUIRED_DISTRIBUTIONS = ("openbb", "openbb-core", "openbb-yfinance", "yfinance")
 _PERMIT_MANIFEST_VERSION = "openbb-runtime-permit-manifest-v1"
 _PERMIT_MANIFEST_PATH = (
     Path(__file__).resolve().parents[1]
@@ -39,6 +39,18 @@ _PERMIT_MANIFEST_PATH = (
     / "openbb_runtime_permit_manifest.json"
 )
 _OUTBOUND_END_BOUND_UNATTESTED = "OPENBB_YFINANCE_OUTBOUND_END_BOUND_UNATTESTED"
+_RUNTIME_ARTIFACT_UNATTESTED = "OPENBB_YFINANCE_RUNTIME_ARTIFACT_UNATTESTED"
+_RUNTIME_ARTIFACT_MANIFEST_VERSION = "openbb-yfinance-runtime-artifact-manifest-v1"
+_YFINANCE_DAILY_END_BOUND_CONTRACT = (
+    "openbb-yfinance-daily-inclusive-to-yfinance-exclusive-v1"
+)
+_RUNTIME_ARTIFACT_MANIFEST_PATH = (
+    Path(__file__).resolve().parents[1]
+    / "app"
+    / "services"
+    / "market_data"
+    / "openbb_yfinance_runtime_artifact_manifest.json"
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -81,6 +93,48 @@ class _RunnerRuntimeRoutePermit:
             and request.get("unit") == self.unit
             and request.get("provider_endpoint") == self.endpoint
         )
+
+
+@dataclass(frozen=True, slots=True)
+class _RunnerRuntimeArtifactFile:
+    """One package-owned source file needed by the reviewed runner route."""
+
+    relative_path: str
+    sha256: str
+
+
+@dataclass(frozen=True, slots=True)
+class _RunnerRuntimeArtifactDistribution:
+    """One exact installed distribution and the source files it must own."""
+
+    distribution: str
+    version: str
+    files: tuple[_RunnerRuntimeArtifactFile, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class _RunnerRuntimeArtifactManifest:
+    """Pure-data, pre-import OpenBB runtime candidate contract."""
+
+    manifest_version: str
+    artifact_set_version: str
+    attestation_state: str
+    outbound_end_bound_contract: str | None
+    distributions: tuple[_RunnerRuntimeArtifactDistribution, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class _RuntimeArtifactAttestation:
+    """Bounded result of validating a static runtime artifact contract."""
+
+    status: str
+    code: str | None
+    manifest_status: str
+    manifest_version: str | None
+    artifact_set_version: str | None
+    attestation_state: str | None
+    distribution_names: tuple[str, ...]
+    verified_file_count: int
 
 
 def _manifest_text(value: object) -> str:
@@ -171,6 +225,218 @@ def _load_static_runtime_permit_manifest() -> tuple[
     _ACTIVE_RUNTIME_ROUTE_PERMITS,
     _PERMIT_MANIFEST_ERROR,
 ) = _load_static_runtime_permit_manifest()
+
+
+def _artifact_manifest_text(value: object) -> str:
+    """Return one exact non-blank static artifact-manifest text value."""
+    if not isinstance(value, str) or not value or value != value.strip():
+        raise ValueError("invalid static runtime artifact manifest")
+    return value
+
+
+def _artifact_manifest_relative_path(value: object) -> str:
+    """Reject paths that could escape a distribution's owned file inventory."""
+    relative_path = _artifact_manifest_text(value)
+    if "\\" in relative_path or "\x00" in relative_path:
+        raise ValueError("invalid static runtime artifact manifest")
+    parts = relative_path.split("/")
+    windows_path = PureWindowsPath(relative_path)
+    if (
+        PurePosixPath(relative_path).is_absolute()
+        or windows_path.is_absolute()
+        or windows_path.drive
+        or windows_path.root
+        or not parts
+        or any(part in {"", ".", ".."} for part in parts)
+    ):
+        raise ValueError("invalid static runtime artifact manifest")
+    return relative_path
+
+
+def _artifact_manifest_sha256(value: object) -> str:
+    """Accept only a lowercase SHA-256 digest from reviewed static data."""
+    sha256 = _artifact_manifest_text(value)
+    if re.fullmatch(r"[0-9a-f]{64}", sha256) is None:
+        raise ValueError("invalid static runtime artifact manifest")
+    return sha256
+
+
+def _artifact_manifest_file(value: object) -> _RunnerRuntimeArtifactFile:
+    """Parse one hash-pinned distribution file with no path fallback."""
+    if not isinstance(value, Mapping) or set(value) != {"relative_path", "sha256"}:
+        raise ValueError("invalid static runtime artifact manifest")
+    return _RunnerRuntimeArtifactFile(
+        relative_path=_artifact_manifest_relative_path(value.get("relative_path")),
+        sha256=_artifact_manifest_sha256(value.get("sha256")),
+    )
+
+
+def _artifact_manifest_distribution(value: object) -> _RunnerRuntimeArtifactDistribution:
+    """Parse one exact distribution version and its package-owned source files."""
+    if not isinstance(value, Mapping) or set(value) != {"distribution", "version", "files"}:
+        raise ValueError("invalid static runtime artifact manifest")
+    distribution = _artifact_manifest_text(value.get("distribution"))
+    if distribution not in _REQUIRED_DISTRIBUTIONS:
+        raise ValueError("invalid static runtime artifact manifest")
+    raw_files = value.get("files")
+    if not isinstance(raw_files, list) or not raw_files:
+        raise ValueError("invalid static runtime artifact manifest")
+    files = tuple(_artifact_manifest_file(item) for item in raw_files)
+    if len({item.relative_path for item in files}) != len(files):
+        raise ValueError("invalid static runtime artifact manifest")
+    return _RunnerRuntimeArtifactDistribution(
+        distribution=distribution,
+        version=_artifact_manifest_text(value.get("version")),
+        files=files,
+    )
+
+
+def _load_static_runtime_artifact_manifest() -> tuple[
+    _RunnerRuntimeArtifactManifest | None,
+    str | None,
+]:
+    """Load the versioned pre-import artifact contract without importing OpenBB.
+
+    ``disabled`` is an explicit safe default. ``candidate`` records an exact
+    fork package set and its bounded daily end-date contract, but remains
+    non-executable: a future isolated-image/import-closure design must add a
+    new execution attestation state in code.  This parser deliberately does
+    not accept a data-only transition to ``attested``.
+    """
+    try:
+        raw = json.loads(_RUNTIME_ARTIFACT_MANIFEST_PATH.read_text(encoding="utf-8"))
+        if not isinstance(raw, Mapping) or set(raw) != {
+            "manifest_version",
+            "artifact_set_version",
+            "attestation_state",
+            "outbound_end_bound_contract",
+            "artifacts",
+        }:
+            raise ValueError("manifest root is invalid")
+        manifest_version = _artifact_manifest_text(raw.get("manifest_version"))
+        if manifest_version != _RUNTIME_ARTIFACT_MANIFEST_VERSION:
+            raise ValueError("manifest version is unsupported")
+        artifact_set_version = _artifact_manifest_text(raw.get("artifact_set_version"))
+        attestation_state = _artifact_manifest_text(raw.get("attestation_state"))
+        outbound_end_bound_contract = raw.get("outbound_end_bound_contract")
+        raw_distributions = raw.get("artifacts")
+        if not isinstance(raw_distributions, list):
+            raise ValueError("artifact list is invalid")
+        if attestation_state == "disabled":
+            if raw_distributions or outbound_end_bound_contract is not None:
+                raise ValueError("disabled manifests cannot name artifacts")
+            distributions: tuple[_RunnerRuntimeArtifactDistribution, ...] = ()
+            contract: str | None = None
+        elif attestation_state == "candidate":
+            if outbound_end_bound_contract != _YFINANCE_DAILY_END_BOUND_CONTRACT:
+                raise ValueError("candidate end-bound contract is invalid")
+            distributions = tuple(
+                _artifact_manifest_distribution(item) for item in raw_distributions
+            )
+            if tuple(item.distribution for item in distributions) != _REQUIRED_DISTRIBUTIONS:
+                raise ValueError("candidate distributions are incomplete or unordered")
+            contract = _YFINANCE_DAILY_END_BOUND_CONTRACT
+        else:
+            raise ValueError("artifact attestation state is unsupported")
+    except (OSError, json.JSONDecodeError, ValueError, TypeError):
+        return None, "invalid"
+    return (
+        _RunnerRuntimeArtifactManifest(
+            manifest_version=manifest_version,
+            artifact_set_version=artifact_set_version,
+            attestation_state=attestation_state,
+            outbound_end_bound_contract=contract,
+            distributions=distributions,
+        ),
+        None,
+    )
+
+
+(
+    _RUNTIME_ARTIFACT_MANIFEST,
+    _RUNTIME_ARTIFACT_MANIFEST_ERROR,
+) = _load_static_runtime_artifact_manifest()
+
+
+def _sha256_file(path: Path) -> str:
+    """Hash one installed package file without importing its package."""
+    digest = hashlib.sha256()
+    with path.open("rb") as source:
+        while chunk := source.read(1024 * 1024):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _runtime_artifact_attestation() -> _RuntimeArtifactAttestation:
+    """Verify exact installed artifacts before an OpenBB import can occur.
+
+    The result deliberately contains no installation paths or expected hashes.
+    All validation failures collapse to one public stable code so the runner
+    cannot disclose package layout while still refusing an unreviewed runtime.
+    """
+    manifest = _RUNTIME_ARTIFACT_MANIFEST
+    if manifest is None:
+        return _RuntimeArtifactAttestation(
+            status="unattested",
+            code=_RUNTIME_ARTIFACT_UNATTESTED,
+            manifest_status="invalid",
+            manifest_version=None,
+            artifact_set_version=None,
+            attestation_state=None,
+            distribution_names=(),
+            verified_file_count=0,
+        )
+    distribution_names = tuple(item.distribution for item in manifest.distributions)
+    expected_file_count = sum(len(item.files) for item in manifest.distributions)
+    common = {
+        "manifest_version": manifest.manifest_version,
+        "artifact_set_version": manifest.artifact_set_version,
+        "attestation_state": manifest.attestation_state,
+        "distribution_names": distribution_names,
+    }
+    if manifest.attestation_state == "disabled":
+        return _RuntimeArtifactAttestation(
+            status="unattested",
+            code=_RUNTIME_ARTIFACT_UNATTESTED,
+            manifest_status="valid",
+            verified_file_count=0,
+            **common,
+        )
+    try:
+        for artifact in manifest.distributions:
+            distribution = metadata.distribution(artifact.distribution)
+            if distribution.version != artifact.version:
+                raise ValueError("distribution version differs")
+            owned_relative_paths = {str(item) for item in distribution.files or ()}
+            distribution_root = Path(distribution.locate_file(".")).resolve(strict=True)
+            for file_artifact in artifact.files:
+                if file_artifact.relative_path not in owned_relative_paths:
+                    raise ValueError("distribution does not own artifact file")
+                located_file = Path(distribution.locate_file(file_artifact.relative_path))
+                if located_file.is_symlink() or not located_file.is_file():
+                    raise ValueError("artifact file is not a regular owned file")
+                resolved_file = located_file.resolve(strict=True)
+                try:
+                    resolved_file.relative_to(distribution_root)
+                except ValueError as exc:
+                    raise ValueError("artifact file escapes distribution root") from exc
+                if _sha256_file(resolved_file) != file_artifact.sha256:
+                    raise ValueError("artifact file differs")
+    except Exception:
+        return _RuntimeArtifactAttestation(
+            status="unattested",
+            code=_RUNTIME_ARTIFACT_UNATTESTED,
+            manifest_status="valid",
+            verified_file_count=0,
+            **common,
+        )
+    return _RuntimeArtifactAttestation(
+        status="candidate",
+        code=_RUNTIME_ARTIFACT_UNATTESTED,
+        manifest_status="valid",
+        verified_file_count=expected_file_count,
+        **common,
+    )
 
 
 def _emit(payload: Mapping[str, Any]) -> int:
@@ -270,18 +536,23 @@ def _distribution_versions() -> dict[str, str | None]:
 
 
 def _self_check_payload() -> dict[str, object]:
-    """Return a local, non-secret attestation for the disabled runtime boundary.
+    """Return a local, non-secret attestation for the blocked runtime boundary.
 
-    It intentionally uses distribution metadata and this static empty permit
-    matrix rather than importing ``openbb`` or invoking provider coverage APIs.
-    That keeps a self-check non-network and prevents it from changing runtime
-    state or loading a mutable extension merely to inspect it.
+    It intentionally uses distribution metadata, static artifact data, and
+    the static permit matrix rather than importing ``openbb`` or
+    invoking provider coverage APIs.  That keeps a self-check non-network and
+    prevents it from changing runtime state or loading a mutable extension
+    merely to inspect it.
     """
     configured_provider_names = _configured_provider_names()
     distribution_versions = _distribution_versions()
+    artifact_attestation = _runtime_artifact_attestation()
     dangerous_environment_keys = [
         key for key in _DANGEROUS_OPENBB_ENVIRONMENT_KEYS if os.getenv(key)
     ]
+    outbound_end_bound_attested = _yfinance_outbound_end_bound_is_attested(
+        artifact_attestation=artifact_attestation
+    )
     return {
         "protocol_version": PROTOCOL_VERSION,
         "self_check_version": SELF_CHECK_VERSION,
@@ -292,6 +563,18 @@ def _self_check_payload() -> dict[str, object]:
                 "missing_distributions": [
                     name for name, version in distribution_versions.items() if version is None
                 ],
+                "artifact_attestation": {
+                    "status": artifact_attestation.status,
+                    "code": artifact_attestation.code,
+                    "manifest_status": artifact_attestation.manifest_status,
+                    "manifest_version": artifact_attestation.manifest_version,
+                    "artifact_set_version": artifact_attestation.artifact_set_version,
+                    "attestation_state": artifact_attestation.attestation_state,
+                    "distribution_names": list(artifact_attestation.distribution_names),
+                    "verified_file_count": artifact_attestation.verified_file_count,
+                    "paths_included": False,
+                    "hashes_included": False,
+                },
             },
             "coverage": {
                 "permit_matrix_version": _PERMIT_MATRIX_VERSION,
@@ -314,22 +597,34 @@ def _self_check_payload() -> dict[str, object]:
                 "secret_values_included": False,
             },
             "outbound_end_bound": {
-                "code": _OUTBOUND_END_BOUND_UNATTESTED,
-                "status": "unattested",
+                "code": None if outbound_end_bound_attested else _OUTBOUND_END_BOUND_UNATTESTED,
+                "status": "attested" if outbound_end_bound_attested else "unattested",
             },
         },
     }
 
 
-def _yfinance_outbound_end_bound_is_attested() -> bool:
+def _yfinance_outbound_end_bound_is_attested(
+    *,
+    artifact_attestation: _RuntimeArtifactAttestation | None = None,
+) -> bool:
     """Return whether the actual installed yfinance call has a proved end bound.
 
-    The local OpenBB yfinance helper under review passes ``end=None`` to
-    ``yf.download`` and only filters records after the upstream response.  No
-    setting can override this blocker: a later implementation must add a
-    concrete, tested outbound-call attestation before it returns ``True``.
+    A static candidate proves only the reviewed fork source and its intended
+    inclusive-to-exclusive daily date transformation. It cannot authorize an
+    OpenBB import: this runner has no accepted isolated-image/import-closure
+    state yet. The check is intentionally tied to the caller's same artifact
+    result so a future execution design cannot create a metadata TOCTOU gap.
     """
-    return False
+    if artifact_attestation is None:
+        artifact_attestation = _runtime_artifact_attestation()
+    manifest = _RUNTIME_ARTIFACT_MANIFEST
+    return (
+        artifact_attestation.status == "attested"
+        and manifest is not None
+        and manifest.attestation_state == "attested"
+        and manifest.outbound_end_bound_contract == _YFINANCE_DAILY_END_BOUND_CONTRACT
+    )
 
 
 def _has_active_runtime_route_permit(request: Mapping[str, Any]) -> bool:
@@ -418,15 +713,23 @@ def _request_timestamp(value: object, *, field_name: str) -> datetime:
     return parsed.astimezone(timezone.utc)
 
 
-def _yfinance_historical_arguments(request: Mapping[str, Any]) -> dict[str, object]:
-    """Translate one UTC day-aligned half-open window to yfinance arguments."""
+def _yfinance_historical_window(request: Mapping[str, Any]) -> tuple[datetime, datetime]:
+    """Validate the sole reviewed daily window before loading OpenBB.
+
+    The day-aligned, half-open platform interval must be no longer than ten
+    365-day years.  This is a route boundary rather than a response filter, so
+    it remains enforced even while the artifact, outbound-bound, or permit
+    gates are disabled.
+    """
     frequency = request.get("frequency")
-    if frequency not in _YFINANCE_INTERVAL_BY_FREQUENCY:
+    if frequency != "1d":
         raise ValueError("OPENBB_FREQUENCY_UNSUPPORTED")
     start_at = _request_timestamp(request.get("start_at"), field_name="start_at")
     end_at = _request_timestamp(request.get("end_at"), field_name="end_at")
     if start_at >= end_at:
         raise ValueError("OPENBB_WINDOW_INVALID")
+    if end_at - start_at > timedelta(days=_MAX_YFINANCE_DAILY_WINDOW_DAYS):
+        raise ValueError("OPENBB_WINDOW_TOO_LARGE")
     if any(
         value != 0
         for value in (
@@ -441,11 +744,20 @@ def _yfinance_historical_arguments(request: Mapping[str, Any]) -> dict[str, obje
         )
     ):
         raise ValueError("OPENBB_WINDOW_ALIGNMENT_UNSUPPORTED")
+    return start_at, end_at
+
+
+def _yfinance_historical_arguments(request: Mapping[str, Any]) -> dict[str, object]:
+    """Translate one UTC day-aligned half-open window to yfinance arguments."""
+    start_at, end_at = _yfinance_historical_window(request)
+    provider_symbol = request.get("provider_symbol")
+    if not isinstance(provider_symbol, str) or not provider_symbol.strip():
+        raise ValueError("OPENBB_SYMBOL_INVALID")
     return {
-        "symbol": request["provider_symbol"],
+        "symbol": provider_symbol,
         "start_date": start_at.date().isoformat(),
         "end_date": (end_at - timedelta(microseconds=1)).date().isoformat(),
-        "interval": _YFINANCE_INTERVAL_BY_FREQUENCY[frequency],
+        "interval": _YFINANCE_INTERVAL_BY_FREQUENCY["1d"],
         "provider": request["provider"],
     }
 
@@ -533,7 +845,27 @@ def main() -> int:
             "OPENBB_SEMANTICS_UNSUPPORTED",
             "runner only supports undeclared provider-native price semantics",
         )
-    if not _yfinance_outbound_end_bound_is_attested():
+    try:
+        _yfinance_historical_window(request)
+    except ValueError as exc:
+        code = str(exc)
+        if code.startswith("OPENBB_"):
+            return _error(request_id, code, "request cannot be represented by this provider")
+        return _error(request_id, "OPENBB_RUNNER_INVALID_REQUEST", "invalid provider request")
+    artifact_attestation = _runtime_artifact_attestation()
+    if artifact_attestation.status != "attested":
+        # A source checkout, package version, or package file that differs
+        # from the static reviewed artifact set must fail before OpenBB can
+        # import its extension graph.  The public response stays bounded and
+        # never serializes local paths or expected hashes.
+        return _error(
+            request_id,
+            _RUNTIME_ARTIFACT_UNATTESTED,
+            "the OpenBB yfinance runtime artifact is not attested",
+        )
+    if not _yfinance_outbound_end_bound_is_attested(
+        artifact_attestation=artifact_attestation
+    ):
         # This must remain before the OpenBB import. The installed helper's
         # post-fetch filtering cannot prove that yfinance received the parent
         # request's exclusive end bound, so importing it for a live request is
@@ -552,8 +884,8 @@ def main() -> int:
 
     try:
         from openbb import obb  # type: ignore[import-not-found]
-    except ImportError as exc:
-        return _error(request_id, "OPENBB_RUNNER_UNAVAILABLE", str(exc))
+    except ImportError:
+        return _error(request_id, "OPENBB_RUNNER_UNAVAILABLE", "OpenBB import is unavailable")
 
     try:
         if provider != "yfinance":
@@ -583,7 +915,7 @@ def main() -> int:
             return _error(request_id, code, "request cannot be represented by this provider")
         return _error(request_id, "OPENBB_RUNNER_INVALID_REQUEST", "invalid provider request")
     except Exception as exc:  # Runner boundary: serialise provider exceptions, never trace to web.
-        return _error(request_id, _provider_error_code(exc), str(exc))
+        return _error(request_id, _provider_error_code(exc), "provider request failed")
 
     source_revision = f"openbb-raw-sha256:{raw_payload_sha256}"
     return _emit(

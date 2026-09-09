@@ -44,7 +44,7 @@
 
 `canonical_id` 与三元组字段是协议标识符，不采用数据库默认的人类语言排序。权威 `asset_instruments.canonical_id` 与规范化投影/lookup 的身份字段在 SQLite 使用 `BINARY`、MySQL 使用 `utf8mb4_bin`、PostgreSQL 使用 `C` 排序规则；遗留 bridge 在查询 lookup key 后仍逐字符复核 lookup 行和已发布冻结 identity 的 asset type/symbol，因而未迁移或损坏的大小写不敏感库也必须失败关闭。MySQL/PostgreSQL 启用 v2 前必须完成 `20260909_market_data_exact_identity_collation` 及当前独立链 successor `20260909_market_data_constraint_name_portability`，并完成真实方言回归，不能仅以 SQLite 通过作为排序规则证据。
 
-请求指定：逻辑数据集、数据种类、半开时间区间 `[start, end)`、字段集、频率、复权/价格口径、币种、单位、来源策略、一致性级别、用途、知识截止点和模式。频率只能是明确的 `5min`、`30min`、`1h`、`1d`、`1w`、`1mo`。
+请求指定：逻辑数据集、数据种类、半开时间区间 `[start, end)`、字段集、频率、复权/价格口径、币种、单位、来源策略、一致性级别、用途、知识截止点和模式。公共 DTO 频率只能是明确的 `5min`、`30min`、`1h`、`1d`、`1w`、`1mo`。这只描述通用合同可表达的频率，不构成 OpenBB 授权：当前 OpenBB yfinance 构件候选只允许 `1d`，并要求整个 `[start,end)` 按 UTC 日边界对齐且不超过 3650 天；`1w`、`1mo`、分钟或任何非日对齐窗口都不得借该候选进入 runner。
 
 所有公共 v2 请求都必须携带服务端签发、版本匹配且状态为 `ready` 的 `family_id` / `family_contract_version`，包括 `bars`。公共 HTTP DTO 将二者设为必填，缺失字段会在目录、主数据、日历、事实或 provider I/O 前以 FastAPI/Pydantic 的 HTTP 422 拒绝；仅内部编排 DTO 可暂存未绑定请求，若它被送入默认 resolver，仍返回稳定码 `DATA_FAMILY_BINDING_REQUIRED`。调用方显式给出 family 时，`query-contract` 只为该精确 family 签发 binding；遗留页面的无 family 输入形状则只能推导精确的 `<asset_type>.realtime`，绝不签发通用 `bars` 模板。若所请求 family 尚未配置，返回 `DATA_FAMILY_UNCONFIGURED`。遗留 lookup 兼容桥只有在响应同时给出精确请求 `symbol`、同一 contract canonical ID 和一致 family binding 时才可发起 v2 查询；三者任何一项缺失或逐字符不等（含大小写）都必须失败关闭。页面即使关闭 bundle 子开关也要请求并校验此 binding。
 
@@ -119,9 +119,24 @@ AI 研究链路只能把服务端签发的 `market_data_asset_type` 当作客户
 作为运维人员，我可以为逻辑数据集配置批准的来源策略和数据提供方。首批适配器为：
 
 - **AkShare**：独立、显式的函数路由表；调用在线函数使用线程隔离；不得调用遗留样例回退服务。
-- **OpenBB**：独立 JSON 子进程协议；Web 进程不导入 OpenBB 扩展；请求 ID、协议版本、超时、输出大小、返回时间窗、去重、有界预规范化原始 records 封套与 SHA-256 全部校验。父进程只传递最小环境变量白名单，并把运行目录设为 `OPENBB_RUNNER_WORKDIR`（未配置时为系统临时目录）；这不是文件系统或身份隔离的证明。生产运行器必须由独立 service account 或容器托管，且不能读取应用工作树、主应用数据库凭据或其他应用密钥。
+- **OpenBB**：独立 JSON 子进程协议；Web 进程不导入 OpenBB 扩展；请求 ID、协议版本、超时、输出大小、返回时间窗、去重、有界预规范化原始 records 封套与 SHA-256 全部校验。父进程只传递最小环境变量白名单，并要求运维显式提供独立、绝对且已存在的 `OPENBB_RUNNER_HOME` 与 `OPENBB_RUNNER_WORKDIR`；任一变量缺失、非法、指向主进程工作目录、继承主进程 HOME 或落入系统临时根目录时稳定拒绝，不存在临时目录回退。这只能收窄继承环境，不能证明文件系统或身份隔离。生产运行器必须由独立 service account 或容器托管，且不能读取应用工作树、主应用数据库凭据或其他应用密钥。
 
 所有七种资产类型在 AkShare 路由表中显式声明。股票、期货、债券、基金和外汇具有已审核的有界历史路由；期权只允许 CFFEX 的 `IO`、`HO`、`MO` 精确合约日线，绝不做主力、期权链或附近合约回退；加密资产在 AkShare 中明确不可用。没有安全、精确、受限时间窗实现的组合必须返回不支持，不能伪装为已有数据。OpenBB 只可补充其明确批准的资产/市场组合，最终可用性仍由本地扩展、来源许可和运行器配置决定。
+
+当前 OpenBB 没有活动 source-policy route、permit 或在线开关。fork `24d06a7657ab9e19d07b5ba4f801394a440287a1` 产出的 `openbb-yfinance 1.6.3.post1` 仅作为构件候选：它在 daily route 同时具有开始日和 OpenBB 包含式结束日时，把该结束日加一天作为传给 yfinance 的排他 `end`，并固定 `period=None`。候选只允许 UTC 日对齐、最长 3650 天的 `1d` 半开窗口；静态构件清单只能固定预期发行版、版本和包内文件哈希，不能生成 route、permit、数据许可或真实网络证据。清单的 `candidate` 状态不是可编辑为启用状态的数据开关：即使全部包文件匹配，正常请求也必须在动态 OpenBB 扩展导入前保持拒绝，直到隔离导入闭包、不可变镜像、AGPL-3.0-only 许可证审查和最小出网策略都完成，并由新的执行认证代码与独立验收共同接受。
+
+
+### FR-05B CFFEX 日结批采集候选
+
+`futures.settlement` 继续是公开 v2 API 的 `unconfigured` family，不能因存在采集器而由页面、`local_first`、`refresh`、普通 shell 命令或任意 source policy 触发。`scripts/collect_iteration197_cffex_settlement.py` 不带参数时只能输出 `NOT_RUN`，`--live` 也只能输出 `BLOCKED`；未来经批准的调度器必须直接调用内部 `CffexSettlementCollector`，并在调用前提供同一交易日的精确 CFFEX 合约映射及冻结的 `MarketDataSourceAuthorization`。
+
+候选只接受 `futures.settlement + market.settlement + reference_series + 1d`、字段集恰为 `settle`、`previous_settle`、`open_interest` 的 CFFEX 合约日窗，且语义必须精确为 `unadjusted + settle + CNY + contract + market-cffex-settlement-batch-v1`。每个 target 的 asset、venue、family、半开 UTC 日窗和 source authorization 的 asset、market、`ALLOW` 决定及 `purpose` 必须在任何 provider I/O 前一致；活动 provider 以及当前 registry/descriptor 也必须在调用前复核，并在网络返回后写入 receipt 前再次复核。原始回执的顶层字段只能为固定 CFFEX collector request、精确 source route、`cffex-settlement-transport-evidence-v1` 和全量 response rows。source route 必须含 `endpoint`、无 query/credentials/path 的 HTTPS `origin` 与日期参数；transport evidence 必须只含其版本、`https` scheme、相同 origin、`tls_verified=true`、certificate policy 和小写 SHA-256 peer certificate digest，任何缺失、额外或不一致字段都在事实写入前拒绝。该结构仅保留 adapter 的可审计声明，不能替代对 HTTPS/certificate adapter、证书链和出网策略的独立验收。无 `MARKET` 列的 `symbol,date,settle,pre_settle,open_interest` 行只能由该冻结 CFFEX request/route 证明，若行显式给出市场则必须精确为 CFFEX。
+
+当前环境的 AkShare `futures_hist_daily_cffex` 实现使用明文 HTTP。`AkShareCffexSettlementSource` 因此必须在导入 AkShare、解析 endpoint 或发起网络调用前以 `CFFEX_SETTLEMENT_SOURCE_TRANSPORT_UNAPPROVED` 拒绝；不得以 config、普通 shell 或 source policy 绕过。未来启用必须新增经审计的 HTTPS/证书验证 adapter 或隔离 runner，并把 transport evidence 写入 receipt；在此之前没有可调用的 CFFEX 在线 source。
+
+当前 reviewed CFFEX source registry 显式为空。collector 只按静态 registry 的 descriptor ID 构造 source，调用方不能注入 source 实例或自建 descriptor；未来独立变更必须在同一审核变更中登记 factory 和 descriptor，逐项固定 provider ID、source revision、endpoint、canonical HTTPS origin、`pinned-peer-certificate-sha256-v1` policy 与小写 pinned peer-certificate digest。descriptor 的 canonical SHA-256 必须进入 feed lease 与每条 receipt，任何未登记 ID、provider/revision/endpoint/origin/policy/digest 不一致都在 provider I/O 或 Store 写入前拒绝。`response_rows` 及其任意嵌套 mapping/list 不得包含 authorization、token、secret、password、credential、cookie、access/API/private key、bearer 或 headers 等 credential-shaped key；检测到即以稳定码拒绝，既不写 Store，也不得在异常、日志或 receipt 回显 key/value。
+
+采集器在写入任何事实前验证整份批次：日期、合约格式、重复行、三个必要指标及所有已冻结 target 均不可缺失。未知但结构正确的 CFFEX 合约只能留在原始批次封套和 quarantine 列表，不能写入 canonical series。当前 `MarketDataStore.persist_provider_result` 一次只持久化和发布一个 series；因此全量输入验证并不提供跨合约原子发布。普通后续 target 持久化失败时，采集器必须抛出 `CFFEX_SETTLEMENT_BATCH_PARTIALLY_PUBLISHED` 并携带已返回的已发布 prefix。若所有 target 已 durable 但最终 feed lease 无法释放，collector 不得返回成功报告，必须以 `CFFEX_SETTLEMENT_FETCH_LEASE_RELEASE_FAILED` 和精确 durable prefix 拒绝，以便 scheduler 对账。若 cancellation 命中正在执行的 Store 持久化或 feed-lease release task，collector 必须先等待该同一 task 完成；任一 task 已持久化/释放但尚未将结果交给 collector 时，都必须以 `CFFEX_SETTLEMENT_BATCH_PARTIALLY_PUBLISHED_CANCELLED` 的 `CancelledError` 子类报告其精确返回 prefix；即使 release task 自身失败，也不得隐去已 durable 的 prefix。若 Store task 自身失败，保持原始 cancellation，不得伪造 prefix。未来 scheduler 仍须以独立可恢复账本处理进程崩溃、未知 Store 结果和跨进程恢复。真实来源、许可、日历、调度身份、生产数据库和恢复演练完成前，该候选保持 `NOT_RUN` / `NO-GO`。
 
 ### FR-05A 当前读取授权与许可证快照
 
@@ -152,14 +167,15 @@ calendar snapshot 也必须声明其 `source_registry_id`、被冻结的治理 p
 - **可审计性**：每一返回行可回溯到数据系列、来源回执、字段哈希、质量策略和可用时间。
 - **性能**：三元组查询使用物化索引，不扫描整个交易所；直接在线窗口有上限；分页和等待参数不改变数据语义。
 - **时间与数据库**：应用边界使用带时区 UTC；MySQL `DATETIME` 不保存时区，因此候选部署必须对每个应用连接验证 UTC session time zone，并在真实 MySQL/PostgreSQL 上完成跨连接的 PIT 写入/读取演练。SQLite 或离线 DDL 不能替代该证据。
-- **安全性**：不在源码中写入密钥；OpenBB 运行器命令由运维环境配置；无 shell 拼接执行；原始数据输出受大小限制。环境白名单和受控 `cwd` 不是容器/用户边界，必须由部署账户、容器镜像、挂载与密钥策略共同保证。
-- **合规性**：OpenBB、AkShare 和上游提供方的代码许可、访问条款、再分发和商用数据许可必须由来源策略登记；技术接入不自动授予数据使用权。
+- **安全性**：不在源码中写入密钥；OpenBB 运行器命令由运维环境配置；无 shell 拼接执行；原始数据输出受大小限制。环境白名单和受控 `cwd` 不是容器/用户边界，必须由部署账户、不可变镜像、挂载、动态扩展导入闭包、最小出网策略与密钥策略共同保证。候选构件的静态哈希验证不是这些运行时边界的替代品。
+- **合规性**：OpenBB、AkShare 和上游提供方的代码许可、访问条款、再分发和商用数据许可必须由来源策略登记；技术接入不自动授予数据使用权。该 OpenBB fork 与拟封装的 `openbb-yfinance 1.6.3.post1` 按 AGPL-3.0-only 处理；在完成对镜像分发、服务部署、源代码提供义务、动态扩展闭包及与本项目组合方式的书面许可证审查前，OpenBB 在线路由为 `NO-GO`。
 
 ## 5. 非目标
 
 - 本迭代不替换所有旧 AkShare 数据治理/调度功能。
 - 不自动从模糊用户输入创建 canonical identity。
 - 不把 OpenBB 或其扩展安装进 FastAPI 运行环境。
+- 不因存在 fork `24d06a7657ab9e19d07b5ba4f801394a440287a1`、静态构件清单或离线 mock 测试而安装 `openbb-yfinance 1.6.3.post1`、创建 permit/route 或开启任何 OpenBB/yfinance 网络访问。
 - 不把同进程 singleflight 或候选数据库 lease 回归误写成生产级分布式去重；后者仍需要真实多 worker、多方言、时钟与故障接管验收。
 - 不因迭代 196 已冻结而自动开启策略研究、回测的生产数据契约；研究绑定和页面灰度仍须通过独立的本地、迁移、提供方和浏览器验收。
 - 不将实时经纪商 tick 流与历史规范化观测表混为同一种数据源。

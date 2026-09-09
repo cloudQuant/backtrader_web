@@ -78,7 +78,10 @@ build-backend = "setuptools.build_meta"
 include = ["app*"]
 
 [tool.setuptools.package-data]
-"app.services.market_data" = ["openbb_runtime_permit_manifest.json"]
+"app.services.market_data" = [
+    "openbb_runtime_permit_manifest.json",
+    "openbb_yfinance_runtime_artifact_manifest.json",
+]
 
 [tool.ruff]
 line-length = 100

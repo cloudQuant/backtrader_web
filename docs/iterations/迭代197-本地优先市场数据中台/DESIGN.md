@@ -1,6 +1,6 @@
 # 迭代 197 设计文档
 
-> 实现快照：本文记录已接入迭代 196 冻结基线的 197 集成候选源码契约；它不把离线替身或局部测试解释为发布验收。真实 OpenBB 网络、MySQL/PostgreSQL、跨进程写入、真实 provider 数据和页面灰度仍以验收文档中的 `NOT_RUN` / `BLOCKED` 为准。
+> 实现快照：本文记录已接入迭代 196 冻结基线的 197 集成候选源码契约；它不把离线替身、fork 构件候选或局部测试解释为发布验收。OpenBB yfinance fork `24d06a7657ab9e19d07b5ba4f801394a440287a1` / `openbb-yfinance 1.6.3.post1` 仅定义待封装的 daily end-bound 修正，未形成运行许可、镜像或网络证据。真实 OpenBB 网络、MySQL/PostgreSQL、跨进程写入、真实 provider 数据和页面灰度仍以验收文档中的 `NOT_RUN` / `BLOCKED` 为准。
 
 ## 1. 架构概览
 
@@ -191,17 +191,35 @@ lease key 对 canonical identity、dataset、metadata version、asset/market、�
 
 `AkShareMarketDataProvider` 使用显式 `AkShareRoute` 注册表，调用阻塞 SDK 时用 `asyncio.to_thread`。注册表显式列出当前七种资产类型：股票、期货、债券、基金和外汇具有已审核的有界 `bars` 路由；期权只允许 CFFEX `IO`、`HO`、`MO` 的精确合约日线端点，不做主力、期权链或附近合约回退；加密资产明确标为不支持。默认 source policy 还会再次限制可用市场、频率、复权、价格口径、币种和单位。它不调用任何旧市场查询服务。
 
+
+### 5.1.1 CFFEX 日结内部批采集候选
+
+`CffexSettlementCollector` 不注册到 `AkShareMarketDataProvider`、source-policy route 或公开 `futures.settlement` 查询链。它仅供未来经审核的 scheduler 以已解析的 `CffexSettlementCollectionTarget` 调用；默认 CLI 不导入 AkShare、不打开数据库、不发起网络请求，`--live` 也不具备调度参数时只返回 `CFFEX_SETTLEMENT_LIVE_SCHEDULER_WIRING_REQUIRED`。
+
+每次采集固定一个 UTC 交易日和一组精确 CFFEX futures contracts。`_prepare_collection` 在外部 I/O 前逐项校验 family/dataset/kind/frequency/字段/日窗、`unadjusted/settle/CNY/contract`、`market-cffex-settlement-batch-v1`、CFFEX venue、来源 provider、`ALLOW` 决定及 query-purpose 一致性；随后 `MarketDataStore` 以当前 registry/descriptor 再次预检每个冻结授权，才取得以交易日、完整冻结 target map 和授权 descriptor 派生的 feed lease。receipt 持久化前会再次验证当前 authorization，覆盖外部 I/O 期间的授权变化。批次在解析 rows 前将 raw envelope 限为四个字段：collector request、route、版本化 transport evidence 和 rows。route 的 `origin` 与 evidence `origin` 必须是同一个无 query/credentials/path 的 HTTPS origin；evidence 只记录版本、scheme、origin、TLS verified boolean、certificate policy 与小写 SHA-256 peer-certificate digest，且不接受 headers、token、PEM 或其他字段。当前 AkShare `futures_hist_daily_cffex` 的明文 HTTP transport 不满足来源认证要求，因此 `AkShareCffexSettlementSource` 在 import/endpoint/network 前硬拒绝。未来 HTTPS/certificate-reviewed source 才能将这些受限证据、collector request、source route 和原始全市场 rows 一起封入 receipt；该 shape 验证不能替代对 adapter、证书链与 egress 的独立验收。不使用大盘宽查询、相近市场、临近日期或遗留表回退。
+
+source 不是 collector 构造参数。当前静态 reviewed-source registry 为空，任何 descriptor ID 都在 factory 构造和 provider I/O 前拒绝。未来启用只可在独立审核变更中登记一个 construction-only factory 与 descriptor；descriptor 固定 provider、revision、endpoint、origin、`pinned-peer-certificate-sha256-v1` 和 pin digest，batch 的自报 evidence 只能逐项与该已解析 descriptor 比较，不能决定批准 origin 或证书。descriptor canonical digest 同时加入 feed lease 和 collector receipt，避免不同传输计划共享工作。对 JSON-safe envelope 的递归扫描先于 rows 解析和 Store 调用，拒绝任意嵌套 credential-shaped key，包括 authorization/token/secret/password/credential/cookie/access/API/private key/bearer/headers；稳定错误不回显 key 或 value。
+
+若所有 Store 持久化已成功但最终 feed-lease release 返回失败，collector 不返回成功报告，而以 `CFFEX_SETTLEMENT_FETCH_LEASE_RELEASE_FAILED` 和完整 durable prefix 交给 scheduler 对账。取消边界覆盖每个 Store 持久化 task 以及最终 feed-lease release task。任一 task 已经持久化/释放但尚未把返回值交给 collector 时，外层取消会 shield 并等待该同一 task 完成；若已有 durable prefix，则以 `CffexSettlementCollectorPartialPublishCancelledError`（仍属于 `CancelledError`）返回精确 prefix。它仍不提供进程崩溃、未能创建 child task、未知数据库结果或跨进程自动恢复保证，未来 scheduler 必须以 collection journal 对账。
+
+收到批次后，collector 先对全部 rows 做 JSON 大小/深度限制、精确日期、可选市场字段、CFFEX contract 代码、去重和 `settle`、`pre_settle → previous_settle`、`open_interest` 规范化校验。任何已冻结 target 缺失、已知行无效、显式非 CFFEX 市场或重复行都会在事实写入前失败。未知但有效的 symbol 只进入 raw envelope 与 quarantine report。每个已知 contract 的 `ProviderFetchResult` 都带相同 source batch digest、source retrieval instant 和 feed lease，且只投影该合约的三个审核字段。
+
+存储层当前以每个 canonical series 的“事实事务 A + publication 事务 B”独立提交。因此 source-batch 验证完成后，仍可能在第 N 个 series 发布后第 N+1 个失败。collector 只在所有 target 发布后返回 `CffexSettlementCollectionReport`；普通异常时若已有 prefix，则抛出 `CffexSettlementCollectorPartialPublishError(code=CFFEX_SETTLEMENT_BATCH_PARTIALLY_PUBLISHED)`。每个 Store 调用运行于 shielded child task：cancellation 到来后先等待同一 task 返回，成功时以 `CffexSettlementCollectorPartialPublishCancelledError`（仍是 `CancelledError`）携带精确返回 prefix；Store task 自身失败则保留原取消而不宣称 prefix。它不声称跨合约原子性、进程崩溃恢复、自动补偿、自动重放或已完成生产 scheduler；未来 scheduler 必须新增可审计 collection journal 后才可恢复未知中断。
+
 ### 5.2 OpenBB
 
 `OpenBBSubprocessProvider` 只执行运维配置的命令，不通过 shell 拼接。协议包含版本、关联请求 ID 和完整请求 DTO；运行器必须回显它们。Web 进程对超时、非零退出、超大输出、无效 JSON、错配 ID、重复/越界事件全部拒绝。
 
-父进程创建子进程时只转交运行所需的基础环境变量、`OPENBB_ALLOWED_PROVIDERS` 和可选 `HOME=OPENBB_RUNNER_HOME`；不会把数据库 URL、JWT/session 密钥、代理凭据、Python import path 或主应用 `HOME` 直接传给 runner。子进程 `cwd` 使用绝对且存在的 `OPENBB_RUNNER_WORKDIR`，未配置时退到系统临时目录，配置非法时失败为 `OPENBB_RUNNER_WORKDIR_INVALID`。这只能避免继承当前工作树与大量环境变量，不能阻止同一操作系统账户读取可访问的文件。
+父进程创建子进程时只转交运行所需的基础环境变量和 `OPENBB_ALLOWED_PROVIDERS`；不会把数据库 URL、JWT/session 密钥、代理凭据、Python import path 或主应用 `HOME` 直接传给 runner。运维必须显式提供独立、绝对且已存在的 `OPENBB_RUNNER_HOME` 和 `OPENBB_RUNNER_WORKDIR`：前者被设为 runner 的 `HOME`，后者被设为子进程 `cwd`。任一变量缺失、非法、指向主进程工作目录、继承的主进程 HOME 或系统临时根目录时分别以 `OPENBB_RUNNER_HOME_INVALID` 或 `OPENBB_RUNNER_WORKDIR_INVALID` 拒绝；不存在临时目录或当前工作树回退。这只能避免继承当前工作树与大量环境变量，不能阻止同一操作系统账户读取可访问的文件。
 
-`scripts/openbb_market_data_runner.py` 在 runner 环境中运行隔离 JSON 协议。它保留有大小上限的预规范化原始 records 封套（`format=openbb-records-pre-normalization-v1`）和其 SHA-256；父进程使用稳定 JSON 重新计算哈希，任何缺失、非映射载荷或哈希不一致的响应均拒绝，不进入 `md_source_snapshots`。但当前静态 OpenBB runtime permit matrix **显式为空**：`MARKET_DATA_OPENBB_ALLOWED_MARKETS` 只能收窄未来逐轴审核的 permit，不能由非空值生成 asset、market、endpoint 或 provider fallback，也不会注册 OpenBB provider。未来 permit 的 `route_id`、`family_id`、provider、asset、market、kind、frequency、四个语义轴和 `endpoint` 必须同时投影到 server-owned route、回显 provider DTO 和 runner mirror permit；runner 逐项核验后只按 `(asset_type, endpoint)` 的静态映射分发，不能仅凭 `route_id` 或 asset type 选择端点。runner 只接受恰为 `yfinance` 的 `OPENBB_ALLOWED_PROVIDERS`，扩展、重复或未知 token 一律失败关闭。首批 runner 不做复权、币种、单位或价格口径转换，因而任何声明转换要求都会失败关闭。
+`scripts/openbb_market_data_runner.py` 是 runner JSON 协议的源码参考，当前 backend wheel 不交付该脚本为可执行 runner；它也不能放在主应用 checkout 内运行。未来必须由独立、不可变的 OCI image 或 runner package 一并交付脚本与两份 manifest，并以 image/package digest、绝对可执行文件和应用 checkout 外的 HOME/workdir 证明其身份，缺少这份交付合同时不得配置 `OPENBB_MARKET_DATA_RUNNER`。该脚本在独立 runner 环境中保留有大小上限的预规范化原始 records 封套（`format=openbb-records-pre-normalization-v1`）和其 SHA-256；父进程使用稳定 JSON 重新计算哈希，任何缺失、非映射载荷或哈希不一致的响应均拒绝，不进入 `md_source_snapshots`。静态 OpenBB runtime permit matrix **仍显式为空**：`MARKET_DATA_OPENBB_ALLOWED_MARKETS` 只能收窄未来逐轴审核的 permit，不能由非空值生成 asset、market、endpoint 或 provider fallback，也不会注册 OpenBB provider。构件清单与 permit matrix 是两个不同的控制面：前者只固定拟封装的发行版、版本和包内文件哈希，后者才可声明可运行的 route。当前构件候选来源为 fork `24d06a7657ab9e19d07b5ba4f801394a440287a1`，目标发行版为 `openbb-yfinance 1.6.3.post1`；它不是主应用环境中的已安装扩展，也不构成 provider、license 或 egress 的批准。`candidate` 不是可由数据文件升格的运行状态：未来隔离镜像/导入闭包设计必须以独立代码引入新的执行认证状态。未来 permit 的 `route_id`、`family_id`、provider、asset、market、kind、frequency、四个语义轴和 `endpoint` 必须同时投影到 server-owned route、回显 provider DTO 和 runner mirror permit；runner 逐项核验后只按 `(asset_type, endpoint)` 的静态映射分发，不能仅凭 `route_id` 或 asset type 选择端点。runner 只接受恰为 `yfinance` 的 `OPENBB_ALLOWED_PROVIDERS`，扩展、重复或未知 token 一律失败关闭。首批 runner 不做复权、币种、单位或价格口径转换，因而任何声明转换要求都会失败关闭。
 
-当前 yfinance 调用同样保持禁用。虽然离线转换逻辑把 `1d`、`1w`、`1mo` 显式映射为 `1d`、`1W`、`1M`，并以 `end - 1 microsecond` 计算目标 date，审核到的本地 OpenBB yfinance helper 实际向 `yf.download` 传入 `end=None`，只在上游响应后裁剪。它不能证明父请求的 `[start,end)` 已传到出站调用。因此任一正常 yfinance 请求都在导入或调用 OpenBB 前以 `OPENBB_YFINANCE_OUTBOUND_END_BOUND_UNATTESTED` 拒绝。`--self-check` 只读取包元数据与静态空矩阵，输出协议/自检版本、安装版本摘要、空 coverage、provider 配置摘要和该阻断码；它不导入 OpenBB、不访问网络，也不输出环境变量值或密钥。只有实现真实出站 end-bound 的可审计证据、精确 permit、许可/配置审计和独立验收都齐备后，才可在独立改动中取消该阻断。OpenBB `OBBject.to_df(index=None)` 与记录规范化逻辑仍是离线协议代码，不能作为网络可用性证据。
+该 fork 的修正范围严格限于 yfinance 的 daily historical route：同时存在开始日和 OpenBB **包含式** `end_date` 时，helper 以 `period=None` 调用 yfinance，并把 `end_date + 1 UTC calendar day` 作为 yfinance **排他** `end`。运行器输入只接受 `1d`，且 `[start,end)` 必须以 UTC 零点日边界对齐、时长不超过 3650 天；它由最后一个窗口内 UTC 日期得到 OpenBB 的包含式 `end_date`，最终仍将 records 裁剪回父半开窗口。`1w`、`1mo`、分钟频率、非 UTC 日对齐窗口和超长窗口均在导入扩展前拒绝。该转换的 fork 单元测试只证明离线调用参数；它不证明任一 yfinance 网络请求已执行或上游返回的数据可用。
 
-生产部署仍必须把 runner 放在独立的 service account 或容器中：运行账户不可读主应用数据库凭据，不挂载项目工作树、应用 `.env`、数据库 socket/volume 或其它应用密钥，并保留运行镜像、扩展版本、允许 provider 和挂载清单。现有环境白名单、受控 `cwd` 与临时 runner 测试不构成这项操作系统级隔离的 `PASS`；它是独立的 `NOT_RUN` 部署验收项。实际扩展可用性、上游账号和许可也不能由单元测试假定。
+即使静态构件清单与 fork 测试匹配，当前正常 OpenBB 请求仍必须在**动态 OpenBB 扩展导入前**拒绝：matrix 中没有 permit/route，且清单仍处于不可执行的 `candidate` 状态，尚未完成完整隔离导入闭包、不可变运行镜像、AGPL-3.0-only 许可证审查和最小出网审计。候选、未封装或与清单不匹配的环境都应稳定返回 `OPENBB_YFINANCE_RUNTIME_ARTIFACT_UNATTESTED`，但不得把该机器码或静态自检解释为“已安装、可导入或可联网”。`--self-check` 只读取静态清单和包元数据，输出协议/自检版本、构件候选状态、空 permit coverage 和非敏感配置摘要；它不导入 OpenBB、不访问网络，也不输出环境变量值、绝对包路径、文件哈希或密钥。OpenBB `OBBject.to_df(index=None)` 与记录规范化逻辑仍是离线协议代码，不能作为网络可用性证据。
+
+生产部署还必须把 runner 放在独立的 service account 或容器中：运行账户不可读主应用数据库凭据，不挂载项目工作树、应用 `.env`、数据库 socket/volume 或其它应用密钥，并保留不可变镜像 digest、动态扩展及传递依赖导入闭包、允许 provider、挂载和出网目的地清单。该 fork 与拟封装的 `openbb-yfinance 1.6.3.post1` 按 AGPL-3.0-only 处理；镜像/服务分发、源代码提供义务、扩展闭包和本项目组合方式均须经书面审查。现有环境白名单、受控 `cwd`、静态哈希和临时 runner 测试均不构成这些操作系统、许可证或网络边界的 `PASS`；在全部审计完成前，OpenBB 在线 route 保持 `NO-GO`。
+
 
 ## 6. API 与页面迁移
 
@@ -243,10 +261,10 @@ lease key 对 canonical identity、dataset、metadata version、asset/market、�
 4. 对审核过的主数据 manifest 运行 `import_market_data_master_data.py` 的 dry-run 和 `--apply`，再对既有权威身份使用 `backfill_market_data_lookup_keys.py` 的受限批次 dry-run/`--apply`。导入器不创建猜测 identity。
 5. 按每个已启用 `(market, data_kind, frequency)` 导入版本化日历 manifest。日线、周线、月线和任何分钟频率都要分别提供完整显式网格；只导入市场交易日而没有相应频率 grid 时不得启用该请求组合。
 6. 保持 `MARKET_DATA_QUERY_V2_ENABLED=false` 与 `MARKET_DATA_ONLINE_FETCH_ENABLED=false`，先以 `local_only` 验证身份、网格、PIT 和来源链。完成受控小窗口的真实来源演练后，才对少量 identity 打开 `local_first`。
-7. OpenBB 路由还需要独立的运行器 service account/container、批准的 provider/市场白名单、版本/许可清单和原始载荷 hash 演练。196 的全部整合闸门解除后，才按页面灰度顺序迁移 `/data/market`，再迁移 `/investment/strategies`。
+7. OpenBB 路由还需要独立的运行器 service account/container、不可变镜像及完整动态扩展导入闭包、AGPL-3.0-only 许可证书面审查、最小出网目的地/限流审计、批准的 provider/市场白名单和原始载荷 hash 演练。fork `24d06a7657ab9e19d07b5ba4f801394a440287a1` / `openbb-yfinance 1.6.3.post1` 只可作为 `1d`、UTC 日对齐、最长 3650 天 daily end-bound 的待审构件候选；它不允许创建 permit 或发起网络调用。196 的全部整合闸门解除后，才按页面灰度顺序迁移 `/data/market`，再迁移 `/investment/strategies`。
 
 降级不能在已有不可变证据的数据库上静默删除表。迁移会阻止有数据的降级，要求先导出或明确治理处置。
 
 ## 8. 可观测性
 
-必须记录但不暴露敏感值的指标包括：本地命中率、按 `(market, data_kind, frequency)` 分组的日历未知率和 `CALENDAR_GRID_UNAVAILABLE`、每提供方请求/失败/延迟、写入行数、质量拒绝原因、因字段集选择旧但完整修订的数量、索引回填进度、来源策略或用途拒绝、provider 活动预检拒绝、receipt/request 错配、冻结游标读取、singleflight leader/follower 数量、fetch-lease acquire owner/follower/conflict、expiry takeover、fence lost、release lost 与数据库 UTC clock 失败，以及 OpenBB 协议、原始载荷 hash 和受控工作目录失败。数据质量告警以稳定机器码聚合，而不是解析异常文本。
+必须记录但不暴露敏感值的指标包括：本地命中率、按 `(market, data_kind, frequency)` 分组的日历未知率和 `CALENDAR_GRID_UNAVAILABLE`、每提供方请求/失败/延迟、写入行数、质量拒绝原因、因字段集选择旧但完整修订的数量、索引回填进度、来源策略或用途拒绝、provider 活动预检拒绝、receipt/request 错配、冻结游标读取、singleflight leader/follower 数量、fetch-lease acquire owner/follower/conflict、expiry takeover、fence lost、release lost 与数据库 UTC clock 失败，以及 OpenBB 协议、静态构件未认证、空 permit、日对齐/3650 天窗口拒绝、原始载荷 hash 和受控 HOME/工作目录失败。数据质量告警以稳定机器码聚合，而不是解析异常文本。

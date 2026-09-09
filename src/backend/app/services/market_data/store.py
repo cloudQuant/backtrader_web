@@ -980,6 +980,41 @@ class MarketDataStore:
         normalized = _require_text(provider_id, field_name="provider_id", maximum=255)
         await self._require_active_provider(normalized)
 
+    async def ensure_source_authorization_before_provider_io(
+        self,
+        context: ResolvedMarketDataQueryContext,
+        source_authorization: MarketDataSourceAuthorization,
+        *,
+        provider_id: str,
+        checked_at: datetime | None = None,
+    ) -> None:
+        """Revalidate one exact source grant before an external request starts.
+
+        ``persist_provider_result`` repeats this validation after the provider
+        responds, which closes the race between outbound I/O and durable
+        receipt creation.  Scheduled collectors also need this preflight so a
+        revoked, expired, or stale grant cannot trigger a paid/broad source
+        request merely because its provider remains active.
+        """
+        _assert_writable_context(context)
+        normalized_provider_id = _require_text(
+            provider_id,
+            field_name="provider_id",
+            maximum=255,
+        )
+        local_checked_at = _require_aware_utc(
+            checked_at or self._clock(),
+            field_name="source authorization check timestamp",
+        )
+        await self._require_active_provider(normalized_provider_id)
+        await self._validate_source_authorization_for_provider(
+            context,
+            provider_id=normalized_provider_id,
+            source_authorization=source_authorization,
+            local_received_at=local_checked_at,
+            unverified_compatibility_reason=None,
+        )
+
     async def _validate_source_authorization(
         self,
         context: ResolvedMarketDataQueryContext,
@@ -999,6 +1034,24 @@ class MarketDataStore:
         canonical digest, request context, and the current registry row before
         the source snapshot can be staged.
         """
+        return await self._validate_source_authorization_for_provider(
+            context,
+            provider_id=result.provider_id,
+            source_authorization=source_authorization,
+            local_received_at=local_received_at,
+            unverified_compatibility_reason=unverified_compatibility_reason,
+        )
+
+    async def _validate_source_authorization_for_provider(
+        self,
+        context: ResolvedMarketDataQueryContext,
+        *,
+        provider_id: str,
+        source_authorization: MarketDataSourceAuthorization | None,
+        local_received_at: datetime,
+        unverified_compatibility_reason: str | None,
+    ) -> _ValidatedSourceAuthorization:
+        """Validate one source grant using its explicit provider identity."""
         if source_authorization is None:
             reason = _normalize_unverified_compatibility_reason(
                 unverified_compatibility_reason
@@ -1018,8 +1071,8 @@ class MarketDataStore:
             raise MarketDataStoreError("SOURCE_AUTHORIZATION_MODE_CONFLICT")
         provenance = _normalized_source_authorization_provenance(
             context,
-            result,
             source_authorization,
+            provider_id=provider_id,
         )
         # Re-read rather than use ``Session.get``: a long-lived request
         # session may already have an identity-mapped registry row from an
@@ -1537,8 +1590,9 @@ def _validated_provider_request_evidence(
 
 def _normalized_source_authorization_provenance(
     context: ResolvedMarketDataQueryContext,
-    result: ProviderFetchResult,
     source_authorization: MarketDataSourceAuthorization,
+    *,
+    provider_id: str,
 ) -> dict[str, object]:
     """Return a canonical authorization receipt mapping for store validation.
 
@@ -1559,8 +1613,8 @@ def _normalized_source_authorization_provenance(
         field_name="source_registry_id",
         maximum=255,
     )
-    provider_id = _require_text(result.provider_id, field_name="provider_id", maximum=255)
-    if source_registry_id != provider_id:
+    normalized_provider_id = _require_text(provider_id, field_name="provider_id", maximum=255)
+    if source_registry_id != normalized_provider_id:
         raise MarketDataStoreError("SOURCE_AUTHORIZATION_PROVIDER_MISMATCH")
 
     asset_type = _require_authorization_lower(
