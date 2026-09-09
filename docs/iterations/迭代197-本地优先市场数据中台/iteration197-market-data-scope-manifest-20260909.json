@@ -1,0 +1,1283 @@
+{
+  "family_contract_version": "market-data-family-v1",
+  "input_surfaces": {
+    "api": {
+      "asset_types": [
+        "stock",
+        "futures",
+        "bond",
+        "fund",
+        "option",
+        "fx",
+        "crypto"
+      ],
+      "frequencies": [
+        "5min",
+        "30min",
+        "1h",
+        "1d",
+        "1w",
+        "1mo",
+        "snapshot"
+      ],
+      "legacy_period_to_frequency": [
+        {
+          "frequency": "1d",
+          "period": "1d"
+        },
+        {
+          "frequency": "1mo",
+          "period": "1mo"
+        },
+        {
+          "frequency": "1w",
+          "period": "1w"
+        },
+        {
+          "frequency": "1d",
+          "period": "daily"
+        },
+        {
+          "frequency": "1mo",
+          "period": "monthly"
+        },
+        {
+          "frequency": "1w",
+          "period": "weekly"
+        }
+      ]
+    },
+    "frontend": {
+      "asset_types": [
+        "stock",
+        "futures",
+        "bond",
+        "fund",
+        "option",
+        "fx",
+        "crypto"
+      ],
+      "family_ids": [
+        "stock.realtime",
+        "stock.valuation",
+        "stock.liquidity",
+        "futures.realtime",
+        "futures.settlement",
+        "futures.inventory",
+        "bond.realtime",
+        "bond.orderbook",
+        "bond.fixed_income",
+        "fund.realtime",
+        "fund.liquidity",
+        "fund.nav",
+        "option.realtime",
+        "option.derivative",
+        "option.risk_surface",
+        "fx.realtime",
+        "fx.macro_fx",
+        "fx.range",
+        "crypto.realtime",
+        "crypto.cme_position",
+        "crypto.range"
+      ],
+      "legacy_periods": [
+        "daily",
+        "weekly",
+        "monthly"
+      ],
+      "source_path": "src/frontend/src/views/data/useDataPage.ts",
+      "source_sha256": "1d2afcb1d51db74ba0b732d7253ce749d78ce4cd45a31cbe5f0fd5519feed6c9"
+    }
+  },
+  "iter196_baseline": {
+    "artifact_ref": "docs/iterations/迭代196-改进优化ai生成策略流程/CANDIDATE_FREEZE_20260909.md",
+    "baseline_ref": "3ebe7717f6f901932591f59e6f1bb8244827b493",
+    "baseline_sha256": "f47d8ff435a36f53a43049a209c0b614f4bde59f8c50e2dd76d56385e42646d1",
+    "frozen_at": "2026-09-09T00:34:46Z",
+    "iteration": 196,
+    "schema_version": "iter196-market-data-baseline-v1",
+    "status": "frozen"
+  },
+  "manifest_sha256": "81f51a7477473b2fc1730e9b6bbe0f37df7fcb026c0d6b36a8c1e2bbf76dfb7f",
+  "rows": [
+    {
+      "api": {
+        "asset_type_accepted": true,
+        "declared_api_frequency_inputs": [
+          "1d"
+        ],
+        "legacy_period_aliases": [
+          "1d",
+          "daily"
+        ]
+      },
+      "asset_type": "bond",
+      "contract_status": "unconfigured",
+      "coverage_model": "calendar_grid",
+      "data_kind": "reference_series",
+      "dataset_code": "market.bond_reference",
+      "family_contract_version": "market-data-family-v1",
+      "family_id": "bond.fixed_income",
+      "field_profile": {
+        "dimension_fields": [],
+        "field_profile_id": "bond-fixed-income-v1",
+        "optional_fields": [],
+        "required_fields": [
+          "yield_to_maturity",
+          "coupon",
+          "maturity_date",
+          "previous_close"
+        ]
+      },
+      "frequencies": [
+        "1d"
+      ],
+      "frequency_semantics": "calendar_grid",
+      "frontend": {
+        "declared_compatibility_periods": [
+          "daily"
+        ],
+        "legacy_page_period_inputs": [
+          "daily",
+          "weekly",
+          "monthly"
+        ],
+        "market_page_asset_supported": true,
+        "market_page_family_declared": true,
+        "v2_query_periods": []
+      },
+      "reason_code": "DATASET_CONTRACT_UNCONFIGURED",
+      "row_sha256": "442e6d12cb5d309d8a0b8504683e70b8ebc05e504d976d623e41bd882cd11f0b",
+      "source_policy_id": null,
+      "strategy_page_production_status": "not_enabled_by_scope_manifest"
+    },
+    {
+      "api": {
+        "asset_type_accepted": true,
+        "declared_api_frequency_inputs": [
+          "snapshot"
+        ],
+        "legacy_period_aliases": []
+      },
+      "asset_type": "bond",
+      "contract_status": "unconfigured",
+      "coverage_model": "snapshot_freshness",
+      "data_kind": "quote_snapshot",
+      "dataset_code": "market.quote_snapshot",
+      "family_contract_version": "market-data-family-v1",
+      "family_id": "bond.orderbook",
+      "field_profile": {
+        "dimension_fields": [],
+        "field_profile_id": "bond-orderbook-v1",
+        "optional_fields": [],
+        "required_fields": [
+          "bid",
+          "ask",
+          "volume",
+          "turnover",
+          "update_time"
+        ]
+      },
+      "frequencies": [
+        "snapshot"
+      ],
+      "frequency_semantics": "snapshot",
+      "frontend": {
+        "declared_compatibility_periods": [],
+        "legacy_page_period_inputs": [
+          "daily",
+          "weekly",
+          "monthly"
+        ],
+        "market_page_asset_supported": true,
+        "market_page_family_declared": true,
+        "v2_query_periods": []
+      },
+      "reason_code": "DATASET_CONTRACT_UNCONFIGURED",
+      "row_sha256": "5823d4dfae04eac5a6638614d3f24b3aa01050952df8dd97617d686947561eae",
+      "source_policy_id": null,
+      "strategy_page_production_status": "not_enabled_by_scope_manifest"
+    },
+    {
+      "api": {
+        "asset_type_accepted": true,
+        "declared_api_frequency_inputs": [
+          "1d"
+        ],
+        "legacy_period_aliases": [
+          "1d",
+          "daily"
+        ]
+      },
+      "asset_type": "bond",
+      "contract_status": "ready",
+      "coverage_model": "calendar_grid",
+      "data_kind": "bars",
+      "dataset_code": "market.bars",
+      "family_contract_version": "market-data-family-v1",
+      "family_id": "bond.realtime",
+      "field_profile": {
+        "dimension_fields": [],
+        "field_profile_id": "bond-bars-compatibility-v1",
+        "optional_fields": [
+          "open",
+          "high",
+          "low",
+          "volume",
+          "turnover",
+          "change_pct"
+        ],
+        "required_fields": [
+          "close"
+        ]
+      },
+      "frequencies": [
+        "1d"
+      ],
+      "frequency_semantics": "calendar_grid",
+      "frontend": {
+        "declared_compatibility_periods": [
+          "daily"
+        ],
+        "legacy_page_period_inputs": [
+          "daily",
+          "weekly",
+          "monthly"
+        ],
+        "market_page_asset_supported": true,
+        "market_page_family_declared": true,
+        "v2_query_periods": [
+          "daily"
+        ]
+      },
+      "reason_code": null,
+      "row_sha256": "f0f38dfad721a0216924ce896c396767a03121c3a6a449f6d81ec913706cb6c2",
+      "source_policy_id": "market-default-v1",
+      "strategy_page_production_status": "not_enabled_by_scope_manifest"
+    },
+    {
+      "api": {
+        "asset_type_accepted": true,
+        "declared_api_frequency_inputs": [
+          "1d",
+          "1w"
+        ],
+        "legacy_period_aliases": [
+          "1d",
+          "1w",
+          "daily",
+          "weekly"
+        ]
+      },
+      "asset_type": "crypto",
+      "contract_status": "unconfigured",
+      "coverage_model": "report_completeness",
+      "data_kind": "position_report",
+      "dataset_code": "market.position_report",
+      "family_contract_version": "market-data-family-v1",
+      "family_id": "crypto.cme_position",
+      "field_profile": {
+        "dimension_fields": [
+          "report_date",
+          "reporting_entity",
+          "rank"
+        ],
+        "field_profile_id": "crypto-cme-position-v1",
+        "optional_fields": [],
+        "required_fields": [
+          "long_position",
+          "short_position",
+          "net_position",
+          "open_interest"
+        ]
+      },
+      "frequencies": [
+        "1d",
+        "1w"
+      ],
+      "frequency_semantics": "reporting_period",
+      "frontend": {
+        "declared_compatibility_periods": [
+          "daily",
+          "weekly"
+        ],
+        "legacy_page_period_inputs": [
+          "daily",
+          "weekly",
+          "monthly"
+        ],
+        "market_page_asset_supported": true,
+        "market_page_family_declared": true,
+        "v2_query_periods": []
+      },
+      "reason_code": "DATASET_CONTRACT_UNCONFIGURED",
+      "row_sha256": "897e2e2fa8232e2f05a3cde1a805bda389fed95b9f389a19b16fc0f1476009b2",
+      "source_policy_id": null,
+      "strategy_page_production_status": "not_enabled_by_scope_manifest"
+    },
+    {
+      "api": {
+        "asset_type_accepted": true,
+        "declared_api_frequency_inputs": [
+          "1d"
+        ],
+        "legacy_period_aliases": [
+          "1d",
+          "daily"
+        ]
+      },
+      "asset_type": "crypto",
+      "contract_status": "unconfigured",
+      "coverage_model": "calendar_grid",
+      "data_kind": "bars",
+      "dataset_code": "market.bars",
+      "family_contract_version": "market-data-family-v1",
+      "family_id": "crypto.range",
+      "field_profile": {
+        "dimension_fields": [],
+        "field_profile_id": "crypto-range-v1",
+        "optional_fields": [],
+        "required_fields": [
+          "open",
+          "high",
+          "low",
+          "close",
+          "volume"
+        ]
+      },
+      "frequencies": [
+        "1d"
+      ],
+      "frequency_semantics": "calendar_grid",
+      "frontend": {
+        "declared_compatibility_periods": [
+          "daily"
+        ],
+        "legacy_page_period_inputs": [
+          "daily",
+          "weekly",
+          "monthly"
+        ],
+        "market_page_asset_supported": true,
+        "market_page_family_declared": true,
+        "v2_query_periods": []
+      },
+      "reason_code": "SOURCE_ROUTE_UNCONFIGURED",
+      "row_sha256": "3cd9a26e8d6dad6c991cae2f85860b1ed7cc534ac2f2f4ec35bf31e3473deaa1",
+      "source_policy_id": null,
+      "strategy_page_production_status": "not_enabled_by_scope_manifest"
+    },
+    {
+      "api": {
+        "asset_type_accepted": true,
+        "declared_api_frequency_inputs": [
+          "snapshot"
+        ],
+        "legacy_period_aliases": []
+      },
+      "asset_type": "crypto",
+      "contract_status": "unconfigured",
+      "coverage_model": "snapshot_freshness",
+      "data_kind": "quote_snapshot",
+      "dataset_code": "market.quote_snapshot",
+      "family_contract_version": "market-data-family-v1",
+      "family_id": "crypto.realtime",
+      "field_profile": {
+        "dimension_fields": [],
+        "field_profile_id": "crypto-quote-v1",
+        "optional_fields": [],
+        "required_fields": [
+          "price",
+          "change",
+          "change_pct",
+          "high",
+          "low",
+          "volume"
+        ]
+      },
+      "frequencies": [
+        "snapshot"
+      ],
+      "frequency_semantics": "snapshot",
+      "frontend": {
+        "declared_compatibility_periods": [],
+        "legacy_page_period_inputs": [
+          "daily",
+          "weekly",
+          "monthly"
+        ],
+        "market_page_asset_supported": true,
+        "market_page_family_declared": true,
+        "v2_query_periods": []
+      },
+      "reason_code": "SOURCE_ROUTE_UNCONFIGURED",
+      "row_sha256": "7e1c44cef2c7f314f82fc952d2143f0583f329ceb8b89282515e07b98a9f9cbe",
+      "source_policy_id": null,
+      "strategy_page_production_status": "not_enabled_by_scope_manifest"
+    },
+    {
+      "api": {
+        "asset_type_accepted": true,
+        "declared_api_frequency_inputs": [
+          "1d"
+        ],
+        "legacy_period_aliases": [
+          "1d",
+          "daily"
+        ]
+      },
+      "asset_type": "fund",
+      "contract_status": "ready",
+      "coverage_model": "calendar_grid",
+      "data_kind": "reference_series",
+      "dataset_code": "market.liquidity",
+      "family_contract_version": "market-data-family-v1",
+      "family_id": "fund.liquidity",
+      "field_profile": {
+        "dimension_fields": [],
+        "field_profile_id": "fund-liquidity-v1",
+        "optional_fields": [],
+        "required_fields": [
+          "volume",
+          "turnover"
+        ]
+      },
+      "frequencies": [
+        "1d"
+      ],
+      "frequency_semantics": "calendar_grid",
+      "frontend": {
+        "declared_compatibility_periods": [
+          "daily"
+        ],
+        "legacy_page_period_inputs": [
+          "daily",
+          "weekly",
+          "monthly"
+        ],
+        "market_page_asset_supported": true,
+        "market_page_family_declared": true,
+        "v2_query_periods": [
+          "daily"
+        ]
+      },
+      "reason_code": null,
+      "row_sha256": "6ce2191d64300f5e7ff497c4187717ec8edd89ea48b92e141906685786ebcdcd",
+      "source_policy_id": "market-default-v1",
+      "strategy_page_production_status": "not_enabled_by_scope_manifest"
+    },
+    {
+      "api": {
+        "asset_type_accepted": true,
+        "declared_api_frequency_inputs": [
+          "1d"
+        ],
+        "legacy_period_aliases": [
+          "1d",
+          "daily"
+        ]
+      },
+      "asset_type": "fund",
+      "contract_status": "unconfigured",
+      "coverage_model": "calendar_grid",
+      "data_kind": "reference_series",
+      "dataset_code": "market.fund_nav",
+      "family_contract_version": "market-data-family-v1",
+      "family_id": "fund.nav",
+      "field_profile": {
+        "dimension_fields": [],
+        "field_profile_id": "fund-nav-v1",
+        "optional_fields": [],
+        "required_fields": [
+          "nav",
+          "cumulative_nav",
+          "daily_growth_rate"
+        ]
+      },
+      "frequencies": [
+        "1d"
+      ],
+      "frequency_semantics": "calendar_grid",
+      "frontend": {
+        "declared_compatibility_periods": [
+          "daily"
+        ],
+        "legacy_page_period_inputs": [
+          "daily",
+          "weekly",
+          "monthly"
+        ],
+        "market_page_asset_supported": true,
+        "market_page_family_declared": true,
+        "v2_query_periods": []
+      },
+      "reason_code": "DATASET_CONTRACT_UNCONFIGURED",
+      "row_sha256": "736e8bff9f9e6e84d82f2894189abdf259a7021fdd522c6ee9cd147b2bbc5223",
+      "source_policy_id": null,
+      "strategy_page_production_status": "not_enabled_by_scope_manifest"
+    },
+    {
+      "api": {
+        "asset_type_accepted": true,
+        "declared_api_frequency_inputs": [
+          "1d",
+          "1w",
+          "1mo"
+        ],
+        "legacy_period_aliases": [
+          "1d",
+          "1mo",
+          "1w",
+          "daily",
+          "monthly",
+          "weekly"
+        ]
+      },
+      "asset_type": "fund",
+      "contract_status": "ready",
+      "coverage_model": "calendar_grid",
+      "data_kind": "bars",
+      "dataset_code": "market.bars",
+      "family_contract_version": "market-data-family-v1",
+      "family_id": "fund.realtime",
+      "field_profile": {
+        "dimension_fields": [],
+        "field_profile_id": "fund-bars-compatibility-v1",
+        "optional_fields": [
+          "open",
+          "high",
+          "low",
+          "volume",
+          "turnover",
+          "change_pct"
+        ],
+        "required_fields": [
+          "close"
+        ]
+      },
+      "frequencies": [
+        "1d",
+        "1w",
+        "1mo"
+      ],
+      "frequency_semantics": "calendar_grid",
+      "frontend": {
+        "declared_compatibility_periods": [
+          "daily",
+          "weekly",
+          "monthly"
+        ],
+        "legacy_page_period_inputs": [
+          "daily",
+          "weekly",
+          "monthly"
+        ],
+        "market_page_asset_supported": true,
+        "market_page_family_declared": true,
+        "v2_query_periods": [
+          "daily",
+          "weekly",
+          "monthly"
+        ]
+      },
+      "reason_code": null,
+      "row_sha256": "fbac59d7b855ca35963e1f5114c5a3e71eac676a6b7dd635949af84a808ad70a",
+      "source_policy_id": "market-default-v1",
+      "strategy_page_production_status": "not_enabled_by_scope_manifest"
+    },
+    {
+      "api": {
+        "asset_type_accepted": true,
+        "declared_api_frequency_inputs": [
+          "1d",
+          "1w"
+        ],
+        "legacy_period_aliases": [
+          "1d",
+          "1w",
+          "daily",
+          "weekly"
+        ]
+      },
+      "asset_type": "futures",
+      "contract_status": "unconfigured",
+      "coverage_model": "report_completeness",
+      "data_kind": "inventory_report",
+      "dataset_code": "market.inventory",
+      "family_contract_version": "market-data-family-v1",
+      "family_id": "futures.inventory",
+      "field_profile": {
+        "dimension_fields": [
+          "report_date",
+          "location",
+          "warehouse",
+          "commodity"
+        ],
+        "field_profile_id": "futures-inventory-v1",
+        "optional_fields": [],
+        "required_fields": [
+          "receipt_quantity",
+          "inventory_quantity",
+          "delivery_quantity"
+        ]
+      },
+      "frequencies": [
+        "1d",
+        "1w"
+      ],
+      "frequency_semantics": "reporting_period",
+      "frontend": {
+        "declared_compatibility_periods": [
+          "daily",
+          "weekly"
+        ],
+        "legacy_page_period_inputs": [
+          "daily",
+          "weekly",
+          "monthly"
+        ],
+        "market_page_asset_supported": true,
+        "market_page_family_declared": true,
+        "v2_query_periods": []
+      },
+      "reason_code": "DATASET_CONTRACT_UNCONFIGURED",
+      "row_sha256": "2360f0d207455b1d52d728b66a923b538593dc8e143e2a5ab78cae5392f29b11",
+      "source_policy_id": null,
+      "strategy_page_production_status": "not_enabled_by_scope_manifest"
+    },
+    {
+      "api": {
+        "asset_type_accepted": true,
+        "declared_api_frequency_inputs": [
+          "1d"
+        ],
+        "legacy_period_aliases": [
+          "1d",
+          "daily"
+        ]
+      },
+      "asset_type": "futures",
+      "contract_status": "ready",
+      "coverage_model": "calendar_grid",
+      "data_kind": "bars",
+      "dataset_code": "market.bars",
+      "family_contract_version": "market-data-family-v1",
+      "family_id": "futures.realtime",
+      "field_profile": {
+        "dimension_fields": [],
+        "field_profile_id": "futures-bars-compatibility-v1",
+        "optional_fields": [
+          "open",
+          "high",
+          "low",
+          "volume",
+          "open_interest",
+          "settle",
+          "change"
+        ],
+        "required_fields": [
+          "close"
+        ]
+      },
+      "frequencies": [
+        "1d"
+      ],
+      "frequency_semantics": "calendar_grid",
+      "frontend": {
+        "declared_compatibility_periods": [
+          "daily"
+        ],
+        "legacy_page_period_inputs": [
+          "daily",
+          "weekly",
+          "monthly"
+        ],
+        "market_page_asset_supported": true,
+        "market_page_family_declared": true,
+        "v2_query_periods": [
+          "daily"
+        ]
+      },
+      "reason_code": null,
+      "row_sha256": "162fcb1d48ed38ab8eaeb71aa71f858f10f9e4cfab41ecdc79c48a84956ab9b5",
+      "source_policy_id": "market-default-v1",
+      "strategy_page_production_status": "not_enabled_by_scope_manifest"
+    },
+    {
+      "api": {
+        "asset_type_accepted": true,
+        "declared_api_frequency_inputs": [
+          "1d"
+        ],
+        "legacy_period_aliases": [
+          "1d",
+          "daily"
+        ]
+      },
+      "asset_type": "futures",
+      "contract_status": "unconfigured",
+      "coverage_model": "calendar_grid",
+      "data_kind": "reference_series",
+      "dataset_code": "market.settlement",
+      "family_contract_version": "market-data-family-v1",
+      "family_id": "futures.settlement",
+      "field_profile": {
+        "dimension_fields": [],
+        "field_profile_id": "futures-settlement-v1",
+        "optional_fields": [],
+        "required_fields": [
+          "settle",
+          "previous_settle",
+          "open_interest"
+        ]
+      },
+      "frequencies": [
+        "1d"
+      ],
+      "frequency_semantics": "calendar_grid",
+      "frontend": {
+        "declared_compatibility_periods": [
+          "daily"
+        ],
+        "legacy_page_period_inputs": [
+          "daily",
+          "weekly",
+          "monthly"
+        ],
+        "market_page_asset_supported": true,
+        "market_page_family_declared": true,
+        "v2_query_periods": []
+      },
+      "reason_code": "DATASET_CONTRACT_UNCONFIGURED",
+      "row_sha256": "21d6a78ae7cd9b6c3c8ea89b45172aaf42f56d8f34147b0445cafad9e77850d8",
+      "source_policy_id": null,
+      "strategy_page_production_status": "not_enabled_by_scope_manifest"
+    },
+    {
+      "api": {
+        "asset_type_accepted": true,
+        "declared_api_frequency_inputs": [
+          "1d"
+        ],
+        "legacy_period_aliases": [
+          "1d",
+          "daily"
+        ]
+      },
+      "asset_type": "fx",
+      "contract_status": "unconfigured",
+      "coverage_model": "calendar_grid",
+      "data_kind": "reference_series",
+      "dataset_code": "market.fx_reference",
+      "family_contract_version": "market-data-family-v1",
+      "family_id": "fx.macro_fx",
+      "field_profile": {
+        "dimension_fields": [],
+        "field_profile_id": "fx-reference-v1",
+        "optional_fields": [],
+        "required_fields": [
+          "rate",
+          "previous_close",
+          "base_currency",
+          "quote_currency"
+        ]
+      },
+      "frequencies": [
+        "1d"
+      ],
+      "frequency_semantics": "calendar_grid",
+      "frontend": {
+        "declared_compatibility_periods": [
+          "daily"
+        ],
+        "legacy_page_period_inputs": [
+          "daily",
+          "weekly",
+          "monthly"
+        ],
+        "market_page_asset_supported": true,
+        "market_page_family_declared": true,
+        "v2_query_periods": []
+      },
+      "reason_code": "DATASET_CONTRACT_UNCONFIGURED",
+      "row_sha256": "613b217f06eeb11aab87331f5fe4e9dfe9e5194e97b20d839cbcef27e17de527",
+      "source_policy_id": null,
+      "strategy_page_production_status": "not_enabled_by_scope_manifest"
+    },
+    {
+      "api": {
+        "asset_type_accepted": true,
+        "declared_api_frequency_inputs": [
+          "1d"
+        ],
+        "legacy_period_aliases": [
+          "1d",
+          "daily"
+        ]
+      },
+      "asset_type": "fx",
+      "contract_status": "ready",
+      "coverage_model": "calendar_grid",
+      "data_kind": "bars",
+      "dataset_code": "market.bars",
+      "family_contract_version": "market-data-family-v1",
+      "family_id": "fx.range",
+      "field_profile": {
+        "dimension_fields": [],
+        "field_profile_id": "fx-range-v1",
+        "optional_fields": [],
+        "required_fields": [
+          "open",
+          "high",
+          "low",
+          "close"
+        ]
+      },
+      "frequencies": [
+        "1d"
+      ],
+      "frequency_semantics": "calendar_grid",
+      "frontend": {
+        "declared_compatibility_periods": [
+          "daily"
+        ],
+        "legacy_page_period_inputs": [
+          "daily",
+          "weekly",
+          "monthly"
+        ],
+        "market_page_asset_supported": true,
+        "market_page_family_declared": true,
+        "v2_query_periods": [
+          "daily"
+        ]
+      },
+      "reason_code": null,
+      "row_sha256": "c30f5b02fd5057d40b18c7a425ca003b7d08b70ce56e3033661292d36cf19282",
+      "source_policy_id": "market-default-v1",
+      "strategy_page_production_status": "not_enabled_by_scope_manifest"
+    },
+    {
+      "api": {
+        "asset_type_accepted": true,
+        "declared_api_frequency_inputs": [
+          "1d"
+        ],
+        "legacy_period_aliases": [
+          "1d",
+          "daily"
+        ]
+      },
+      "asset_type": "fx",
+      "contract_status": "ready",
+      "coverage_model": "calendar_grid",
+      "data_kind": "bars",
+      "dataset_code": "market.bars",
+      "family_contract_version": "market-data-family-v1",
+      "family_id": "fx.realtime",
+      "field_profile": {
+        "dimension_fields": [],
+        "field_profile_id": "fx-bars-compatibility-v1",
+        "optional_fields": [
+          "open",
+          "high",
+          "low",
+          "change_pct"
+        ],
+        "required_fields": [
+          "close"
+        ]
+      },
+      "frequencies": [
+        "1d"
+      ],
+      "frequency_semantics": "calendar_grid",
+      "frontend": {
+        "declared_compatibility_periods": [
+          "daily"
+        ],
+        "legacy_page_period_inputs": [
+          "daily",
+          "weekly",
+          "monthly"
+        ],
+        "market_page_asset_supported": true,
+        "market_page_family_declared": true,
+        "v2_query_periods": [
+          "daily"
+        ]
+      },
+      "reason_code": null,
+      "row_sha256": "6da8e23ce7b87e86088cda03ce1b1b1a85cdb5c7b6a1e808b62d3e94919febb1",
+      "source_policy_id": "market-default-v1",
+      "strategy_page_production_status": "not_enabled_by_scope_manifest"
+    },
+    {
+      "api": {
+        "asset_type_accepted": true,
+        "declared_api_frequency_inputs": [
+          "snapshot"
+        ],
+        "legacy_period_aliases": []
+      },
+      "asset_type": "option",
+      "contract_status": "unconfigured",
+      "coverage_model": "slice_completeness",
+      "data_kind": "option_chain",
+      "dataset_code": "market.option_chain",
+      "family_contract_version": "market-data-family-v1",
+      "family_id": "option.derivative",
+      "field_profile": {
+        "dimension_fields": [
+          "underlying_canonical_id",
+          "contract_canonical_id",
+          "expiry",
+          "strike",
+          "right"
+        ],
+        "field_profile_id": "option-chain-v1",
+        "optional_fields": [],
+        "required_fields": [
+          "bid",
+          "ask",
+          "last",
+          "volume",
+          "open_interest",
+          "implied_volatility"
+        ]
+      },
+      "frequencies": [
+        "snapshot"
+      ],
+      "frequency_semantics": "snapshot",
+      "frontend": {
+        "declared_compatibility_periods": [],
+        "legacy_page_period_inputs": [
+          "daily",
+          "weekly",
+          "monthly"
+        ],
+        "market_page_asset_supported": true,
+        "market_page_family_declared": true,
+        "v2_query_periods": []
+      },
+      "reason_code": "DATASET_CONTRACT_UNCONFIGURED",
+      "row_sha256": "06214a0f40c80d9f8548db036e4e3d290a4be46bd801a2bbb4e46ef433bd6830",
+      "source_policy_id": null,
+      "strategy_page_production_status": "not_enabled_by_scope_manifest"
+    },
+    {
+      "api": {
+        "asset_type_accepted": true,
+        "declared_api_frequency_inputs": [
+          "1d"
+        ],
+        "legacy_period_aliases": [
+          "1d",
+          "daily"
+        ]
+      },
+      "asset_type": "option",
+      "contract_status": "ready",
+      "coverage_model": "calendar_grid",
+      "data_kind": "bars",
+      "dataset_code": "market.bars",
+      "family_contract_version": "market-data-family-v1",
+      "family_id": "option.realtime",
+      "field_profile": {
+        "dimension_fields": [],
+        "field_profile_id": "option-bars-compatibility-v1",
+        "optional_fields": [
+          "volume",
+          "turnover",
+          "open_interest",
+          "change",
+          "change_pct"
+        ],
+        "required_fields": [
+          "close"
+        ]
+      },
+      "frequencies": [
+        "1d"
+      ],
+      "frequency_semantics": "calendar_grid",
+      "frontend": {
+        "declared_compatibility_periods": [
+          "daily"
+        ],
+        "legacy_page_period_inputs": [
+          "daily",
+          "weekly",
+          "monthly"
+        ],
+        "market_page_asset_supported": true,
+        "market_page_family_declared": true,
+        "v2_query_periods": [
+          "daily"
+        ]
+      },
+      "reason_code": null,
+      "row_sha256": "368e820ff7e6c610daa2b7d697c843dcc3435c6de20f1f710d579d2cc6c5466a",
+      "source_policy_id": "market-default-v1",
+      "strategy_page_production_status": "not_enabled_by_scope_manifest"
+    },
+    {
+      "api": {
+        "asset_type_accepted": true,
+        "declared_api_frequency_inputs": [
+          "snapshot"
+        ],
+        "legacy_period_aliases": []
+      },
+      "asset_type": "option",
+      "contract_status": "unconfigured",
+      "coverage_model": "slice_completeness",
+      "data_kind": "option_risk_surface",
+      "dataset_code": "market.option_risk_surface",
+      "family_contract_version": "market-data-family-v1",
+      "family_id": "option.risk_surface",
+      "field_profile": {
+        "dimension_fields": [
+          "underlying_canonical_id",
+          "expiry",
+          "moneyness"
+        ],
+        "field_profile_id": "option-risk-surface-v1",
+        "optional_fields": [],
+        "required_fields": [
+          "implied_volatility",
+          "delta",
+          "gamma",
+          "theta",
+          "vega",
+          "model_version"
+        ]
+      },
+      "frequencies": [
+        "snapshot"
+      ],
+      "frequency_semantics": "snapshot",
+      "frontend": {
+        "declared_compatibility_periods": [],
+        "legacy_page_period_inputs": [
+          "daily",
+          "weekly",
+          "monthly"
+        ],
+        "market_page_asset_supported": true,
+        "market_page_family_declared": true,
+        "v2_query_periods": []
+      },
+      "reason_code": "DATASET_CONTRACT_UNCONFIGURED",
+      "row_sha256": "8fc83bd8375b1b61997f001325a88378443f7d29fae1a8989006b703dbe3d1f8",
+      "source_policy_id": null,
+      "strategy_page_production_status": "not_enabled_by_scope_manifest"
+    },
+    {
+      "api": {
+        "asset_type_accepted": true,
+        "declared_api_frequency_inputs": [
+          "1d"
+        ],
+        "legacy_period_aliases": [
+          "1d",
+          "daily"
+        ]
+      },
+      "asset_type": "stock",
+      "contract_status": "ready",
+      "coverage_model": "calendar_grid",
+      "data_kind": "reference_series",
+      "dataset_code": "market.liquidity",
+      "family_contract_version": "market-data-family-v1",
+      "family_id": "stock.liquidity",
+      "field_profile": {
+        "dimension_fields": [],
+        "field_profile_id": "stock-liquidity-v1",
+        "optional_fields": [],
+        "required_fields": [
+          "volume",
+          "turnover",
+          "turnover_rate"
+        ]
+      },
+      "frequencies": [
+        "1d"
+      ],
+      "frequency_semantics": "calendar_grid",
+      "frontend": {
+        "declared_compatibility_periods": [
+          "daily"
+        ],
+        "legacy_page_period_inputs": [
+          "daily",
+          "weekly",
+          "monthly"
+        ],
+        "market_page_asset_supported": true,
+        "market_page_family_declared": true,
+        "v2_query_periods": [
+          "daily"
+        ]
+      },
+      "reason_code": null,
+      "row_sha256": "40b8b5a0ca21bf90597816ce48751e711be20cec409ea7c1ad670cafa37d1996",
+      "source_policy_id": "market-default-v1",
+      "strategy_page_production_status": "not_enabled_by_scope_manifest"
+    },
+    {
+      "api": {
+        "asset_type_accepted": true,
+        "declared_api_frequency_inputs": [
+          "1d",
+          "1w",
+          "1mo"
+        ],
+        "legacy_period_aliases": [
+          "1d",
+          "1mo",
+          "1w",
+          "daily",
+          "monthly",
+          "weekly"
+        ]
+      },
+      "asset_type": "stock",
+      "contract_status": "ready",
+      "coverage_model": "calendar_grid",
+      "data_kind": "bars",
+      "dataset_code": "market.bars",
+      "family_contract_version": "market-data-family-v1",
+      "family_id": "stock.realtime",
+      "field_profile": {
+        "dimension_fields": [],
+        "field_profile_id": "stock-bars-compatibility-v1",
+        "optional_fields": [
+          "open",
+          "high",
+          "low",
+          "volume",
+          "turnover",
+          "change_pct",
+          "turnover_rate"
+        ],
+        "required_fields": [
+          "close"
+        ]
+      },
+      "frequencies": [
+        "1d",
+        "1w",
+        "1mo"
+      ],
+      "frequency_semantics": "calendar_grid",
+      "frontend": {
+        "declared_compatibility_periods": [
+          "daily",
+          "weekly",
+          "monthly"
+        ],
+        "legacy_page_period_inputs": [
+          "daily",
+          "weekly",
+          "monthly"
+        ],
+        "market_page_asset_supported": true,
+        "market_page_family_declared": true,
+        "v2_query_periods": [
+          "daily",
+          "weekly",
+          "monthly"
+        ]
+      },
+      "reason_code": null,
+      "row_sha256": "5fdb24f23c38a618ae8839f4c9593252626699777cf0563386dd7f5834715cd9",
+      "source_policy_id": "market-default-v1",
+      "strategy_page_production_status": "not_enabled_by_scope_manifest"
+    },
+    {
+      "api": {
+        "asset_type_accepted": true,
+        "declared_api_frequency_inputs": [
+          "1d"
+        ],
+        "legacy_period_aliases": [
+          "1d",
+          "daily"
+        ]
+      },
+      "asset_type": "stock",
+      "contract_status": "unconfigured",
+      "coverage_model": "calendar_grid",
+      "data_kind": "reference_series",
+      "dataset_code": "market.valuation",
+      "family_contract_version": "market-data-family-v1",
+      "family_id": "stock.valuation",
+      "field_profile": {
+        "dimension_fields": [],
+        "field_profile_id": "stock-valuation-v1",
+        "optional_fields": [],
+        "required_fields": [
+          "market_cap",
+          "float_market_cap",
+          "pe",
+          "pb",
+          "as_of"
+        ]
+      },
+      "frequencies": [
+        "1d"
+      ],
+      "frequency_semantics": "calendar_grid",
+      "frontend": {
+        "declared_compatibility_periods": [
+          "daily"
+        ],
+        "legacy_page_period_inputs": [
+          "daily",
+          "weekly",
+          "monthly"
+        ],
+        "market_page_asset_supported": true,
+        "market_page_family_declared": true,
+        "v2_query_periods": []
+      },
+      "reason_code": "DATASET_CONTRACT_UNCONFIGURED",
+      "row_sha256": "ab38ee6b85fc9655007e4d25bf2f8aea29baeec534e5e976bf5c2c1c391a6371",
+      "source_policy_id": null,
+      "strategy_page_production_status": "not_enabled_by_scope_manifest"
+    }
+  ],
+  "schema_version": "market-data-scope-manifest-v1",
+  "scope_id": "iteration-197-market-data",
+  "scope_status": "provisional",
+  "source_refs": [
+    {
+      "path": "src/backend/app/services/market_data/scope_manifest.py",
+      "role": "scope_manifest_generator",
+      "sha256": "45b1d11f4f0f76cbdff224ab5e168d786d500dda93ad05a99d4f5e263857c43d"
+    },
+    {
+      "path": "src/backend/app/services/market_data/dataset_contracts.py",
+      "role": "backend_contract_registry",
+      "sha256": "c73a1624c21434437ae80e69c6ebb915278de58f43a490e876277a431ffad4ed"
+    },
+    {
+      "path": "src/backend/app/schemas/market_data_platform.py",
+      "role": "backend_query_schema",
+      "sha256": "5b2727a989eb9b4e64ac8ed9f8ab489289c088f66c9d314dcdaf0ab39b023993"
+    },
+    {
+      "path": "src/backend/app/services/market_data/legacy_contract.py",
+      "role": "backend_legacy_contract",
+      "sha256": "6a1665e19670fc846789208937374656443d394cdc8364ecb88dac98e4589e80"
+    },
+    {
+      "path": "src/frontend/src/views/data/useDataPage.ts",
+      "role": "frontend_market_page",
+      "sha256": "1d2afcb1d51db74ba0b732d7253ce749d78ce4cd45a31cbe5f0fd5519feed6c9"
+    }
+  ],
+  "strategy_page_production_status": "not_enabled_by_scope_manifest"
+}

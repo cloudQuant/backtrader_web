@@ -20,6 +20,7 @@ from collections.abc import Mapping
 from contextlib import suppress
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
+from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Literal, Protocol
 
@@ -485,6 +486,72 @@ class MarketDataProvider(Protocol):
         """Fetch an exact bounded request without writing storage directly."""
 
 
+def _paths_overlap(left: Path, right: Path) -> bool:
+    """Return whether either resolved path can contain the other one."""
+    return left == right or left.is_relative_to(right) or right.is_relative_to(left)
+
+
+def _runner_path_overlaps_application_checkout(path: Path) -> bool:
+    """Reject a runner path that is in, or can contain, the application checkout.
+
+    A bare equality check lets a runner use a subdirectory of the web checkout,
+    where OpenBB extensions could read application code, configuration, or a
+    repository-local secret.  When this source is in a Git checkout, protect
+    the checkout root in both directions.  Packaged deployments may lack Git
+    metadata, so retain the conservative current-workdir descendant check.
+    """
+    try:
+        source_path = Path(__file__).resolve(strict=True)
+        # The fixed module layout gives a conservative package boundary even
+        # for installed wheels, which deliberately have no ``.git`` marker.
+        application_package_root = source_path.parents[2]
+        if _paths_overlap(path, application_package_root):
+            return True
+        checkout_root = next(
+            (parent for parent in source_path.parents if (parent / ".git").exists()),
+            None,
+        )
+        if checkout_root is not None:
+            return _paths_overlap(path, checkout_root)
+        current_workdir = Path.cwd().resolve(strict=True)
+    except (OSError, RuntimeError, ValueError):
+        return True
+    return _paths_overlap(path, current_workdir)
+
+
+def _is_safe_openbb_runner_file(value: object, *, executable: bool) -> bool:
+    """Accept one existing absolute runner binary or script file only."""
+    if not isinstance(value, str) or not value or "\x00" in value:
+        return False
+    path = Path(value)
+    if not path.is_absolute():
+        return False
+    try:
+        resolved = path.resolve(strict=True)
+    except (OSError, RuntimeError):
+        return False
+    if not resolved.is_file():
+        return False
+    if _runner_path_overlaps_application_checkout(resolved):
+        return False
+    return not executable or os.access(resolved, os.X_OK)
+
+
+def _is_safe_openbb_runner_command(command: tuple[str, ...]) -> bool:
+    """Require a small, shell-free, absolute runner command grammar.
+
+    The operator may run one dedicated executable, or one absolute executable
+    with one absolute script argument.  Permitting arbitrary interpreter
+    switches, module names, relative paths, or wrappers would make the
+    configured command an unreviewed program-selection mechanism.
+    """
+    if not command or not _is_safe_openbb_runner_file(command[0], executable=True):
+        return False
+    return len(command) == 1 or (
+        len(command) == 2 and _is_safe_openbb_runner_file(command[1], executable=False)
+    )
+
+
 class OpenBBSubprocessProvider:
     """Execute an OpenBB-only runner through a bounded JSON protocol."""
 
@@ -498,6 +565,8 @@ class OpenBBSubprocessProvider:
     ) -> None:
         if command is not None and not command:
             raise ValueError("runner command cannot be empty")
+        if command is not None and not _is_safe_openbb_runner_command(command):
+            raise ValueError("runner command must be an explicit absolute executable or script")
         if timeout_seconds <= 0:
             raise ValueError("timeout_seconds must be positive")
         if (
@@ -527,6 +596,12 @@ class OpenBBSubprocessProvider:
         except ValueError:
             # Dependency construction must remain safe even when an operator
             # typo leaves an unmatched quote in the environment variable.
+            return cls(
+                command=None,
+                configuration_error="OPENBB_RUNNER_COMMAND_INVALID",
+                max_concurrent_runs=max_concurrent_runs,
+            )
+        if not _is_safe_openbb_runner_command(command):
             return cls(
                 command=None,
                 configuration_error="OPENBB_RUNNER_COMMAND_INVALID",
@@ -798,6 +873,49 @@ def _openbb_raw_record_event_at(record: Mapping[str, Any]) -> datetime:
     return parsed.astimezone(timezone.utc)
 
 
+def _dedicated_runner_directory(
+    source: Mapping[str, str],
+    *,
+    environment_key: str,
+    error_code: str,
+) -> str:
+    """Resolve one required isolated runner directory without any fallback.
+
+    A missing value used to inherit the web process working directory or the
+    operating system temporary root.  Both make OpenBB extensions able to
+    discover application state or mutate shared files.  An operator must now
+    name an existing absolute directory for the runner service explicitly.
+    """
+    configured = source.get(environment_key, "").strip()
+    if not configured or "\x00" in configured:
+        raise OpenBBProviderError(error_code)
+    candidate = Path(configured)
+    if not candidate.is_absolute():
+        raise OpenBBProviderError(error_code)
+    try:
+        resolved = candidate.resolve(strict=True)
+        temporary_root = Path(tempfile.gettempdir()).resolve(strict=True)
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise OpenBBProviderError(error_code) from exc
+    if (
+        not resolved.is_dir()
+        or resolved == temporary_root
+        or _runner_path_overlaps_application_checkout(resolved)
+    ):
+        raise OpenBBProviderError(error_code)
+    inherited_home = source.get("HOME", "").strip()
+    if inherited_home:
+        try:
+            inherited_home_directory = Path(inherited_home).resolve(strict=True)
+        except (OSError, RuntimeError, ValueError):
+            # A malformed inherited HOME must not relax the dedicated-path
+            # requirement; it simply cannot be compared to a real directory.
+            inherited_home_directory = None
+        if inherited_home_directory is not None and resolved == inherited_home_directory:
+            raise OpenBBProviderError(error_code)
+    return str(resolved)
+
+
 def _openbb_runner_environment(parent: Mapping[str, str] | None = None) -> dict[str, str]:
     """Build the minimal subprocess environment for a separately managed runner.
 
@@ -815,17 +933,19 @@ def _openbb_runner_environment(parent: Mapping[str, str] | None = None) -> dict[
         value = source.get(key)
         if value:
             environment[key] = value
-    runner_home = source.get(_RUNNER_HOME_ENVIRONMENT_KEY, "").strip()
-    if runner_home:
-        environment["HOME"] = runner_home
+    environment["HOME"] = _dedicated_runner_directory(
+        source,
+        environment_key=_RUNNER_HOME_ENVIRONMENT_KEY,
+        error_code="OPENBB_RUNNER_HOME_INVALID",
+    )
     return environment
 
 
 def _openbb_runner_workdir(parent: Mapping[str, str] | None = None) -> str:
     """Return a dedicated runner directory, never the web process working tree."""
     source = os.environ if parent is None else parent
-    configured = source.get(_RUNNER_WORKDIR_ENVIRONMENT_KEY, "").strip()
-    candidate = configured or tempfile.gettempdir()
-    if not os.path.isabs(candidate) or not os.path.isdir(candidate):
-        raise OpenBBProviderError("OPENBB_RUNNER_WORKDIR_INVALID")
-    return candidate
+    return _dedicated_runner_directory(
+        source,
+        environment_key=_RUNNER_WORKDIR_ENVIRONMENT_KEY,
+        error_code="OPENBB_RUNNER_WORKDIR_INVALID",
+    )

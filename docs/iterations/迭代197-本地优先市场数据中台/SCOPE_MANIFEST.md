@@ -1,8 +1,8 @@
 # MD-197-SCOPE-MANIFEST：冻结基线后的范围证据工具
 
-> 状态：候选工具已实现；当前没有可生成的正式清单。
+> 状态：已生成并验证集成候选范围清单（2026-09-09）。
 >
-> 原因：迭代 196 的研究/回测工件契约尚未冻结。本工具不会把当前分支、工作树、文档草稿或测试夹具当作冻结基线。
+> 冻结输入：[iter196-market-data-baseline-20260909.json](iter196-market-data-baseline-20260909.json)；生成结果：[iteration197-market-data-scope-manifest-20260909.json](iteration197-market-data-scope-manifest-20260909.json)。基线引用迭代 196 的冻结候选和收据 SHA-256，而不是当前工作树或测试夹具。
 
 ## 目的
 
@@ -43,17 +43,17 @@
 
 ## 操作方法
 
-在 `src/backend` 下执行。以下路径仅是操作员在迭代 196 已冻结后选择的受控位置，并不表示当前存在该基线或正式清单：
+在 `src/backend` 下执行。当前候选使用下列受控输入和输出；重新生成前必须审查冻结基线和源代码变化：
 
 ```bash
 /Users/yunjinqi/opt/anaconda3/bin/conda run --no-capture-output -n base python \
   scripts/generate_iteration197_scope_manifest.py \
-  --iter196-baseline /approved/iter196-market-data-baseline.json \
-  --output /approved/iteration197-market-data-scope-manifest.json
+  --iter196-baseline ../../docs/iterations/迭代197-本地优先市场数据中台/iter196-market-data-baseline-20260909.json \
+  --output ../../docs/iterations/迭代197-本地优先市场数据中台/iteration197-market-data-scope-manifest-20260909.json
 
 /Users/yunjinqi/opt/anaconda3/bin/conda run --no-capture-output -n base python \
   scripts/generate_iteration197_scope_manifest.py \
-  --validate /approved/iteration197-market-data-scope-manifest.json
+  --validate ../../docs/iterations/迭代197-本地优先市场数据中台/iteration197-market-data-scope-manifest-20260909.json
 ```
 
 生成会先在内存中重新验证行哈希、整体哈希和当前源文件，再原子写入目标文件。目标目录必须预先存在。验证会重新从当前检出推导期望内容；所以任何注册表、Pydantic API 类型、legacy 映射、前端页签、period 或家族声明变化，都会要求重新审查并生成新清单。
@@ -76,4 +76,4 @@
 | `SCOPE_MANIFEST_ROW_HASH_MISMATCH` | 某一产品行被改变而未重算证据 | 拒绝整份清单。 |
 | `SCOPE_MANIFEST_CONTENT_DRIFT` | 哈希自洽但不再能从当前源代码重建 | 重新审查并生成，不复用旧产物。 |
 
-本工具是迭代 196/197 集成前的一项输入完整性闸门。它不能代替单 head Alembic 演练、真实 AkShare/OpenBB 数据回执、跨数据库 PIT 验证、浏览器灰度或策略工件的端到端验收。
+本工具是迭代 196/197 集成候选的一项输入完整性闸门。它不能代替单 head Alembic 演练、真实 AkShare/OpenBB 数据回执、跨数据库 PIT 验证、浏览器灰度或策略工件的端到端验收。

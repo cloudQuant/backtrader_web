@@ -47,6 +47,89 @@ _JSON_FIELD_NAMES = {
     "metrics_snapshot",
 }
 
+_MARKET_DATA_BINDING_REQUIRED_KEY = "market_data_binding_required"
+_MARKET_DATA_BINDING_KEY_PREFIX = "market_data_binding_"
+_BOUND_UNIT_WINDOW_KEYS = frozenset(
+    {
+        "range_type",
+        "start_date",
+        "end_date",
+        "use_end_date",
+        "sample_count",
+        "bar_count",
+    }
+)
+_BOUND_UNIT_IDENTITY_FIELDS = frozenset({"category", "symbol", "timeframe", "timeframe_n"})
+
+
+class MarketDataBindingUnitMutationError(ValueError):
+    """Reject a client attempt to weaken a server-issued data binding."""
+
+    def __init__(self, code: str = "MARKET_DATA_BINDING_UNIT_MUTATION_FORBIDDEN") -> None:
+        self.code = code
+        super().__init__(self.code)
+
+
+def _requires_market_data_binding(data_config: object) -> bool:
+    """Recognize a persisted required binding without accepting a downgrade."""
+    if not isinstance(data_config, dict):
+        return False
+    value = data_config.get(_MARKET_DATA_BINDING_REQUIRED_KEY)
+    return value is True or (
+        isinstance(value, str) and value.strip().casefold() in {"1", "true", "yes", "on"}
+    )
+
+
+def _contains_market_data_binding_payload(data_config: object) -> bool:
+    """Identify any browser-supplied attempt to create a sealed binding unit."""
+    return isinstance(data_config, dict) and any(
+        str(key).casefold().startswith(_MARKET_DATA_BINDING_KEY_PREFIX)
+        for key in data_config
+    )
+
+
+def _reject_untrusted_market_data_binding_payload(
+    data_config: object,
+    *,
+    allow_server_bound_research_data: bool,
+) -> None:
+    """Reserve binding attachment for the internal AI-research capability."""
+    if _contains_market_data_binding_payload(data_config) and not allow_server_bound_research_data:
+        raise MarketDataBindingUnitMutationError("MARKET_DATA_BINDING_CONSUMER_CREATE_FORBIDDEN")
+
+
+def _merged_bound_unit_data_config(
+    existing: dict[str, Any] | None,
+    incoming: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Preserve sealed binding fields while allowing a narrower run window.
+
+    ``StrategyUnitUpdate.data_config`` is a replacement payload.  Treating it
+    as one for a bound unit would let an ordinary browser update remove
+    ``market_data_binding_required`` and fall back to a legacy CSV search.  A
+    caller may change only the run-window controls; every other provided value
+    must exactly match the server-owned persisted metadata.
+    """
+    current = dict(existing or {})
+    if not _requires_market_data_binding(current) or not isinstance(incoming, dict):
+        raise MarketDataBindingUnitMutationError()
+
+    merged = dict(current)
+    for key, value in incoming.items():
+        if key in _BOUND_UNIT_WINDOW_KEYS:
+            merged[key] = value
+            continue
+        if key not in current or current[key] != value:
+            raise MarketDataBindingUnitMutationError()
+    return merged
+
+
+def _validate_bound_unit_identity_update(unit: StrategyUnit, update_data: dict[str, Any]) -> None:
+    """Keep the unit identity aligned with the signed binding semantics."""
+    for key in _BOUND_UNIT_IDENTITY_FIELDS:
+        if key in update_data and update_data[key] != getattr(unit, key):
+            raise MarketDataBindingUnitMutationError()
+
 
 def _json_safe_value(value: Any) -> Any:
     if isinstance(value, Decimal):
@@ -65,9 +148,15 @@ async def create_unit(
     user_id: str,
     data: StrategyUnitCreate,
     trading_service: Any,
+    *,
+    allow_server_bound_research_data: bool = False,
 ) -> dict[str, Any] | None:
     from app.services.workspace_service import WorkspaceService, _normalize_unit_data_config
 
+    _reject_untrusted_market_data_binding_payload(
+        data.data_config,
+        allow_server_bound_research_data=allow_server_bound_research_data,
+    )
     async with async_session_maker() as session:
         ws = await WorkspaceService._load_workspace(
             session, workspace_id, user_id, load_units=False
@@ -127,9 +216,16 @@ async def batch_create_units(
     user_id: str,
     units_data: list[StrategyUnitCreate],
     trading_service: Any,
+    *,
+    allow_server_bound_research_data: bool = False,
 ) -> list[dict[str, Any]] | None:
     from app.services.workspace_service import WorkspaceService, _normalize_unit_data_config
 
+    for data in units_data:
+        _reject_untrusted_market_data_binding_payload(
+            data.data_config,
+            allow_server_bound_research_data=allow_server_bound_research_data,
+        )
     async with async_session_maker() as session:
         ws = await WorkspaceService._load_workspace(
             session, workspace_id, user_id, load_units=False
@@ -455,8 +551,17 @@ async def update_unit(
         if unit is None:
             return None
         update_data = data.model_dump(exclude_unset=True)
+        existing_data_config = cast(dict[str, Any] | None, unit.data_config)
+        binding_required = _requires_market_data_binding(existing_data_config)
+        if binding_required:
+            _validate_bound_unit_identity_update(unit, update_data)
         for key, value in update_data.items():
             if key == "data_config":
+                if binding_required:
+                    value = _merged_bound_unit_data_config(
+                        existing_data_config,
+                        cast(dict[str, Any] | None, value),
+                    )
                 value = _normalize_unit_data_config(cast(dict[str, Any] | None, value))
             elif key == "trading_mode":
                 value = trading_service.normalize_trading_mode(value)

@@ -1234,6 +1234,14 @@ export function useStrategyPage() {
     return undefined
   }
 
+  function aiResearchMarketDataBridgeAssetType(): MarketAssetType | undefined {
+    const assetType = aiResearchPrecheckAssetType()
+    if (assetType === 'stock' || assetType === 'futures' || assetType === 'crypto') {
+      return assetType
+    }
+    return undefined
+  }
+
   function aiResearchLegacyPeriod(): 'daily' | 'weekly' | 'monthly' | null {
     if (aiResearchForm.timeframe === '1d') return 'daily'
     if (aiResearchForm.timeframe === '1w') return 'weekly'
@@ -5620,6 +5628,12 @@ export function useStrategyPage() {
     }
     if (gatewayConfig) {
       request.gateway_config = gatewayConfig
+    }
+    if (aiResearchMarketDataPlatformBridgeEnabled) {
+      const assetType = aiResearchMarketDataBridgeAssetType()
+      if (assetType) {
+        request.data_config = { market_data_asset_type: assetType }
+      }
     }
     return request
   }

@@ -1,12 +1,18 @@
 from __future__ import annotations
 
+import errno
+import hashlib
 import logging
+import os
 import shutil
+import stat
 import textwrap
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
 from copy import deepcopy
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, BinaryIO
 
 import yaml
 
@@ -47,6 +53,257 @@ _ASSET_TYPE_ALIASES = {
     "options": "option",
 }
 _DEFAULT_UNIT_START_DATE = datetime(2020, 1, 1, tzinfo=timezone.utc)
+_MARKET_DATA_BINDING_REQUIRED_KEY = "market_data_binding_required"
+_MARKET_DATA_BINDING_CONFIG_KEY = "market_data_binding"
+_BOUND_DATA_CONFIG_ALLOWED_KEYS = frozenset(
+    {
+        "range_type",
+        "start_date",
+        "end_date",
+        "use_end_date",
+        "sample_count",
+        "bar_count",
+    }
+)
+_BOUND_DATA_TRANSPORT_KEYS = frozenset(
+    {
+        "canonical_id",
+        "canonical_identifier",
+        "csv_path",
+        "csv_file",
+        "data_path",
+        "data_directory",
+        "data_file",
+        "data_provider",
+        "data_root",
+        "directory_path",
+        "endpoint",
+        "file",
+        "file_path",
+        "market_data_binding_hash",
+        "market_data_binding_id",
+        "market_data_binding_signature",
+        "market_data_binding_required",
+        "market_data_binding",
+        "market_data_asset_type",
+        "provider",
+        "provider_id",
+        "root",
+        "source",
+        "source_policy_id",
+        "url",
+    }
+)
+
+
+class MarketDataBindingRuntimeError(ValueError):
+    """Stable, fail-closed error for a bound research backtest runtime."""
+
+
+def _market_data_binding_required(data_config: dict[str, Any] | None) -> bool:
+    """Return whether a unit must use a server-issued research binding."""
+    if not isinstance(data_config, dict):
+        return False
+    return _bool_value(data_config.get(_MARKET_DATA_BINDING_REQUIRED_KEY), False)
+
+
+def _bound_data_config(data_config: dict[str, Any] | None) -> dict[str, Any]:
+    """Keep only run-window controls from a bound unit's client-facing config."""
+    raw = dict(data_config or {})
+    return {key: raw[key] for key in _BOUND_DATA_CONFIG_ALLOWED_KEYS if key in raw}
+
+
+def _normalize_market_data_binding_window_boundary(
+    value: Any,
+    *,
+    inclusive_end: bool,
+) -> str:
+    """Render a unit date boundary as an aware UTC half-open instant.
+
+    Workspace UI date inputs are calendar days.  The research binding contract
+    instead compares UTC instants: a date-only end is therefore the next
+    midnight, while an explicit timestamp stays an exact exclusive boundary.
+    This conversion happens before the core service is called so it never sees
+    a naive date string from a unit or OOS split.
+    """
+    if not isinstance(value, str) or not value.strip():
+        raise MarketDataBindingRuntimeError("MARKET_DATA_BINDING_RUNTIME_TIMESTAMP_INVALID")
+    rendered = value.strip()
+    try:
+        if len(rendered) == 10:
+            parsed_date = date.fromisoformat(rendered)
+            parsed = datetime.combine(parsed_date, datetime.min.time(), tzinfo=timezone.utc)
+            if inclusive_end:
+                parsed += timedelta(days=1)
+        else:
+            parsed = datetime.fromisoformat(rendered.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise MarketDataBindingRuntimeError(
+            "MARKET_DATA_BINDING_RUNTIME_TIMESTAMP_INVALID"
+        ) from exc
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        raise MarketDataBindingRuntimeError("MARKET_DATA_BINDING_RUNTIME_TIMESTAMP_INVALID")
+    return parsed.astimezone(timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z")
+
+
+def _bound_runtime_binding_metadata(binding: Any) -> dict[str, Any]:
+    """Serialize only the server-resolved facts needed by the child runtime.
+
+    ``binding`` must originate from
+    :class:`MarketDataResearchBindingService`; callers never pass a browser
+    supplied path into this function.  The generated runner independently
+    verifies this compact envelope before opening the CSV.
+    """
+    required_fields = (
+        "binding_id",
+        "binding_hash",
+        "user_id",
+        "signature",
+        "artifact_relative_path",
+        "artifact_sha256",
+        "artifact_size_bytes",
+        "manifest_hash",
+        "query_semantics",
+    )
+    missing = [name for name in required_fields if getattr(binding, name, None) in (None, "")]
+    if missing:
+        raise MarketDataBindingRuntimeError("MARKET_DATA_BINDING_RUNTIME_CONFIG_INVALID")
+
+    try:
+        binding_id = binding.binding_id
+        binding_hash = binding.binding_hash
+        owner_user_id = binding.user_id
+        signature = binding.signature
+        artifact_relative_path = binding.artifact_relative_path
+        artifact_sha256 = binding.artifact_sha256
+        artifact_size_bytes = int(binding.artifact_size_bytes)
+        manifest_hash = binding.manifest_hash
+        query_semantics = binding.query_semantics
+    except (AttributeError, TypeError, ValueError) as exc:
+        raise MarketDataBindingRuntimeError("MARKET_DATA_BINDING_RUNTIME_CONFIG_INVALID") from exc
+    if artifact_size_bytes < 1 or not isinstance(query_semantics, Mapping):
+        raise MarketDataBindingRuntimeError("MARKET_DATA_BINDING_RUNTIME_CONFIG_INVALID")
+
+    return {
+        "binding_id": str(binding_id),
+        "binding_hash": str(binding_hash),
+        "owner_user_id": str(owner_user_id),
+        "signature": str(signature),
+        "artifact_relative_path": str(artifact_relative_path),
+        "artifact_sha256": str(artifact_sha256),
+        "artifact_size_bytes": artifact_size_bytes,
+        "manifest_hash": str(manifest_hash),
+        "query_semantics": deepcopy(dict(query_semantics)),
+    }
+
+
+async def resolve_required_market_data_binding(
+    unit: StrategyUnit,
+    user_id: str,
+    *,
+    db: Any,
+) -> Any | None:
+    """Resolve a required binding against its owner and current unit semantics.
+
+    An optional/unbound legacy unit deliberately returns ``None`` so its
+    historical CSV behaviour stays untouched.  A bound unit has no fallback:
+    the service validates the HMAC-backed record, current owner, server-side
+    workspace/unit/intent attachment, identity, timeframe and that the
+    requested window is a subset of the sealed window.  The outer workspace
+    session can hold an old ORM instance, so all binding fields are reloaded
+    through this independent binding session before they reach the core
+    authorization boundary.
+    """
+    outer_data_config = dict(getattr(unit, "data_config", {}) or {})
+    if not _market_data_binding_required(outer_data_config):
+        # Keep ordinary historical units entirely off the binding/DB path.
+        return None
+    requested_unit_id = str(getattr(unit, "id", "") or "").strip()
+    requested_workspace_id = str(getattr(unit, "workspace_id", "") or "").strip()
+    if not requested_unit_id:
+        raise MarketDataBindingRuntimeError("MARKET_DATA_BINDING_RUNTIME_CONFIG_INVALID")
+    try:
+        current_unit = await db.get(StrategyUnit, requested_unit_id)
+    except Exception as exc:
+        logger.warning("Unable to reload research binding unit", exc_info=True)
+        raise MarketDataBindingRuntimeError(
+            "MARKET_DATA_BINDING_RUNTIME_REVALIDATION_FAILED"
+        ) from exc
+    if current_unit is None:
+        raise MarketDataBindingRuntimeError("MARKET_DATA_BINDING_RUNTIME_INTENT_DENIED")
+
+    workspace_id = str(getattr(current_unit, "workspace_id", "") or "").strip()
+    unit_id = str(getattr(current_unit, "id", "") or "").strip()
+    if not workspace_id or not unit_id or unit_id != requested_unit_id:
+        raise MarketDataBindingRuntimeError("MARKET_DATA_BINDING_RUNTIME_INTENT_DENIED")
+    if requested_workspace_id and workspace_id != requested_workspace_id:
+        raise MarketDataBindingRuntimeError("MARKET_DATA_BINDING_RUNTIME_INTENT_DENIED")
+
+    data_config = dict(getattr(current_unit, "data_config", {}) or {})
+    if not _market_data_binding_required(data_config):
+        return None
+
+    binding_id = str(data_config.get("market_data_binding_id") or "").strip()
+    binding_hash = str(data_config.get("market_data_binding_hash") or "").strip()
+    signature = str(data_config.get("market_data_binding_signature") or "").strip()
+    intent_id = str(data_config.get("market_data_binding_intent_id") or "").strip()
+    symbol = str(getattr(current_unit, "symbol", "") or "").strip()
+    timeframe = str(getattr(current_unit, "timeframe", "") or "").strip()
+    try:
+        timeframe_n = int(getattr(current_unit, "timeframe_n", 0) or 0)
+    except (TypeError, ValueError):
+        timeframe_n = 0
+    raw_start = str(data_config.get("start_date") or "").strip()
+    raw_end = str(data_config.get("end_date") or "").strip()
+    if not all(
+        (
+            binding_id,
+            binding_hash,
+            signature,
+            intent_id,
+            symbol,
+            timeframe,
+            raw_start,
+            raw_end,
+        )
+    ) or timeframe_n < 1:
+        raise MarketDataBindingRuntimeError("MARKET_DATA_BINDING_RUNTIME_CONFIG_INVALID")
+    if str(data_config.get("range_type") or "date").strip().lower() != "date":
+        raise MarketDataBindingRuntimeError("MARKET_DATA_BINDING_RUNTIME_WINDOW_INVALID")
+    if not _bool_value(data_config.get("use_end_date"), True):
+        raise MarketDataBindingRuntimeError("MARKET_DATA_BINDING_RUNTIME_WINDOW_INVALID")
+    start = _normalize_market_data_binding_window_boundary(raw_start, inclusive_end=False)
+    end = _normalize_market_data_binding_window_boundary(raw_end, inclusive_end=True)
+
+    try:
+        from app.services.market_data.research_binding import (
+            build_market_data_research_binding_service,
+        )
+
+        return await build_market_data_research_binding_service(db).resolve_runtime_binding(
+            user_id=str(user_id),
+            binding_id=binding_id,
+            binding_hash=binding_hash,
+            signature=signature,
+            workspace_id=workspace_id,
+            unit_id=unit_id,
+            intent_id=intent_id,
+            symbol=symbol,
+            timeframe=timeframe,
+            timeframe_n=timeframe_n,
+            start=start,
+            end=end,
+        )
+    except MarketDataBindingRuntimeError:
+        raise
+    except Exception as exc:
+        message = str(exc).strip()
+        if message.startswith("MARKET_DATA_BINDING_"):
+            raise MarketDataBindingRuntimeError(message) from exc
+        logger.warning("Research market-data binding revalidation failed", exc_info=True)
+        raise MarketDataBindingRuntimeError(
+            "MARKET_DATA_BINDING_RUNTIME_REVALIDATION_FAILED"
+        ) from exc
 
 
 def _positive_float(value: Any, default: float) -> float:
@@ -733,6 +990,13 @@ _UNIT_RUN_PY = textwrap.dedent(
 
     def resolve_data_file(config: dict) -> Path:
         data = config.get('data') or {}
+        if _safe_bool(data.get('market_data_binding_required'), False):
+            # Bound research runs never consult directory_path, a provider,
+            # or BACKTRADER_DATA_DIR.  The helper verifies the HMAC envelope,
+            # canonical server root, symlink containment, and CSV bytes before
+            # returning the one sealed artifact.
+            from app.services.workspace_unit_runtime import resolve_verified_market_data_binding_file
+            return resolve_verified_market_data_binding_file(data)
         raw_directory = str(data.get('directory_path') or '').strip()
         if not raw_directory:
             raw_directory = os.environ.get('BACKTRADER_DATA_DIR', '').strip()
@@ -764,8 +1028,17 @@ _UNIT_RUN_PY = textwrap.dedent(
 
     def load_dataframe(config: dict) -> tuple[pd.DataFrame, Path]:
         data = config.get('data') or {}
-        csv_path = resolve_data_file(config)
-        df = pd.read_csv(csv_path)
+        binding_required = _safe_bool(data.get('market_data_binding_required'), False)
+        if binding_required:
+            # The verified helper holds one O_NOFOLLOW-protected descriptor
+            # while it hashes and pandas consumes the bytes.  Do not turn its
+            # diagnostic Path back into a second, unchecked path open.
+            from app.services.workspace_unit_runtime import open_verified_market_data_binding_file
+            with open_verified_market_data_binding_file(data) as (csv_handle, csv_path):
+                df = pd.read_csv(csv_handle)
+        else:
+            csv_path = resolve_data_file(config)
+            df = pd.read_csv(csv_path)
         rename_map = {}
         if 'time' in df.columns and 'datetime' not in df.columns:
             rename_map['time'] = 'datetime'
@@ -797,7 +1070,15 @@ _UNIT_RUN_PY = textwrap.dedent(
             if end_date:
                 end_ts = pd.to_datetime(end_date, errors='coerce', utc=True)
                 if not pd.isna(end_ts):
-                    df = df[df['datetime'] <= end_ts]
+                    if binding_required:
+                        # The binding semantic window is half-open.  Keep
+                        # ordinary UI dates inclusive by advancing only a
+                        # date-only end to the following UTC midnight.
+                        if isinstance(end_date, str) and len(end_date.strip()) == 10:
+                            end_ts = end_ts + pd.Timedelta(days=1)
+                        df = df[df['datetime'] < end_ts]
+                    else:
+                        df = df[df['datetime'] <= end_ts]
         df = df.sort_values('datetime').drop_duplicates('datetime')
         df = df[['datetime', 'open', 'high', 'low', 'close', 'volume', 'openinterest']].copy()
         for column in ('open', 'high', 'low', 'close', 'volume', 'openinterest'):
@@ -1087,6 +1368,276 @@ def _default_csv_directory_path() -> str:
     return str((Path(__file__).resolve().parents[4] / "data" / "datas").resolve())
 
 
+def _market_data_binding_artifact_root() -> Path:
+    """Return the configured server-owned research artifact root without creating it."""
+    from app.config import get_settings
+
+    settings = get_settings()
+    if not bool(getattr(settings, "MARKET_DATA_RESEARCH_BACKTEST_BRIDGE_ENABLED", False)):
+        raise MarketDataBindingRuntimeError("MARKET_DATA_BINDING_RUNTIME_DISABLED")
+    raw_root = str(getattr(settings, "MARKET_DATA_RESEARCH_ARTIFACT_ROOT", "") or "").strip()
+    root = Path(raw_root).expanduser()
+    if not raw_root or not root.is_absolute():
+        raise MarketDataBindingRuntimeError("MARKET_DATA_BINDING_ARTIFACT_PATH_INVALID")
+    try:
+        resolved = root.resolve(strict=True)
+    except OSError as exc:
+        raise MarketDataBindingRuntimeError("MARKET_DATA_BINDING_ARTIFACT_MISSING") from exc
+    if not resolved.is_dir():
+        raise MarketDataBindingRuntimeError("MARKET_DATA_BINDING_ARTIFACT_PATH_INVALID")
+    return resolved
+
+
+def _validated_market_data_binding_payload(data: Mapping[str, Any]) -> dict[str, object]:
+    """Return the HMAC-authenticated artifact payload without touching its path."""
+    if not isinstance(data, Mapping):
+        raise MarketDataBindingRuntimeError("MARKET_DATA_BINDING_RUNTIME_CONFIG_INVALID")
+    raw_metadata = data.get(_MARKET_DATA_BINDING_CONFIG_KEY)
+    if not isinstance(raw_metadata, Mapping):
+        raise MarketDataBindingRuntimeError("MARKET_DATA_BINDING_RUNTIME_CONFIG_INVALID")
+    metadata = dict(raw_metadata)
+    expected_metadata_keys = {
+        "binding_id",
+        "binding_hash",
+        "owner_user_id",
+        "signature",
+        "artifact_relative_path",
+        "artifact_sha256",
+        "artifact_size_bytes",
+        "manifest_hash",
+        "query_semantics",
+    }
+    if set(metadata) != expected_metadata_keys:
+        raise MarketDataBindingRuntimeError("MARKET_DATA_BINDING_RUNTIME_CONFIG_INVALID")
+
+    try:
+        from app.config import get_settings
+        from app.services.market_data.research_binding import (
+            build_market_data_binding_signature_payload,
+            verify_market_data_binding_signature,
+        )
+
+        settings = get_settings()
+        signing_key = str(
+            getattr(settings, "MARKET_DATA_RESEARCH_ARTIFACT_SIGNING_KEY", "") or ""
+        )
+        expected_payload = build_market_data_binding_signature_payload(
+            binding_id=str(metadata["binding_id"]),
+            binding_hash=str(metadata["binding_hash"]),
+            owner_user_id=str(metadata["owner_user_id"]),
+            artifact_relative_path=str(metadata["artifact_relative_path"]),
+            artifact_sha256=str(metadata["artifact_sha256"]),
+            artifact_size_bytes=metadata["artifact_size_bytes"],
+            query_semantics=metadata["query_semantics"],
+        )
+        signed_payload = verify_market_data_binding_signature(
+            str(metadata["signature"]),
+            signing_key,
+        )
+    except MarketDataBindingRuntimeError:
+        raise
+    except Exception as exc:
+        message = str(exc).strip()
+        if message.startswith("MARKET_DATA_BINDING_"):
+            raise MarketDataBindingRuntimeError(message) from exc
+        raise MarketDataBindingRuntimeError("MARKET_DATA_BINDING_SIGNATURE_INVALID") from exc
+
+    if dict(signed_payload) != expected_payload:
+        raise MarketDataBindingRuntimeError("MARKET_DATA_BINDING_SIGNATURE_INVALID")
+    return expected_payload
+
+
+def _binding_open_flags(*, directory: bool) -> int:
+    """Return fail-closed POSIX descriptor flags for a sealed artifact chain."""
+    nofollow = getattr(os, "O_NOFOLLOW", 0)
+    if os.name != "posix" or not nofollow or os.open not in os.supports_dir_fd:
+        raise MarketDataBindingRuntimeError("MARKET_DATA_BINDING_ARTIFACT_PATH_INVALID")
+    flags = os.O_RDONLY | nofollow | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NONBLOCK", 0)
+    if directory:
+        directory_flag = getattr(os, "O_DIRECTORY", 0)
+        if not directory_flag:
+            raise MarketDataBindingRuntimeError("MARKET_DATA_BINDING_ARTIFACT_PATH_INVALID")
+        flags |= directory_flag
+    return flags
+
+
+def _raise_binding_artifact_open_error(exc: OSError) -> None:
+    """Normalize descriptor-open failures without exposing filesystem detail."""
+    if exc.errno in {errno.ELOOP, errno.ENOTDIR}:
+        raise MarketDataBindingRuntimeError("MARKET_DATA_BINDING_ARTIFACT_PATH_INVALID") from exc
+    raise MarketDataBindingRuntimeError("MARKET_DATA_BINDING_ARTIFACT_MISSING") from exc
+
+
+def _close_binding_fd(fd: int | None) -> None:
+    if fd is None:
+        return
+    try:
+        os.close(fd)
+    except OSError:
+        pass
+
+
+def _open_binding_directory_at(parent_fd: int, part: str) -> int:
+    """Open one direct directory child while refusing symlinks and files."""
+    if not part or part in {".", ".."} or "/" in part:
+        raise MarketDataBindingRuntimeError("MARKET_DATA_BINDING_ARTIFACT_PATH_INVALID")
+    try:
+        descriptor = os.open(part, _binding_open_flags(directory=True), dir_fd=parent_fd)
+    except OSError as exc:
+        _raise_binding_artifact_open_error(exc)
+        raise AssertionError("unreachable") from exc
+    try:
+        if not stat.S_ISDIR(os.fstat(descriptor).st_mode):
+            raise MarketDataBindingRuntimeError("MARKET_DATA_BINDING_ARTIFACT_PATH_INVALID")
+        return descriptor
+    except Exception:
+        _close_binding_fd(descriptor)
+        raise
+
+
+def _open_secure_binding_root(root: Path) -> int:
+    """Anchor an artifact root through a no-symlink descriptor chain from `/`."""
+    if not root.is_absolute() or root.anchor != os.path.sep:
+        raise MarketDataBindingRuntimeError("MARKET_DATA_BINDING_ARTIFACT_PATH_INVALID")
+    try:
+        descriptor = os.open(root.anchor, _binding_open_flags(directory=True))
+    except OSError as exc:
+        _raise_binding_artifact_open_error(exc)
+        raise AssertionError("unreachable") from exc
+    try:
+        for part in root.parts:
+            if part == root.anchor:
+                continue
+            next_descriptor = _open_binding_directory_at(descriptor, part)
+            _close_binding_fd(descriptor)
+            descriptor = next_descriptor
+        return descriptor
+    except Exception:
+        _close_binding_fd(descriptor)
+        raise
+
+
+def _open_verified_market_data_binding_descriptor(
+    root: Path,
+    binding_hash: str,
+) -> tuple[int, Path]:
+    """Open the exact `bindings/<hash>/data.csv` inode from a secure root fd."""
+    root_fd = _open_secure_binding_root(root)
+    current_fd: int | None = root_fd
+    try:
+        for part in ("bindings", binding_hash):
+            next_fd = _open_binding_directory_at(current_fd, part)
+            _close_binding_fd(current_fd)
+            current_fd = next_fd
+        try:
+            artifact_fd = os.open(
+                "data.csv",
+                _binding_open_flags(directory=False),
+                dir_fd=current_fd,
+            )
+        except OSError as exc:
+            _raise_binding_artifact_open_error(exc)
+            raise AssertionError("unreachable") from exc
+        artifact_path = root / "bindings" / binding_hash / "data.csv"
+        return artifact_fd, artifact_path
+    finally:
+        _close_binding_fd(current_fd)
+
+
+def _sha256_open_file(handle: BinaryIO) -> str:
+    """Hash an already-open descriptor and rewind it for its sole consumer."""
+    digest = hashlib.sha256()
+    try:
+        handle.seek(0)
+        while chunk := handle.read(1024 * 1024):
+            digest.update(chunk)
+        handle.seek(0)
+    except (OSError, ValueError) as exc:
+        raise MarketDataBindingRuntimeError("MARKET_DATA_BINDING_ARTIFACT_MISSING") from exc
+    return digest.hexdigest()
+
+
+def _artifact_stat_fingerprint(artifact_stat: os.stat_result) -> tuple[int, int, int, int, int]:
+    """Capture descriptor identity metadata around the digest read."""
+    return (
+        artifact_stat.st_dev,
+        artifact_stat.st_ino,
+        artifact_stat.st_size,
+        getattr(artifact_stat, "st_mtime_ns", 0),
+        getattr(artifact_stat, "st_ctime_ns", 0),
+    )
+
+
+def _verify_open_market_data_binding_artifact(
+    handle: BinaryIO,
+    expected_payload: Mapping[str, object],
+) -> None:
+    """Verify one opened inode before it is handed to pandas for the only read."""
+    try:
+        before = os.fstat(handle.fileno())
+    except (OSError, ValueError) as exc:
+        raise MarketDataBindingRuntimeError("MARKET_DATA_BINDING_ARTIFACT_MISSING") from exc
+    if not stat.S_ISREG(before.st_mode):
+        raise MarketDataBindingRuntimeError("MARKET_DATA_BINDING_ARTIFACT_PATH_INVALID")
+    try:
+        expected_size = int(expected_payload["artifact_size_bytes"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise MarketDataBindingRuntimeError("MARKET_DATA_BINDING_RUNTIME_CONFIG_INVALID") from exc
+    if before.st_size != expected_size:
+        raise MarketDataBindingRuntimeError("MARKET_DATA_BINDING_ARTIFACT_SIZE_MISMATCH")
+    actual_sha256 = _sha256_open_file(handle)
+    try:
+        after = os.fstat(handle.fileno())
+    except (OSError, ValueError) as exc:
+        raise MarketDataBindingRuntimeError("MARKET_DATA_BINDING_ARTIFACT_MISSING") from exc
+    if after.st_size != expected_size:
+        raise MarketDataBindingRuntimeError("MARKET_DATA_BINDING_ARTIFACT_SIZE_MISMATCH")
+    if _artifact_stat_fingerprint(before) != _artifact_stat_fingerprint(after):
+        raise MarketDataBindingRuntimeError("MARKET_DATA_BINDING_ARTIFACT_DIGEST_MISMATCH")
+    if actual_sha256 != expected_payload["artifact_sha256"]:
+        raise MarketDataBindingRuntimeError("MARKET_DATA_BINDING_ARTIFACT_DIGEST_MISMATCH")
+
+
+@contextmanager
+def open_verified_market_data_binding_file(
+    data: Mapping[str, Any],
+) -> Iterator[tuple[BinaryIO, Path]]:
+    """Yield the one HMAC-verified CSV descriptor for a bound research run.
+
+    The descriptor is rooted at the deployment-owned artifact directory and
+    is opened through every path component with ``O_NOFOLLOW``.  Hashing and
+    the caller's CSV read share that descriptor, so a rename or symlink swap
+    after validation cannot make pandas reopen a different pathname.
+    """
+    expected_payload = _validated_market_data_binding_payload(data)
+
+    binding_hash = str(expected_payload["binding_hash"])
+    relative_path = str(expected_payload["artifact_relative_path"])
+    expected_relative_path = f"bindings/{binding_hash}/data.csv"
+    if relative_path != expected_relative_path:
+        raise MarketDataBindingRuntimeError("MARKET_DATA_BINDING_ARTIFACT_PATH_INVALID")
+    root = _market_data_binding_artifact_root()
+    artifact_fd: int | None = None
+    try:
+        artifact_fd, artifact_path = _open_verified_market_data_binding_descriptor(root, binding_hash)
+        with os.fdopen(artifact_fd, "rb", closefd=True) as handle:
+            artifact_fd = None
+            _verify_open_market_data_binding_artifact(handle, expected_payload)
+            yield handle, artifact_path
+    finally:
+        _close_binding_fd(artifact_fd)
+
+
+def resolve_verified_market_data_binding_file(data: Mapping[str, Any]) -> Path:
+    """Return a verified diagnostic path for compatibility; never use it for I/O.
+
+    Backtest execution must use :func:`open_verified_market_data_binding_file`
+    so the verified descriptor, rather than this path value, reaches pandas.
+    """
+    with open_verified_market_data_binding_file(data) as (_handle, artifact_path):
+        return artifact_path
+
+
 def _normalize_unit_data_config(data_config: dict[str, Any] | None) -> dict[str, Any]:
     normalized = dict(data_config or {})
     range_type = str(normalized.get("range_type") or "date").strip().lower()
@@ -1105,7 +1656,12 @@ def _normalize_unit_data_config(data_config: dict[str, Any] | None) -> dict[str,
     return normalized
 
 
-def _build_unit_config(unit: StrategyUnit, workspace_settings: dict[str, Any]) -> dict[str, Any]:
+def _build_unit_config(
+    unit: StrategyUnit,
+    workspace_settings: dict[str, Any],
+    *,
+    market_data_binding: Any | None = None,
+) -> dict[str, Any]:
     strategy_id = str(unit.strategy_id or "").strip()
     if not strategy_id:
         raise ValueError("Strategy unit is missing strategy_id")
@@ -1125,7 +1681,17 @@ def _build_unit_config(unit: StrategyUnit, workspace_settings: dict[str, Any]) -
             backtest_section[key] = unit_settings[key]
     template_config["backtest"] = backtest_section
     template_data = dict(template_config.get("data") or {})
-    data_config = _normalize_unit_data_config(unit.data_config)
+    raw_data_config = dict(unit.data_config or {})
+    binding_required = _market_data_binding_required(raw_data_config)
+    if binding_required and market_data_binding is None:
+        # Direct callers such as optimisation must not accidentally bypass the
+        # DB/HMAC revalidation performed by ``WorkspaceRunOpsMixin.run_units``.
+        raise MarketDataBindingRuntimeError(
+            "MARKET_DATA_BINDING_RUNTIME_REVALIDATION_REQUIRED"
+        )
+    data_config = _normalize_unit_data_config(
+        _bound_data_config(raw_data_config) if binding_required else raw_data_config
+    )
     category = unit.category or str(template_data.get("data_type") or "")
     asset_type = _asset_type_for_unit_config(
         category=category,
@@ -1140,7 +1706,38 @@ def _build_unit_config(unit: StrategyUnit, workspace_settings: dict[str, Any]) -
     if not data_root:
         data_root = _default_csv_directory_path()
     asset_root = str((Path(data_root) / asset_type).resolve()) if data_root else ""
+    binding_metadata: dict[str, Any] | None = None
+    binding_directory = ""
+    if binding_required:
+        if not _bool_value(data_config.get("use_end_date"), True):
+            raise MarketDataBindingRuntimeError("MARKET_DATA_BINDING_RUNTIME_WINDOW_INVALID")
+        binding_metadata = _bound_runtime_binding_metadata(market_data_binding)
+        bound_asset_type = str(
+            binding_metadata["query_semantics"].get("asset_type") or ""
+        ).strip()
+        if not bound_asset_type:
+            raise MarketDataBindingRuntimeError("MARKET_DATA_BINDING_RUNTIME_CONFIG_INVALID")
+        # The binding service, rather than a mutable unit category, defines
+        # the data contract consumed by this exact artifact.
+        asset_type = _asset_type_for_unit(bound_asset_type)
+        try:
+            raw_artifact_directory = market_data_binding.artifact_directory
+        except AttributeError as exc:
+            raise MarketDataBindingRuntimeError(
+                "MARKET_DATA_BINDING_RUNTIME_CONFIG_INVALID"
+            ) from exc
+        if raw_artifact_directory in (None, ""):
+            raise MarketDataBindingRuntimeError("MARKET_DATA_BINDING_RUNTIME_CONFIG_INVALID")
+        binding_directory = str(Path(raw_artifact_directory).resolve())
+        # A bound unit has no caller-controlled transport source.  The config
+        # carries a display directory for diagnostics only; run.py derives the
+        # exact CSV from the signed relative path and configured server root.
+        data_root = binding_directory
+        asset_root = binding_directory
     data_section = template_data
+    if binding_required:
+        for key in _BOUND_DATA_TRANSPORT_KEYS:
+            data_section.pop(key, None)
     data_section.update(data_config)
     data_section["symbol"] = unit.symbol or data_section.get("symbol", "")
     data_section["symbol_name"] = unit.symbol_name or data_section.get("symbol_name", "")
@@ -1149,6 +1746,9 @@ def _build_unit_config(unit: StrategyUnit, workspace_settings: dict[str, Any]) -
     data_section["timeframe"] = unit.timeframe or data_section.get("timeframe", "1d")
     data_section["timeframe_n"] = unit.timeframe_n or data_section.get("timeframe_n", 1)
     data_section["directory_path"] = asset_root
+    if binding_metadata is not None:
+        data_section[_MARKET_DATA_BINDING_REQUIRED_KEY] = True
+        data_section[_MARKET_DATA_BINDING_CONFIG_KEY] = binding_metadata
     template_config["data"] = data_section
     template_config["unit_settings"] = unit_settings
     template_config["optimization_config"] = dict(unit.optimization_config or {})
@@ -1161,16 +1761,47 @@ def _build_unit_config(unit: StrategyUnit, workspace_settings: dict[str, Any]) -
         "template_dir": str(template_dir),
         "strategy_module": _strategy_module_name(template_dir),
         "asset_type": asset_type,
-        "data_source_type": str(data_source.get("type") or "csv"),
+        "data_source_type": "market_data_binding"
+        if binding_metadata is not None
+        else str(data_source.get("type") or "csv"),
         "data_root": data_root,
     }
     return template_config
 
 
-def sync_unit_runtime(unit: StrategyUnit, workspace_settings: dict[str, Any]) -> Path:
+def sync_unit_runtime(
+    unit: StrategyUnit,
+    workspace_settings: dict[str, Any],
+    *,
+    market_data_binding: Any | None = None,
+) -> Path:
     target_dir = unit_dir(unit.workspace_id, unit.id)
     target_dir.mkdir(parents=True, exist_ok=True)
-    config = _build_unit_config(unit, workspace_settings)
+    if _market_data_binding_required(dict(unit.data_config or {})) and market_data_binding is None:
+        # Unit creation/update happens synchronously, while binding ownership,
+        # signature, artifact bytes, and OOS subset checks require the async
+        # database boundary in ``run_units``.  Do not write a generic runtime
+        # config in the meantime, and remove an older one if this unit was
+        # edited to require a new binding.
+        for filename in ("config.yaml", "run.py"):
+            candidate = target_dir / filename
+            try:
+                if candidate.is_symlink() or candidate.is_file():
+                    candidate.unlink()
+                elif candidate.exists():
+                    raise MarketDataBindingRuntimeError(
+                        "MARKET_DATA_BINDING_RUNTIME_MATERIALIZATION_FAILED"
+                    )
+            except OSError as exc:
+                raise MarketDataBindingRuntimeError(
+                    "MARKET_DATA_BINDING_RUNTIME_MATERIALIZATION_FAILED"
+                ) from exc
+        return target_dir
+    config = _build_unit_config(
+        unit,
+        workspace_settings,
+        market_data_binding=market_data_binding,
+    )
     with (target_dir / "config.yaml").open("w", encoding="utf-8") as handle:
         yaml.safe_dump(config, handle, allow_unicode=True, sort_keys=False)
     (target_dir / "run.py").write_text(_UNIT_RUN_PY, encoding="utf-8")
@@ -1453,6 +2084,11 @@ def sync_workspace_unit_runtime(
     workspace_settings: dict[str, Any],
     workspace_type: str,
 ) -> Path:
+    if _market_data_binding_required(dict(unit.data_config or {})):
+        # A strict local research binding does not authorize paper/live
+        # transport.  Creation and updates still return their committed unit,
+        # but leave no generic runner/config that a later start could reuse.
+        return sync_unit_runtime(unit, workspace_settings)
     if str(workspace_type or "").strip().lower() == "trading":
         return sync_trading_unit_runtime(unit, workspace_settings)
     return sync_unit_runtime(unit, workspace_settings)

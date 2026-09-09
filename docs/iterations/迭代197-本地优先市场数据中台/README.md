@@ -7,17 +7,20 @@
 - [需求文档](REQUIREMENTS.md)：范围、用户故事、行为边界和验收口径。
 - [设计文档](DESIGN.md)：数据模型、读取/写入流程、接口、迁移和运维设计。
 - [验收文档](ACCEPTANCE.md)：自动化证据、待验证外部依赖和迭代 196 的整合闸门。
-- [范围清单闸门](SCOPE_MANIFEST.md)：从 21 个家族合同和当前 UI/API 输入生成可复核清单；没有冻结的迭代 196 基线时失败关闭。
+- [范围清单闸门](SCOPE_MANIFEST.md)：从 21 个家族合同和当前 UI/API 输入生成可复核清单；本候选已附带经迭代 196 冻结收据验证的基线和生成结果。
 - [数据产品扩展计划](PRODUCT_EXPANSION_PLAN.md)：21 个页面家族的实际能力台账，以及 11 个单记录和 4 个多记录产品的后续模型、来源与验收要求。
 - [并行设计基线整合记录](DOCUMENT_INTEGRATION_20260909.md)：保留独立设计工作区的同名文档基线及当前实现候选文档的对应关系。
 
 当前实现已为 11 个 B1 单记录家族建立惰性的逻辑数据集目录、精确 family-shape 白名单和合同驱动的页面状态。其中 `stock.liquidity`、`fund.liquidity` 和 `fx.range` 已完成候选代码开通：它们具有各自的 `ready` family contract、精确来源策略和页面显式选择路径；其余八个 B1 家族仍为 `unconfigured`。这只表示代码合同与离线回归已具备，不能表示所有产品已经通过真实 provider、数据库或页面灰度验收。
 
-> 当前候选仍处于实现与离线验证阶段，不能视为发布验收通过。OpenBB runtime permit matrix 当前为空；本地 yfinance helper 尚未证明真实出站 end bound，因此 runner 在导入前阻断请求。跨 MySQL/PostgreSQL 的 PIT 验证、OpenBB 的操作系统级隔离、以及与迭代 196 合并后的迁移演练均保留为 `NOT_RUN` 或 `BLOCKED`，具体证据边界见 [验收文档](ACCEPTANCE.md)。
+> 当前候选仍处于实现与离线验证阶段，不能视为发布验收通过。OpenBB runtime permit matrix 仍为空；fork `24d06a7657ab9e19d07b5ba4f801394a440287a1` 的 `openbb-yfinance 1.6.3.post1` 只是一份待封装的运行构件候选，不安装到主应用，也不注册 route 或 permit。该候选仅定义 UTC 日对齐、最长 3650 天的 `1d` 窗口，并把 OpenBB 的包含式日终转换为 yfinance 的排他 `end`；在完成隔离动态扩展导入闭包、镜像、AGPL-3.0-only 许可证和出网审计前，任何正常请求仍在导入前拒绝。没有执行 OpenBB/yfinance 真实网络调用。跨 MySQL/PostgreSQL 的 PIT 验证、OpenBB 的操作系统级隔离、真实 provider 回执和浏览器灰度仍保留为 `NOT_RUN` 或 `BLOCKED`，具体证据边界见 [验收文档](ACCEPTANCE.md)。
+
+
+`futures.settlement` 仍是公开 API 中的 `unconfigured` family。新增的 CFFEX 日结采集器只是默认不联网的内部候选：它冻结精确合约、UTC 日窗、`unadjusted/settle/CNY/contract` 语义、来源策略和当前 registry/source authorization，再验证整份回执。reviewed source registry 当前为空，collector 只能从静态 descriptor ID 构造 source；未来 descriptor 必须固定 provider/revision/endpoint、HTTPS origin、certificate policy 与 pin digest，并把其 digest 带入 lease/receipt。当前环境的 AkShare `futures_hist_daily_cffex` 实现使用明文 HTTP，因此 `AkShareCffexSettlementSource` 会在导入 AkShare 或解析 endpoint 前以 `CFFEX_SETTLEMENT_SOURCE_TRANSPORT_UNAPPROVED` 硬拒绝；未来只能由经 HTTPS/证书审计的独立 source 接入。回执的嵌套 rows 含 credential-shaped key 时会在 Store 前拒绝且不回显。现有存储原语按合约顺序发布，因此普通后续失败会明确返回 `CFFEX_SETTLEMENT_BATCH_PARTIALLY_PUBLISHED` 及已发布前缀；若所有 target 已 durable 但最终 feed lease 无法释放，采集器会以 `CFFEX_SETTLEMENT_FETCH_LEASE_RELEASE_FAILED` 和精确前缀拒绝成功报告；取消时正在持久化或释放 feed lease 的 task 会先完成同一临界区，再以 `CancelledError` 子类报告已返回的精确前缀，即使 release task 自身失败也不会隐去已 durable 的合约。真实传输、调度、日历、取消恢复账本和生产数据库验收仍为 `NOT_RUN`。
 
 ## 迭代边界
 
-迭代 196 正在收尾，因此 197 在独立工作树和独立 Alembic 链中实现。它不修改 196 的未提交代码，也不把新的行情读取层直接接入尚未冻结的 AI 研究、回测或策略页面契约。当前两条链共同从 `20260811_asset_research_task_leases` 分叉：196 已继续产生研究审批修订，197 从 `20260908_market_data_catalog` 经 durable fetch lease、exact-identity collation 继续到当前独立链 head `20260909_market_data_constraint_name_portability`。把两个工作树合并会形成双 head；196 冻结后，必须重基 197 或创建受审查的 Alembic merge revision，并在空库和候选 MySQL/PostgreSQL 副本验证唯一 head，才可以开启策略页的正式消费开关。
+迭代 196 已按冻结收据 `3ebe7717f6f901932591f59e6f1bb8244827b493` 固化为集成基线，且其候选已通过 `fec74728ad4469ae6481b134323a6dd7d1401d32` 并入 `dev`。197 的独立数据中台链已由显式 Alembic merge revision `20260909_ai_research_market_data_merge` 接入，后续的 `20260909_market_data_research_bindings` 和 `20260909_market_data_research_binding_consumers` 只在该合并 head 上追加。策略页桥接仍默认关闭；只有服务端重新解析合同、当前权限和严格本地 PIT 视图，生成并在任务创建与子进程启动前复核不可变 CSV 绑定后才可进入回测。真实 MySQL/PostgreSQL、提供方和页面灰度验收仍是单独闸门。
 
 ## 核心约束
 
@@ -25,11 +28,12 @@
 - 不使用旧 `MarketInstrumentService` 的样例、附近合约或模糊代码回退。
 - 不以物理 AkShare 表名作为数据集身份；读取和写入只通过逻辑数据集、主数据版本和来源策略确定。
 - 研究与回测使用严格一致性和知识截止点，读取 `available_at <= knowledge_cutoff` 的数据。
+- 策略研究桥接只接收 `market_data_asset_type` 作为客户端意图；服务端重新解析精确 contract 与权限，以 `local_only + backtest + strict` 查询生成受控根目录中的不可变 CSV。策略/工作区只能携带绑定 ID、哈希、签名和 intent；服务器侧 scope/consumer receipt 精确绑定 research workspace/unit，运行前以新事务重放当前授权与来源证据并核对撤销、身份、窗口、路径和字节哈希。公共回测 API 不接受 `runtime_dir`，只有私有 workspace preflight 可取得确定性运行目录。任何复制、篡改或交易工作区复用均失败关闭。
 - `research_cache_fill` 只表示用户明确请求的当前数据缓存补齐：它只能走 `local_first + display`、不得携带 PIT 截止点或分页游标、须保留研究用途的来源授权，并且只写中台 receipt/事实表。它不是迭代 196 的研究、回测或审批工件。
 - 对需要按事件判断完整性的 `bars` 请求，覆盖事件必须来自经审核导入的 `(market, data_kind, frequency, event timestamp)` 显式网格；日线、周线、月线和任何分钟粒度各自有独立网格，不从交易日、周末规则或另一粒度推断。
 - 同一事件读取“满足本次字段集、质量门槛和截止点的最新修订”；较新的窄字段修订不得遮蔽仍可满足宽字段请求的旧修订，也不得把不同修订的字段拼接成未经来源证明的行。
 - 相同 `local_first` 缺口在同一 Web 进程内由 singleflight 合并，并由 `md_fetch_leases` 的 owner/fence/expiry 协议跨 worker 协调；事实和 publication 都受 fence guard 保护。该候选实现仍未替代真实多 worker、多方言、时钟和故障接管验收，不能据此宣称全局去重已上线。
-- OpenBB 扩展只在受控子进程运行；FastAPI 进程不导入 OpenBB 扩展代码。运行器返回有上限的预规范化原始记录封套及 SHA-256，父进程复算哈希后才接受回执。未来 permit 的 route ID、family、provider、资产/市场、kind/频率、四个语义轴和 server-owned endpoint 全部进入回显 DTO，并由 runner 逐项核验后才可分发。
-- 受控环境变量与工作目录只能缩小子进程继承面，不能代替操作系统隔离。生产 OpenBB 必须运行在独立 service account 或容器中，且不挂载主应用工作树、数据库凭据或其他应用密钥。
+- OpenBB 扩展只在受控子进程运行；FastAPI 进程不导入 OpenBB 扩展代码。运行器返回有上限的预规范化原始记录封套及 SHA-256，父进程复算哈希后才接受回执。当前没有活动 permit 或 route；`openbb-yfinance 1.6.3.post1` fork 候选只定义 `1d`、UTC 日对齐、最长 3650 天的窗口和包含式 OpenBB 日终到排他 yfinance `end` 的转换。未来 permit 的 route ID、family、provider、资产/市场、kind/频率、四个语义轴和 server-owned endpoint 全部进入回显 DTO，并由 runner 逐项核验后才可分发。
+- 受控环境变量与工作目录只能缩小子进程继承面，不能代替操作系统隔离。`OPENBB_RUNNER_HOME` 和 `OPENBB_RUNNER_WORKDIR` 必须由运维显式提供为独立、绝对且已存在的目录；二者不能回退到临时目录、主应用 HOME 或工作树。生产 OpenBB 必须运行在独立 service account 或容器中，且不挂载主应用工作树、数据库凭据或其他应用密钥。
 - 外部数据许可、来源策略和原始回执必须可审计；代码接入不等于数据商用授权。
 - 每次 v2 读取都重新检查 `data:read` 与当前来源 registry；旧回执或旧 cursor 不授予永久读取权。当前注册流程不自动赋予该角色，灰度前须走独立 RBAC provisioning。

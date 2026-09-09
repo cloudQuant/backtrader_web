@@ -11,11 +11,17 @@ import os
 import shutil
 import subprocess
 import sys
+import uuid
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any, cast
 
+from sqlalchemy import update
+
 from app.db.cache import get_cache
+from app.db.database import async_session_maker
 from app.db.sql_repository import SQLRepository
 from app.models.backtest import BacktestResultModel, BacktestTask
 from app.schemas.backtest import (
@@ -80,6 +86,32 @@ from app.utils.response_cache import invalidate_cache
 from app.websocket_manager import manager as ws_manager
 
 logger = logging.getLogger(__name__)
+
+_RUNTIME_DIR_CLIENT_FORBIDDEN = "BACKTEST_RUNTIME_DIR_CLIENT_FORBIDDEN"
+_WORKSPACE_RUNTIME_PATH_INVALID = "BACKTEST_WORKSPACE_RUNTIME_PATH_INVALID"
+_WORKSPACE_RUNTIME_PATH_MISMATCH = "BACKTEST_WORKSPACE_RUNTIME_PATH_MISMATCH"
+_WORKSPACE_RUNTIME_UNAVAILABLE = "BACKTEST_WORKSPACE_RUNTIME_UNAVAILABLE"
+
+WorkspaceRuntimePreflight = Callable[[], Awaitable[Path]]
+WorkspaceRuntimeClaimPromoter = Callable[[str], Awaitable[bool]]
+WorkspaceRuntimeClaimFinalizer = Callable[[TaskStatus], Awaitable[None]]
+
+
+@dataclass(frozen=True)
+class _WorkspaceRuntimeExecution:
+    """Server-only runtime capability retained by the scheduled coroutine.
+
+    It is intentionally not part of :class:`BacktestRequest`, so it is never
+    supplied by a client or persisted as request data.  WorkspaceService owns
+    the callback and replays its authorization checks before execution.
+    """
+
+    workspace_id: str
+    unit_id: str
+    expected_runtime_dir: Path
+    preflight: WorkspaceRuntimePreflight
+    claim_promoter: WorkspaceRuntimeClaimPromoter | None = None
+    claim_finalizer: WorkspaceRuntimeClaimFinalizer | None = None
 
 
 class BacktestService:
@@ -269,19 +301,148 @@ class BacktestService:
             error_message=cast("str | None", task.error_message),
         )
 
-    async def run_backtest(self, user_id: str, request: BacktestRequest) -> BacktestResponse:
-        """Run a backtest asynchronously.
+    @staticmethod
+    def _reject_client_runtime_dir(request: Any) -> None:
+        """Reject the deprecated public runtime path on every generic entrypoint."""
+        if getattr(request, "runtime_dir", None) is not None:
+            raise ValueError(
+                f"{_RUNTIME_DIR_CLIENT_FORBIDDEN}: "
+                "runtime_dir is available only through WorkspaceService"
+            )
 
-        Args:
-            user_id: The ID of the user requesting the backtest.
-            request: The backtest request containing strategy and parameters.
+    @staticmethod
+    def _expected_workspace_runtime_dir(workspace_id: str, unit_id: str) -> Path:
+        """Return a deterministic, non-escaping workspace runtime directory."""
+        from app.services import workspace_unit_runtime
 
-        Returns:
-            BacktestResponse: Response containing the task_id and initial status.
+        workspace_id = str(workspace_id or "").strip()
+        unit_id = str(unit_id or "").strip()
+        if not workspace_id or not unit_id:
+            raise ValueError(f"{_WORKSPACE_RUNTIME_PATH_INVALID}: workspace and unit are required")
+        if any(
+            value in {".", ".."} or "/" in value or "\\" in value
+            for value in (workspace_id, unit_id)
+        ):
+            raise ValueError(
+                f"{_WORKSPACE_RUNTIME_PATH_INVALID}: workspace and unit must be path components"
+            )
 
-        Raises:
-            ValueError: If global or user concurrent task limits are exceeded.
+        root = workspace_unit_runtime.workspace_dir("").resolve()
+        expected = workspace_unit_runtime.unit_dir(workspace_id, unit_id)
+        try:
+            expected.resolve().relative_to(root)
+        except ValueError as exc:
+            raise ValueError(
+                f"{_WORKSPACE_RUNTIME_PATH_INVALID}: runtime path escapes workspace root"
+            ) from exc
+        return expected
+
+    @staticmethod
+    async def _run_workspace_runtime_preflight(
+        runtime: _WorkspaceRuntimeExecution,
+    ) -> Path:
+        """Replay WorkspaceService authorization and require its exact runtime path."""
+        runtime_dir = Path(await runtime.preflight()).expanduser()
+        if runtime_dir.resolve() != runtime.expected_runtime_dir.resolve():
+            raise ValueError(
+                f"{_WORKSPACE_RUNTIME_PATH_MISMATCH}: "
+                "workspace preflight returned an unexpected runtime directory"
+            )
+        if not runtime_dir.is_dir():
+            raise ValueError(
+                f"{_WORKSPACE_RUNTIME_UNAVAILABLE}: "
+                "workspace preflight did not create the runtime directory"
+            )
+        return runtime.expected_runtime_dir
+
+    @staticmethod
+    def _discard_workspace_runtime_after_failed_preflight(
+        runtime: _WorkspaceRuntimeExecution,
+    ) -> None:
+        """Keep a rejected deterministic directory unreachable from execution.
+
+        A workspace runtime is executable only through the private preflight
+        capability retained in ``_WorkspaceRuntimeExecution``.  Generic API
+        callers cannot select this directory, and every scheduled execution
+        replays that capability immediately before spawning.  Deleting the
+        shared deterministic directory here would race a newer lease that has
+        already fenced and materialized the same unit, so preserve inert files
+        until a later trusted preflight overwrites them.
         """
+        logger.info(
+            "Rejected workspace runtime for unit %s remains inaccessible without a fresh preflight",
+            runtime.unit_id,
+        )
+
+    async def run_backtest(self, user_id: str, request: BacktestRequest) -> BacktestResponse:
+        """Run a generic backtest without a client-controlled runtime directory."""
+        self._reject_client_runtime_dir(request)
+        return await self._submit_backtest(user_id, request)
+
+    async def run_workspace_unit_backtest(
+        self,
+        user_id: str,
+        request: BacktestRequest,
+        *,
+        workspace_id: str,
+        unit_id: str,
+        runtime_preflight: WorkspaceRuntimePreflight,
+        claim_promoter: WorkspaceRuntimeClaimPromoter | None = None,
+        claim_finalizer: WorkspaceRuntimeClaimFinalizer | None = None,
+    ) -> BacktestResponse:
+        """Submit a WorkspaceService-authorized unit backtest.
+
+        ``runtime_preflight`` is an in-process capability created by
+        WorkspaceService.  It must reload the unit, replay any strict market
+        data binding checks, write the runtime, and return its deterministic
+        workspace/unit directory.  The callback is replayed again immediately
+        before the subprocess starts so a revoked grant cannot survive a queue
+        wait.  A bound caller also supplies ``claim_promoter``: it atomically
+        converts its queued unit lease into the newly-created task id before
+        this service schedules any subprocess work.  Its optional finalizer
+        runs only after the execution coroutine reaches a terminal persistent
+        task state, so WorkspaceService can release its runtime fence without
+        trusting a delayed observer.
+        """
+        self._reject_client_runtime_dir(request)
+        if not callable(runtime_preflight):
+            raise ValueError(
+                f"{_WORKSPACE_RUNTIME_PATH_INVALID}: runtime_preflight must be callable"
+            )
+        if claim_promoter is not None and not callable(claim_promoter):
+            raise ValueError(
+                f"{_WORKSPACE_RUNTIME_PATH_INVALID}: claim_promoter must be callable"
+            )
+        if claim_finalizer is not None and not callable(claim_finalizer):
+            raise ValueError(
+                f"{_WORKSPACE_RUNTIME_PATH_INVALID}: claim_finalizer must be callable"
+            )
+
+        runtime = _WorkspaceRuntimeExecution(
+            workspace_id=str(workspace_id or "").strip(),
+            unit_id=str(unit_id or "").strip(),
+            expected_runtime_dir=self._expected_workspace_runtime_dir(workspace_id, unit_id),
+            preflight=runtime_preflight,
+            claim_promoter=claim_promoter,
+            claim_finalizer=claim_finalizer,
+        )
+        # Reject revoked/invalid bindings before a persistent task is created.
+        try:
+            await self._run_workspace_runtime_preflight(runtime)
+        except Exception:
+            self._discard_workspace_runtime_after_failed_preflight(runtime)
+            raise
+        return await self._submit_backtest(user_id, request, workspace_runtime=runtime)
+
+    async def _submit_backtest(
+        self,
+        user_id: str,
+        request: BacktestRequest,
+        *,
+        workspace_runtime: _WorkspaceRuntimeExecution | None = None,
+    ) -> BacktestResponse:
+        """Create and schedule a validated generic or workspace backtest task."""
+        self._reject_client_runtime_dir(request)
         precheck = await get_market_data_precheck_service().precheck(
             DataPrecheckRequest(
                 asset_type=getattr(request, "asset_type", None),
@@ -301,14 +462,92 @@ class BacktestService:
         if hasattr(request, "model_copy"):
             request = request.model_copy(update={"data_precheck": precheck.model_dump(mode="json")})
 
-        # Use BacktestExecutionManager for database-backed task creation
-        task = await self.task_manager.create_task(user_id, request)
+        # Generate the identity before the durable create.  If request
+        # cancellation arrives after the database commit but before
+        # ``create_task`` returns its ORM object, this known id still lets us
+        # atomically cancel the orphaned PENDING row.
+        created_task_id = str(uuid.uuid4())
+        try:
+            task = await self.task_manager.create_task(
+                user_id,
+                request,
+                task_id=created_task_id,
+            )
+        except asyncio.CancelledError:
+            await self._cancel_unpromoted_persisted_task(created_task_id, user_id)
+            # A workspace lease has not been promoted at this point.  Its
+            # owning run_ops caller releases only that exact lease in its
+            # cancellation handler; do not invoke a task finalizer here.
+            raise
+
+        if workspace_runtime is not None and workspace_runtime.claim_promoter is not None:
+            # A backtest task is persistent before it can be scheduled.  Give
+            # WorkspaceService one server-only compare-and-swap point here so
+            # a stop that revoked the queued lease cannot race ahead of a
+            # newly-created task and leave an executable subprocess behind.
+            try:
+                claim_promoted = await workspace_runtime.claim_promoter(str(task.id))
+            except asyncio.CancelledError:
+                # ``CancelledError`` inherits from BaseException.  The task
+                # was already persisted, so shield its terminal transition
+                # before re-raising; otherwise a cancelled request leaks a
+                # PENDING slot and WorkspaceService may release its lease.
+                try:
+                    await asyncio.shield(
+                        self.task_manager.update_task_status(
+                            str(task.id),
+                            TaskStatus.CANCELLED,
+                            error_message="Workspace unit run claim promotion was cancelled",
+                        )
+                    )
+                    await self._finalize_workspace_runtime(
+                        workspace_runtime,
+                        TaskStatus.CANCELLED,
+                    )
+                except Exception:
+                    logger.warning(
+                        "Unable to cancel workspace task %s after promoter cancellation",
+                        task.id,
+                        exc_info=True,
+                    )
+                raise
+            except Exception:
+                await self.task_manager.update_task_status(
+                    str(task.id),
+                    TaskStatus.CANCELLED,
+                    error_message="Workspace unit run claim could not be promoted",
+                )
+                await self._finalize_workspace_runtime(workspace_runtime, TaskStatus.CANCELLED)
+                raise
+            if not claim_promoted:
+                await self.task_manager.update_task_status(
+                    str(task.id),
+                    TaskStatus.CANCELLED,
+                    error_message="Workspace unit run claim was revoked before scheduling",
+                )
+                await self._finalize_workspace_runtime(workspace_runtime, TaskStatus.CANCELLED)
+                raise ValueError("WORKSPACE_UNIT_RUN_CLAIM_LOST")
 
         # Execution is still owned by the current API process. The database stores
         # task state, while the runner keeps process-local cancellation handles.
-        self.task_runner.schedule(
-            str(task.id), self._execute_backtest(str(task.id), user_id, request)
+        execution = self._execute_backtest(
+            str(task.id),
+            user_id,
+            request,
+            workspace_runtime=workspace_runtime,
         )
+        try:
+            self.task_runner.schedule(str(task.id), execution)
+        except Exception:
+            execution.close()
+            if workspace_runtime is not None and workspace_runtime.claim_promoter is not None:
+                await self.task_manager.update_task_status(
+                    str(task.id),
+                    TaskStatus.CANCELLED,
+                    error_message="Workspace unit task could not be scheduled",
+                )
+                await self._finalize_workspace_runtime(workspace_runtime, TaskStatus.CANCELLED)
+            raise
 
         await invalidate_cache("backtests")
 
@@ -318,7 +557,79 @@ class BacktestService:
             message="Backtest task created",
         )
 
-    async def _execute_backtest(self, task_id: str, user_id: str, request: BacktestRequest) -> None:
+    @staticmethod
+    async def _finalize_workspace_runtime(
+        runtime: _WorkspaceRuntimeExecution | None,
+        status: TaskStatus,
+    ) -> None:
+        """Invoke the private WorkspaceService completion fence, if supplied."""
+        if runtime is None or runtime.claim_finalizer is None:
+            return
+        try:
+            await runtime.claim_finalizer(status)
+        except Exception:
+            # The task itself is already terminal.  Do not turn a best-effort
+            # unit-status notification into a task resurrection; the bound
+            # unit remains fail-closed until its next authoritative repair.
+            logger.warning(
+                "Unable to finalize workspace runtime fence for unit %s",
+                runtime.unit_id,
+                exc_info=True,
+            )
+
+    async def _cancel_unpromoted_persisted_task(self, task_id: str, user_id: str) -> None:
+        """Best-effort cleanup for cancellation during durable task creation.
+
+        The task id is allocated before ``create_task`` starts, so this is
+        safe whether cancellation interrupted before or after its commit.  A
+        shield lets the database transition finish if the request task is
+        cancelled again while its cleanup is in progress.
+        """
+        try:
+            await asyncio.shield(
+                self.task_manager.cancel_pending_task(
+                    task_id,
+                    user_id,
+                    error_message="Task creation was cancelled before scheduling",
+                )
+            )
+        except Exception:
+            logger.warning(
+                "Unable to cancel task %s after submission cancellation",
+                task_id,
+                exc_info=True,
+            )
+
+    @staticmethod
+    async def _claim_task_execution_start(task_id: str) -> bool:
+        """Atomically claim a persisted PENDING task for local execution.
+
+        A stop request may mark a newly-created task cancelled in the narrow
+        interval after schedule but before this coroutine starts.  A plain ORM
+        assignment to RUNNING would resurrect that cancelled task.  The
+        conditional transition works across API processes and all supported
+        SQL dialects.
+        """
+        async with async_session_maker() as session:
+            result = await session.execute(
+                update(BacktestTask)
+                .where(
+                    BacktestTask.id == task_id,
+                    BacktestTask.status == TaskStatus.PENDING,
+                )
+                .values(status=TaskStatus.RUNNING)
+            )
+            await session.commit()
+        return int(getattr(result, "rowcount", 0) or 0) == 1
+
+    async def _execute_backtest(
+        self,
+        task_id: str,
+        user_id: str,
+        request: BacktestRequest,
+        *,
+        workspace_runtime: _WorkspaceRuntimeExecution | None = None,
+    ) -> None:
         """Execute a backtest task by calling the strategy directory's run.py.
 
         Args:
@@ -327,17 +638,38 @@ class BacktestService:
             request: The backtest request parameters.
         """
         tmp_base = None
+        workspace_preflight_failed = False
+        terminal_status: TaskStatus | None = None
         try:
-            await self.task_manager.update_task_status(task_id, TaskStatus.RUNNING)
+            # This also protects callers that try to invoke the execution
+            # coroutine directly instead of going through run_backtest().
+            self._reject_client_runtime_dir(request)
+            if not await self._claim_task_execution_start(task_id):
+                # A stop can persist CANCELLED after the runner accepted this
+                # coroutine but before it receives CPU time.  Never revive a
+                # terminal task by blindly writing RUNNING here.
+                task = await self.task_manager.get_task(task_id, user_id=user_id)
+                if task is not None:
+                    observed = TaskStatus(task.status)
+                    if observed in {
+                        TaskStatus.COMPLETED,
+                        TaskStatus.FAILED,
+                        TaskStatus.CANCELLED,
+                    }:
+                        terminal_status = observed
+                return
             await self._notify_progress(task_id, 10, "Task started")
 
             from app.services.strategy.core import get_strategy_dir
 
             strategy_dir = get_strategy_dir(request.strategy_id)
-            runtime_dir = Path(request.runtime_dir).expanduser() if request.runtime_dir else None
-            use_runtime_dir = bool(runtime_dir and runtime_dir.is_dir())
-            if use_runtime_dir and runtime_dir is not None:
-                task_work_dir = runtime_dir
+            use_runtime_dir = workspace_runtime is not None
+            if workspace_runtime is not None:
+                try:
+                    task_work_dir = await self._run_workspace_runtime_preflight(workspace_runtime)
+                except Exception:
+                    workspace_preflight_failed = True
+                    raise
                 if not (task_work_dir / "run.py").is_file():
                     raise ValueError(f"Unit runtime run.py not found: {task_work_dir}")
                 await self._notify_progress(task_id, 20, "Preparing unit runtime configuration...")
@@ -358,6 +690,17 @@ class BacktestService:
                     self._write_temp_config(config_path, request, original_text)
 
             await self._notify_progress(task_id, 30, "Running backtest...")
+            if workspace_runtime is not None:
+                # Queue time can be arbitrarily long.  Replay the trusted
+                # WorkspaceService preflight at the last safe point, before a
+                # process observes the generated runtime files.
+                try:
+                    task_work_dir = await self._run_workspace_runtime_preflight(workspace_runtime)
+                except Exception:
+                    workspace_preflight_failed = True
+                    raise
+                if not (task_work_dir / "run.py").is_file():
+                    raise ValueError(f"Unit runtime run.py not found: {task_work_dir}")
             await self._run_strategy_subprocess(task_work_dir, str(strategy_dir), task_id)
 
             await self._notify_progress(task_id, 80, "Parsing logs...")
@@ -368,6 +711,7 @@ class BacktestService:
                 strategy_dir,
                 persist_in_runtime_dir=use_runtime_dir,
             )
+            terminal_status = TaskStatus.COMPLETED
 
         except asyncio.CancelledError:
             logger.info(f"Backtest cancelled: {task_id}")
@@ -380,8 +724,11 @@ class BacktestService:
                 task_id,
                 BacktestCancelledEvent(task_id=task_id).model_dump(mode="python"),
             )
+            terminal_status = TaskStatus.CANCELLED
         except Exception as e:
             logger.error(f"Backtest failed: {task_id}, {e}")
+            if workspace_runtime is not None and workspace_preflight_failed:
+                self._discard_workspace_runtime_after_failed_preflight(workspace_runtime)
             await self.task_manager.update_task_status(
                 task_id,
                 TaskStatus.FAILED,
@@ -393,7 +740,10 @@ class BacktestService:
                     mode="python"
                 ),
             )
+            terminal_status = TaskStatus.FAILED
         finally:
+            if terminal_status is not None:
+                await self._finalize_workspace_runtime(workspace_runtime, terminal_status)
             if tmp_base and tmp_base.is_dir():
                 try:
                     shutil.rmtree(tmp_base, ignore_errors=True)
@@ -797,23 +1147,35 @@ class BacktestService:
         if not task or task.user_id != user_id:
             return False
 
-        if task.status not in (TaskStatus.PENDING, TaskStatus.RUNNING):
+        status = TaskStatus(task.status)
+        if status == TaskStatus.PENDING:
+            # PENDING -> CANCELLED and PENDING -> RUNNING are competing CAS
+            # transitions.  A success prevents the scheduled coroutine from
+            # spawning; a loser must reread rather than falsely cancelling a
+            # task that another process already started.
+            if await self.task_manager.cancel_pending_task(task_id, user_id):
+                await invalidate_cache("backtests")
+                return True
+            task = await self.task_repo.get_by_id(task_id)
+            if not task or task.user_id != user_id:
+                return False
+            status = TaskStatus(task.status)
+
+        if status != TaskStatus.RUNNING:
             return False
 
+        # A RUNNING task needs a real process-local cancellation signal.  Do
+        # not write a terminal database status from a stale observer: the
+        # execution coroutine owns its CancelledError transition after its
+        # subprocess/task handle has actually been interrupted.
         cancelled_locally = self.task_runner.cancel_local_execution(task_id)
-        if task.status == TaskStatus.RUNNING and not cancelled_locally:
+        if not cancelled_locally:
             logger.warning(
                 "Cannot cancel running backtest %s: no local execution handle in this process",
                 task_id,
             )
             return False
 
-        # Update task status using task_manager
-        await self.task_manager.update_task_status(
-            task_id,
-            TaskStatus.CANCELLED,
-            error_message="User cancelled task",
-        )
         await invalidate_cache("backtests")
         return True
 

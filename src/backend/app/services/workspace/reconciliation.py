@@ -23,7 +23,7 @@ import logging
 from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Any, cast
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from app.db.database import async_session_maker
 from app.models.backtest import BacktestTask
@@ -44,16 +44,64 @@ _TASK_STATUS_TO_RUN_STATUS: dict[str, str] = {
     TaskStatus.FAILED.value: "failed",
 }
 
+_ACTIVE_UNIT_RUN_STATUSES = ("queued", "materializing", "running", "cancelling")
+_UNIT_RUN_LEASE_PREFIX = "lease-"
+
+
+def _is_unit_run_lease_token(task_id: object) -> bool:
+    """Return whether ``last_task_id`` is a no-task runtime lease."""
+    return isinstance(task_id, str) and task_id.startswith(_UNIT_RUN_LEASE_PREFIX)
+
+
+def _task_status_value(task: BacktestTask) -> str:
+    """Normalize ORM strings and ``TaskStatus`` values for reconciliation."""
+    status = getattr(task, "status", "")
+    return str(getattr(status, "value", status))
+
+
+async def _rewrite_unit_status(
+    session: Any,
+    unit: StrategyUnit,
+    *,
+    expected_status: str,
+    expected_task_id: str | None,
+    next_status: str,
+    clear_task_id: bool = False,
+) -> bool:
+    """CAS one reconciled unit without overwriting a newer run identity.
+
+    Startup may overlap another API process.  A reconciliation snapshot has no
+    authority over a lease or task id that changed after it was read, so every
+    repair is conditional on both pieces of persisted ownership state.
+    """
+    conditions = [
+        StrategyUnit.id == unit.id,
+        StrategyUnit.workspace_id == unit.workspace_id,
+        StrategyUnit.run_status == expected_status,
+    ]
+    if expected_task_id is None:
+        conditions.append(StrategyUnit.last_task_id.is_(None))
+    else:
+        conditions.append(StrategyUnit.last_task_id == expected_task_id)
+
+    values: dict[str, Any] = {"run_status": next_status}
+    if clear_task_id:
+        values["last_task_id"] = None
+    result = await session.execute(update(StrategyUnit).where(*conditions).values(values))
+    return int(getattr(result, "rowcount", 0) or 0) == 1
+
 
 async def reconcile_orphaned_run_statuses() -> int:
     """Repair StrategyUnit.run_status when the backing task is already terminal.
 
-    Walks every unit whose ``run_status`` is ``queued`` or ``running``,
+    Walks every unit whose ``run_status`` is active, including the internal
+    ``materializing`` and ``cancelling`` runtime-fence states,
     looks up its ``last_task_id``, and forces the unit into the matching
     terminal status (``completed``/``cancelled``/``failed``) when the
-    task itself has finished. Units missing a ``last_task_id`` are
-    parked at ``idle``; units whose task row has disappeared are marked
-    ``failed`` (the run is unrecoverable).
+    task itself has finished.  A no-task ``lease-...`` identity is an
+    interrupted workspace runtime write: it is terminalized with an exact
+    compare-and-swap and cleared so a later claim can proceed.  A real
+    pending/running task is never released by this repair.
 
     Returns:
         Number of unit rows whose ``run_status`` was rewritten.
@@ -62,7 +110,7 @@ async def reconcile_orphaned_run_statuses() -> int:
         result = await session.execute(
             select(StrategyUnit)
             .join(Workspace, StrategyUnit.workspace_id == Workspace.id)
-            .where(StrategyUnit.run_status.in_(["queued", "running"]))
+            .where(StrategyUnit.run_status.in_(_ACTIVE_UNIT_RUN_STATUSES))
             .where(Workspace.workspace_type != "trading")
         )
         units = list(result.scalars().all())
@@ -79,23 +127,54 @@ async def reconcile_orphaned_run_statuses() -> int:
 
         changed = 0
         for unit in units:
+            original_status = str(unit.run_status or "").strip().lower()
             last_task_id = str(unit.last_task_id or "").strip()
-            if not last_task_id:
-                next_status = "idle"
-            else:
-                task = task_by_id.get(last_task_id)
-                if task is None:
-                    next_status = "failed"
-                else:
-                    task_status = str(task.status)
-                    mapped = _TASK_STATUS_TO_RUN_STATUS.get(task_status)
-                    if mapped is None:
-                        # Task is still pending/running on this side; leave alone.
-                        continue
-                    next_status = mapped
+            task_id = last_task_id or None
+            task = task_by_id.get(last_task_id) if last_task_id else None
 
-            if str(unit.run_status or "") != next_status:
-                unit.run_status = next_status
+            if task is None and _is_unit_run_lease_token(last_task_id):
+                # The owner process cannot resume a deterministic runtime
+                # write after restart.  Release only this exact lease; a
+                # concurrent replacement claimant makes the CAS fail closed.
+                next_status = "cancelled" if original_status == "cancelling" else "failed"
+                if await _rewrite_unit_status(
+                    session,
+                    unit,
+                    expected_status=original_status,
+                    expected_task_id=last_task_id,
+                    next_status=next_status,
+                    clear_task_id=True,
+                ):
+                    changed += 1
+                continue
+
+            if task is None:
+                if original_status == "cancelling":
+                    next_status = "cancelled"
+                elif original_status == "materializing":
+                    next_status = "failed"
+                elif not task_id:
+                    next_status = "idle"
+                else:
+                    next_status = "failed"
+            else:
+                mapped = _TASK_STATUS_TO_RUN_STATUS.get(_task_status_value(task))
+                if mapped is None:
+                    # Task is still pending/running on this side; leave the
+                    # exact internal fence and task identity untouched.
+                    continue
+                # Mirror run_ops finalization: a successful stop has already
+                # persisted cancellation intent, which wins over a delayed
+                # terminal observation from the task worker.
+                next_status = "cancelled" if original_status == "cancelling" else mapped
+
+            if original_status != next_status and await _rewrite_unit_status(
+                session,
+                unit,
+                expected_status=original_status,
+                expected_task_id=task_id,
+                next_status=next_status,
+            ):
                 changed += 1
 
         if changed:

@@ -3,17 +3,19 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import os
 import subprocess
 import sys
 from dataclasses import replace
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
+from app.services.market_data import openbb_runtime
 from app.services.market_data.providers import (
     MarketDataProviderRequest,
     OpenBBProviderError,
@@ -31,6 +33,7 @@ from scripts.openbb_market_data_runner import (
     _route,
     _RunnerRuntimeRoutePermit,
     _yfinance_historical_arguments,
+    _yfinance_historical_window,
 )
 
 UTC = timezone.utc
@@ -56,6 +59,25 @@ def _runner_script(tmp_path: Path, body: str) -> Path:
     script = tmp_path / "fake_openbb_runner.py"
     script.write_text(body, encoding="utf-8")
     return script
+
+
+@pytest.fixture(autouse=True)
+def _controlled_openbb_runner_directories(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Every subprocess test names dedicated HOME and working directories.
+
+    The production adapter must never quietly reuse the web process home,
+    checkout, or system temporary root.  A test-only fixture keeps fake runner
+    protocols focused on their own behavior while exercising that requirement.
+    """
+    runner_home = tmp_path / "controlled-runner-home"
+    runner_workdir = tmp_path / "controlled-runner-workdir"
+    runner_home.mkdir()
+    runner_workdir.mkdir()
+    monkeypatch.setenv("OPENBB_RUNNER_HOME", str(runner_home))
+    monkeypatch.setenv("OPENBB_RUNNER_WORKDIR", str(runner_workdir))
 
 
 def test_provider_observation_rejects_duplicate_normalized_field_names() -> None:
@@ -436,6 +458,148 @@ async def test_openbb_subprocess_provider_normalizes_an_invalid_runner_command_t
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "raw_command",
+    (
+        "relative-openbb-runner",
+        "python relative-openbb-runner.py",
+        f"{sys.executable} -c 'print(1)'",
+    ),
+)
+async def test_openbb_subprocess_provider_requires_a_small_absolute_runner_command(
+    monkeypatch: pytest.MonkeyPatch,
+    raw_command: str,
+) -> None:
+    """Environment configuration cannot select a relative or arbitrary program."""
+    monkeypatch.setenv("OPENBB_MARKET_DATA_RUNNER", raw_command)
+
+    with pytest.raises(OpenBBProviderError) as invalid:
+        await OpenBBSubprocessProvider.from_environment().fetch(_request())
+
+    assert invalid.value.code == "OPENBB_RUNNER_COMMAND_INVALID"
+
+
+def test_openbb_subprocess_provider_rejects_an_unsafe_direct_runner_command() -> None:
+    """Internal construction keeps the same absolute command boundary as settings."""
+    with pytest.raises(ValueError, match="explicit absolute executable"):
+        OpenBBSubprocessProvider(command=("relative-openbb-runner",))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("environment_key", "expected_code"),
+    (
+        ("OPENBB_RUNNER_HOME", "OPENBB_RUNNER_HOME_INVALID"),
+        ("OPENBB_RUNNER_WORKDIR", "OPENBB_RUNNER_WORKDIR_INVALID"),
+    ),
+)
+async def test_openbb_subprocess_provider_requires_explicit_runner_directories(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    environment_key: str,
+    expected_code: str,
+) -> None:
+    """Missing isolated HOME/workdir cannot fall back to app or temporary paths."""
+    monkeypatch.delenv(environment_key)
+    script = _runner_script(tmp_path, "import sys\nsys.stdin.read()\n")
+
+    with pytest.raises(OpenBBProviderError) as invalid:
+        await OpenBBSubprocessProvider(command=(sys.executable, str(script))).fetch(_request())
+
+    assert invalid.value.code == expected_code
+
+
+def test_openbb_runner_workdir_rejects_the_web_process_worktree(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An explicit setting cannot disguise the web working tree as runner isolation."""
+    monkeypatch.setenv("OPENBB_RUNNER_WORKDIR", os.getcwd())
+
+    with pytest.raises(OpenBBProviderError) as rejected:
+        _openbb_runner_workdir()
+
+    assert rejected.value.code == "OPENBB_RUNNER_WORKDIR_INVALID"
+
+
+@pytest.mark.parametrize("environment_key", ("OPENBB_RUNNER_HOME", "OPENBB_RUNNER_WORKDIR"))
+def test_openbb_runner_directories_reject_checkout_ancestors_and_descendants(
+    monkeypatch: pytest.MonkeyPatch,
+    environment_key: str,
+) -> None:
+    """A nested application directory cannot masquerade as a dedicated runner root."""
+    checkout_root = next(
+        parent for parent in Path(__file__).resolve().parents if (parent / ".git").exists()
+    )
+    nested_checkout_directory = checkout_root / "src" / "backend" / "app"
+    expected_code = (
+        "OPENBB_RUNNER_HOME_INVALID"
+        if environment_key == "OPENBB_RUNNER_HOME"
+        else "OPENBB_RUNNER_WORKDIR_INVALID"
+    )
+    resolver = (
+        _openbb_runner_environment
+        if environment_key == "OPENBB_RUNNER_HOME"
+        else _openbb_runner_workdir
+    )
+
+    for unsafe_directory in (checkout_root.parent, nested_checkout_directory):
+        monkeypatch.setenv(environment_key, str(unsafe_directory))
+        with pytest.raises(OpenBBProviderError) as rejected:
+            resolver()
+        assert rejected.value.code == expected_code
+
+
+def test_openbb_subprocess_provider_rejects_a_runner_script_inside_the_checkout() -> None:
+    """A command cannot execute a script selected from the web application checkout."""
+    checkout_root = next(
+        parent for parent in Path(__file__).resolve().parents if (parent / ".git").exists()
+    )
+    runner_script = checkout_root / "src" / "backend" / "scripts" / "openbb_market_data_runner.py"
+
+    with pytest.raises(ValueError, match="explicit absolute executable"):
+        OpenBBSubprocessProvider(command=(sys.executable, str(runner_script)))
+
+
+def test_openbb_runner_directory_rejects_a_no_git_parent_of_the_application_cwd(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A packaged deployment cannot use a parent directory that contains its app cwd."""
+    import app.services.market_data.providers as providers
+
+    synthetic_module = tmp_path / "wheel" / "app" / "services" / "market_data" / "providers.py"
+    synthetic_module.parent.mkdir(parents=True)
+    synthetic_module.write_text("# package fixture\n", encoding="utf-8")
+    monkeypatch.setattr(providers, "__file__", str(synthetic_module))
+    for unsafe_directory in (
+        synthetic_module.parents[2],
+        Path.cwd().resolve().parent,
+    ):
+        monkeypatch.setenv("OPENBB_RUNNER_WORKDIR", str(unsafe_directory))
+
+        with pytest.raises(OpenBBProviderError) as rejected:
+            _openbb_runner_workdir()
+
+        assert rejected.value.code == "OPENBB_RUNNER_WORKDIR_INVALID"
+
+
+def test_openbb_runner_home_rejects_the_inherited_web_home(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A runner must not reuse the parent application's HOME as its own state."""
+    inherited_home = tmp_path / "inherited-web-home"
+    inherited_home.mkdir()
+    monkeypatch.setenv("HOME", str(inherited_home))
+    monkeypatch.setenv("OPENBB_RUNNER_HOME", str(inherited_home))
+
+    with pytest.raises(OpenBBProviderError) as rejected:
+        _openbb_runner_environment()
+
+    assert rejected.value.code == "OPENBB_RUNNER_HOME_INVALID"
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("stream_name", ("stdout", "stderr"))
 async def test_openbb_subprocess_provider_bounds_every_runner_output_stream(
     tmp_path: Path,
@@ -566,9 +730,11 @@ import sys
 
 request = json.load(sys.stdin)
 blocked = [
-    name for name in ("DATABASE_URL", "JWT_SECRET_KEY", "HTTP_PROXY", "PYTHONPATH", "HOME")
+    name for name in ("DATABASE_URL", "JWT_SECRET_KEY", "HTTP_PROXY", "PYTHONPATH")
     if os.getenv(name)
 ]
+if os.getenv("HOME") == "/private/application/home":
+    blocked.append("HOME")
 if blocked:
     json.dump(
         {
@@ -608,6 +774,7 @@ else:
     assert _openbb_runner_environment()["OPENBB_ALLOWED_PROVIDERS"] == "yfinance"
     assert "DATABASE_URL" not in _openbb_runner_environment()
     assert "JWT_SECRET_KEY" not in _openbb_runner_environment()
+    assert _openbb_runner_environment()["HOME"] != "/private/application/home"
 
 
 @pytest.mark.asyncio
@@ -733,22 +900,35 @@ def test_openbb_yfinance_translates_half_open_date_windows_and_discards_end_reco
     assert [item["event_at"][:10] for item in records] == ["2026-01-02", "2026-01-03"]
 
 
-@pytest.mark.parametrize(
-    ("frequency", "expected_interval"),
-    [
-        ("1d", "1d"),
-        ("1w", "1W"),
-        ("1mo", "1M"),
-    ],
-)
-def test_openbb_yfinance_translates_platform_frequency_to_openbb_interval(
-    frequency: str,
-    expected_interval: str,
-) -> None:
-    """The platform's lowercase frequency stays separate from OpenBB's provider enum."""
-    request = replace(_request(), frequency=frequency)
+def test_openbb_yfinance_accepts_only_the_reviewed_daily_frequency() -> None:
+    """The runner's future fallback scope remains one day-aligned daily route."""
+    assert _yfinance_historical_arguments(_request().dto_payload)["interval"] == "1d"
 
-    assert _yfinance_historical_arguments(request.dto_payload)["interval"] == expected_interval
+    for unsupported_frequency in ("1w", "1mo", "5min"):
+        with pytest.raises(ValueError, match="OPENBB_FREQUENCY_UNSUPPORTED"):
+            _yfinance_historical_arguments(
+                replace(_request(), frequency=unsupported_frequency).dto_payload
+            )
+
+
+def test_openbb_yfinance_rejects_daily_windows_larger_than_3650_days() -> None:
+    """An exact 3650-day half-open interval is allowed; any larger one is not."""
+    request = _request()
+    largest_supported = replace(
+        request,
+        end_at=request.start_at + timedelta(days=3650),
+    )
+    too_large = replace(
+        request,
+        end_at=request.start_at + timedelta(days=3651),
+    )
+
+    assert _yfinance_historical_window(largest_supported.dto_payload) == (
+        largest_supported.start_at,
+        largest_supported.end_at,
+    )
+    with pytest.raises(ValueError, match="OPENBB_WINDOW_TOO_LARGE"):
+        _yfinance_historical_window(too_large.dto_payload)
 
 
 def test_openbb_runner_preserves_date_from_a_default_date_indexed_obbject() -> None:
@@ -877,6 +1057,245 @@ def _run_actual_openbb_runner(
     )
 
 
+class _FakeRuntimeDistribution:
+    """Minimal metadata distribution fake for offline artifact attestation tests."""
+
+    def __init__(self, *, version: str, root: Path, relative_paths: tuple[str, ...]) -> None:
+        self.version = version
+        self._root = root
+        self.files = relative_paths
+
+    def locate_file(self, relative_path: object) -> Path:
+        return self._root / str(relative_path)
+
+
+def _candidate_runtime_artifact_fixture(
+    tmp_path: Path,
+) -> tuple[Path, dict[str, _FakeRuntimeDistribution]]:
+    """Create a complete exact fork candidate without importing OpenBB."""
+    site_packages = tmp_path / "fake-site-packages"
+    package_files = {
+        "openbb": ("4.7.3-test", "openbb/__init__.py", b"fake-openbb"),
+        "openbb-core": ("1.6.13-test", "openbb_core/__init__.py", b"fake-openbb-core"),
+        "openbb-yfinance": (
+            "1.6.3-test",
+            "openbb_yfinance/utils/helpers.py",
+            b"fake-openbb-yfinance-helper",
+        ),
+        "yfinance": ("1.7.0-test", "yfinance/__init__.py", b"fake-yfinance"),
+    }
+    artifacts: list[dict[str, object]] = []
+    distributions: dict[str, _FakeRuntimeDistribution] = {}
+    for distribution_name, (version, relative_path, content) in package_files.items():
+        target = site_packages / relative_path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(content)
+        artifacts.append(
+            {
+                "distribution": distribution_name,
+                "version": version,
+                "files": [
+                    {
+                        "relative_path": relative_path,
+                        "sha256": hashlib.sha256(content).hexdigest(),
+                    }
+                ],
+            }
+        )
+        distributions[distribution_name] = _FakeRuntimeDistribution(
+            version=version,
+            root=site_packages,
+            relative_paths=(relative_path,),
+        )
+    manifest_path = tmp_path / "candidate-runtime-artifacts.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "manifest_version": "openbb-yfinance-runtime-artifact-manifest-v1",
+                "artifact_set_version": "openbb-yfinance-runtime-test-v1",
+                "attestation_state": "candidate",
+                "outbound_end_bound_contract": (
+                    "openbb-yfinance-daily-inclusive-to-yfinance-exclusive-v1"
+                ),
+                "artifacts": artifacts,
+            }
+        ),
+        encoding="utf-8",
+    )
+    return manifest_path, distributions
+
+
+def _load_fake_runtime_artifact_manifest(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> tuple[object, dict[str, _FakeRuntimeDistribution]]:
+    """Install a test-only static manifest in the runner module boundary."""
+    manifest_path, distributions = _candidate_runtime_artifact_fixture(tmp_path)
+    monkeypatch.setattr(openbb_market_data_runner, "_RUNTIME_ARTIFACT_MANIFEST_PATH", manifest_path)
+    manifest, error = openbb_market_data_runner._load_static_runtime_artifact_manifest()
+    assert error is None
+    assert manifest is not None
+    monkeypatch.setattr(openbb_market_data_runner, "_RUNTIME_ARTIFACT_MANIFEST", manifest)
+    return manifest, distributions
+
+
+def test_openbb_runner_verifies_exact_candidate_distribution_versions_and_owned_file_hashes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A static fork candidate verifies exact package-owned source files pre-import."""
+    _manifest, distributions = _load_fake_runtime_artifact_manifest(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        openbb_market_data_runner.metadata,
+        "distribution",
+        lambda distribution_name: distributions[distribution_name],
+    )
+
+    attestation = openbb_market_data_runner._runtime_artifact_attestation()
+
+    assert attestation.status == "candidate"
+    assert attestation.code == "OPENBB_YFINANCE_RUNTIME_ARTIFACT_UNATTESTED"
+    assert attestation.distribution_names == (
+        "openbb",
+        "openbb-core",
+        "openbb-yfinance",
+        "yfinance",
+    )
+    assert attestation.verified_file_count == 4
+
+
+@pytest.mark.parametrize("mismatch", ("version", "file_hash", "missing"))
+def test_openbb_runner_rejects_unattested_or_missing_runtime_artifacts(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    mismatch: str,
+) -> None:
+    """Any exact-package mismatch fails closed through one non-path-bearing code."""
+    _manifest, distributions = _load_fake_runtime_artifact_manifest(tmp_path, monkeypatch)
+
+    def fake_distribution(distribution_name: str) -> _FakeRuntimeDistribution:
+        if mismatch == "missing" and distribution_name == "yfinance":
+            raise openbb_market_data_runner.metadata.PackageNotFoundError(distribution_name)
+        return distributions[distribution_name]
+
+    if mismatch == "version":
+        distributions["openbb"].version = "4.7.4-test"
+    elif mismatch == "file_hash":
+        (tmp_path / "fake-site-packages" / "openbb_yfinance/utils/helpers.py").write_bytes(
+            b"substituted-helper"
+        )
+    monkeypatch.setattr(openbb_market_data_runner.metadata, "distribution", fake_distribution)
+
+    attestation = openbb_market_data_runner._runtime_artifact_attestation()
+
+    assert attestation.status == "unattested"
+    assert attestation.code == "OPENBB_YFINANCE_RUNTIME_ARTIFACT_UNATTESTED"
+    assert attestation.verified_file_count == 0
+
+
+@pytest.mark.parametrize("manifest_body", ("{", "{}"))
+def test_openbb_runner_treats_missing_or_malformed_runtime_artifact_manifest_as_unattested(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    manifest_body: str,
+) -> None:
+    """A bad static manifest cannot turn into a metadata or package fallback."""
+    manifest_path = tmp_path / "runtime-artifacts.json"
+    manifest_path.write_text(manifest_body, encoding="utf-8")
+    monkeypatch.setattr(openbb_market_data_runner, "_RUNTIME_ARTIFACT_MANIFEST_PATH", manifest_path)
+    manifest, error = openbb_market_data_runner._load_static_runtime_artifact_manifest()
+
+    assert manifest is None
+    assert error == "invalid"
+    monkeypatch.setattr(openbb_market_data_runner, "_RUNTIME_ARTIFACT_MANIFEST", manifest)
+    attestation = openbb_market_data_runner._runtime_artifact_attestation()
+    assert attestation.status == "unattested"
+    assert attestation.code == "OPENBB_YFINANCE_RUNTIME_ARTIFACT_UNATTESTED"
+
+
+def test_openbb_runner_treats_a_missing_runtime_artifact_manifest_as_unattested(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The static artifact verifier has no implicit source-checkout fallback."""
+    monkeypatch.setattr(
+        openbb_market_data_runner,
+        "_RUNTIME_ARTIFACT_MANIFEST_PATH",
+        tmp_path / "missing-runtime-artifacts.json",
+    )
+    manifest, error = openbb_market_data_runner._load_static_runtime_artifact_manifest()
+
+    assert manifest is None
+    assert error == "invalid"
+
+
+@pytest.mark.parametrize(
+    "relative_path",
+    ("C:/outside.py", "C:outside.py", "//server/share.py", "../outside.py", "openbb\\file.py"),
+)
+def test_openbb_runner_rejects_cross_platform_or_escaping_artifact_paths(
+    relative_path: str,
+) -> None:
+    """A manifest cannot use a native or foreign absolute path as a package file."""
+    with pytest.raises(ValueError, match="invalid static runtime artifact manifest"):
+        openbb_market_data_runner._artifact_manifest_relative_path(relative_path)
+
+
+def test_openbb_runner_rejects_data_only_execution_attestation_state(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Changing JSON alone cannot promote a reviewed fork candidate to executable."""
+    manifest_path, _distributions = _candidate_runtime_artifact_fixture(tmp_path)
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["attestation_state"] = "attested"
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    monkeypatch.setattr(openbb_market_data_runner, "_RUNTIME_ARTIFACT_MANIFEST_PATH", manifest_path)
+
+    loaded, error = openbb_market_data_runner._load_static_runtime_artifact_manifest()
+
+    assert loaded is None
+    assert error == "invalid"
+
+
+def test_openbb_runner_treats_corrupt_distribution_metadata_as_unattested(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Unexpected metadata objects cannot raise a traceback through the runner boundary."""
+    _manifest, _distributions = _load_fake_runtime_artifact_manifest(tmp_path, monkeypatch)
+    monkeypatch.setattr(openbb_market_data_runner.metadata, "distribution", lambda _name: object())
+
+    attestation = openbb_market_data_runner._runtime_artifact_attestation()
+
+    assert attestation.status == "unattested"
+    assert attestation.code == "OPENBB_YFINANCE_RUNTIME_ARTIFACT_UNATTESTED"
+    assert attestation.verified_file_count == 0
+
+
+def test_openbb_runner_rejects_a_symlinked_owned_artifact_file(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A forged RECORD entry cannot point a reviewed file outside its package root."""
+    _manifest, distributions = _load_fake_runtime_artifact_manifest(tmp_path, monkeypatch)
+    target = tmp_path / "fake-site-packages" / "openbb_yfinance/utils/helpers.py"
+    replacement = tmp_path / "outside-helper.py"
+    replacement.write_bytes(b"fake-openbb-yfinance-helper")
+    target.unlink()
+    target.symlink_to(replacement)
+    monkeypatch.setattr(
+        openbb_market_data_runner.metadata,
+        "distribution",
+        lambda distribution_name: distributions[distribution_name],
+    )
+
+    attestation = openbb_market_data_runner._runtime_artifact_attestation()
+
+    assert attestation.status == "unattested"
+    assert attestation.code == "OPENBB_YFINANCE_RUNTIME_ARTIFACT_UNATTESTED"
+
+
 def test_openbb_runner_self_check_reports_a_safe_blocked_attestation(
     tmp_path: Path,
 ) -> None:
@@ -900,6 +1319,29 @@ def test_openbb_runner_self_check_reports_a_safe_blocked_attestation(
     assert attestation["protocol_version"] == "openbb-market-data-v1"
     assert attestation["self_check_version"] == "openbb-market-data-self-check-v1"
     assert attestation["status"] == "blocked"
+    runtime_attestation = attestation["attestation"]["runtime"]
+    assert set(runtime_attestation["distribution_versions"]) == {
+        "openbb",
+        "openbb-core",
+        "openbb-yfinance",
+        "yfinance",
+    }
+    assert runtime_attestation["artifact_attestation"] == {
+        "status": "unattested",
+        "code": "OPENBB_YFINANCE_RUNTIME_ARTIFACT_UNATTESTED",
+        "manifest_status": "valid",
+        "manifest_version": "openbb-yfinance-runtime-artifact-manifest-v1",
+        "artifact_set_version": "openbb-yfinance-us-nyse-1d-fork-candidate-v1",
+        "attestation_state": "candidate",
+        "distribution_names": ["openbb", "openbb-core", "openbb-yfinance", "yfinance"],
+        "verified_file_count": 0,
+        "paths_included": False,
+        "hashes_included": False,
+    }
+    assert attestation["attestation"]["coverage"]["coverage_source"] == (
+        "canonical-static-permit-manifest"
+    )
+    assert attestation["attestation"]["coverage"]["permit_manifest_status"] == "valid"
     assert attestation["attestation"]["coverage"]["active_route_ids"] == []
     assert attestation["attestation"]["configuration"] == {
         "configured_provider_names": ["yfinance"],
@@ -912,12 +1354,40 @@ def test_openbb_runner_self_check_reports_a_safe_blocked_attestation(
         "status": "unattested",
     }
     assert "must-not-appear-in-runner-attestation" not in completed.stdout
+    assert str(tmp_path) not in completed.stdout
+    assert "relative_path" not in completed.stdout
+    assert "sha256" not in completed.stdout
 
 
-def test_openbb_runner_blocks_yfinance_before_import_when_outbound_end_is_unattested(
+def test_openbb_runtime_and_runner_read_the_same_canonical_zero_permit_manifest() -> None:
+    """The runner mirrors reviewed data without importing the web application."""
+    manifest_path = Path(openbb_runtime.__file__).with_name("openbb_runtime_permit_manifest.json")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+    assert manifest["manifest_version"] == openbb_runtime.OPENBB_RUNTIME_PERMIT_MANIFEST_VERSION
+    assert manifest["permit_matrix_version"] == openbb_runtime.OPENBB_RUNTIME_PERMIT_MATRIX_VERSION
+    assert manifest["permit_matrix_version"] == openbb_market_data_runner._PERMIT_MATRIX_VERSION
+    assert tuple(manifest["supported_runner_providers"]) == tuple(
+        sorted(openbb_runtime.SUPPORTED_OPENBB_RUNNER_PROVIDERS)
+    )
+    assert tuple(manifest["supported_runner_providers"]) == (
+        openbb_market_data_runner._EXACT_ALLOWED_PROVIDER_NAMES
+    )
+    assert tuple(manifest["dangerous_extension_environment_keys"]) == tuple(
+        sorted(openbb_runtime.DANGEROUS_OPENBB_EXTENSION_ENVIRONMENT_KEYS)
+    )
+    assert tuple(manifest["dangerous_extension_environment_keys"]) == (
+        openbb_market_data_runner._DANGEROUS_OPENBB_ENVIRONMENT_KEYS
+    )
+    assert manifest["runtime_route_permits"] == []
+    assert openbb_runtime.OPENBB_RUNTIME_PERMIT_MATRIX == ()
+    assert openbb_market_data_runner._ACTIVE_RUNTIME_ROUTE_PERMITS == ()
+
+
+def test_openbb_runner_blocks_yfinance_before_import_when_runtime_artifact_is_unattested(
     tmp_path: Path,
 ) -> None:
-    """A valid-looking exact candidate cannot reach OpenBB until the actual call is bounded."""
+    """A mismatched fork candidate blocks an otherwise valid request pre-import."""
     request = replace(_request(), market="US-NYSE")
     environment = os.environ.copy()
     environment.update(
@@ -939,7 +1409,90 @@ def test_openbb_runner_blocks_yfinance_before_import_when_outbound_end_is_unatte
 
     assert completed.returncode == 0
     assert json.loads(completed.stdout)["error"]["code"] == (
-        "OPENBB_YFINANCE_OUTBOUND_END_BOUND_UNATTESTED"
+        "OPENBB_YFINANCE_RUNTIME_ARTIFACT_UNATTESTED"
+    )
+
+
+def test_openbb_runner_keeps_yfinance_outbound_end_bound_fail_closed_for_candidate() -> None:
+    """A verified fork candidate cannot become executable through static data alone."""
+    candidate = openbb_market_data_runner._RuntimeArtifactAttestation(
+        status="candidate",
+        code="OPENBB_YFINANCE_RUNTIME_ARTIFACT_UNATTESTED",
+        manifest_status="valid",
+        manifest_version="openbb-yfinance-runtime-artifact-manifest-v1",
+        artifact_set_version="openbb-yfinance-runtime-test-v1",
+        attestation_state="candidate",
+        distribution_names=("openbb", "openbb-core", "openbb-yfinance", "yfinance"),
+        verified_file_count=4,
+    )
+
+    assert not openbb_market_data_runner._yfinance_outbound_end_bound_is_attested(
+        artifact_attestation=candidate
+    )
+
+
+def test_openbb_runner_rejects_an_overlarge_daily_window_before_importing_openbb(
+    tmp_path: Path,
+) -> None:
+    """The stable ten-year bound applies even while runtime artifacts remain disabled."""
+    request = replace(
+        _request(),
+        end_at=_request().start_at + timedelta(days=3651),
+    )
+    environment = os.environ.copy()
+    environment.update(
+        {
+            "OPENBB_ALLOWED_PROVIDERS": "yfinance",
+            "PYTHONPATH": str(tmp_path),
+        }
+    )
+    (tmp_path / "openbb.py").write_text("raise RuntimeError('OpenBB import attempted')\n")
+
+    completed = _run_actual_openbb_runner(
+        payload={
+            "protocol_version": "openbb-market-data-v1",
+            "request_id": request.request_id,
+            "request": request.dto_payload,
+        },
+        environment=environment,
+    )
+
+    assert completed.returncode == 0
+    assert json.loads(completed.stdout)["error"]["code"] == "OPENBB_WINDOW_TOO_LARGE"
+
+
+@pytest.mark.parametrize(
+    "dangerous_key",
+    ("OPENBB_ALLOW_MUTABLE_EXTENSIONS", "OPENBB_ALLOW_ON_COMMAND_OUTPUT"),
+)
+def test_openbb_runner_rejects_dangerous_extension_environment_before_import(
+    tmp_path: Path,
+    dangerous_key: str,
+) -> None:
+    """An actual request cannot activate a mutable OpenBB extension setting."""
+    request = replace(_request(), market="US-NYSE")
+    environment = os.environ.copy()
+    environment.update(
+        {
+            "OPENBB_ALLOWED_PROVIDERS": "yfinance",
+            dangerous_key: "true",
+            "PYTHONPATH": str(tmp_path),
+        }
+    )
+    (tmp_path / "openbb.py").write_text("raise RuntimeError('OpenBB import attempted')\n")
+
+    completed = _run_actual_openbb_runner(
+        payload={
+            "protocol_version": "openbb-market-data-v1",
+            "request_id": request.request_id,
+            "request": request.dto_payload,
+        },
+        environment=environment,
+    )
+
+    assert completed.returncode == 0
+    assert json.loads(completed.stdout)["error"]["code"] == (
+        "OPENBB_RUNNER_DANGEROUS_ENVIRONMENT"
     )
 
 

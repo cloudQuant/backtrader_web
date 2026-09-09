@@ -28,6 +28,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     event,
+    inspect,
 )
 from sqlalchemy.dialects import mysql
 from sqlalchemy.orm import relationship, synonym
@@ -828,11 +829,194 @@ def calendar_coverage_descriptor(payload: object) -> tuple[str, str] | None:
     return _calendar_coverage_descriptor(payload)
 
 
+class MdResearchDataBinding(Base):
+    """Server-issued immutable market-data artifact binding for one research intent.
+
+    The relational receipt is the authority for a backtest input artifact.  A
+    caller may carry its opaque identifier and HMAC envelope through a
+    workspace request, but it never supplies a filesystem path, provider, or
+    canonical identity.  The artifact itself is retained outside the database;
+    its relative path and content digest are therefore stored with the exact
+    local-first/PIT evidence that produced it.
+    """
+
+    __tablename__ = "md_research_data_bindings"
+    __table_args__ = (
+        UniqueConstraint("binding_hash", name="uq_md_rdb_binding_hash"),
+        CheckConstraint(
+            f"length(binding_hash) = {_SHA256_LENGTH}",
+            name="ck_md_rdb_binding_hash_len",
+        ),
+        CheckConstraint(
+            f"length(manifest_sha256) = {_SHA256_LENGTH}",
+            name="ck_md_rdb_manifest_hash_len",
+        ),
+        CheckConstraint(
+            f"length(artifact_sha256) = {_SHA256_LENGTH}",
+            name="ck_md_rdb_artifact_hash_len",
+        ),
+        CheckConstraint(
+            "artifact_size_bytes > 0",
+            name="ck_md_rdb_artifact_size_pos",
+        ),
+        CheckConstraint(
+            "status IN ('ACTIVE', 'REVOKED', 'INVALID')",
+            name="ck_md_rdb_status",
+        ),
+        CheckConstraint(
+            "visibility_sequence >= 0 AND identity_visibility_sequence >= 0",
+            name="ck_md_rdb_visibility_seq",
+        ),
+        Index("ix_md_rdb_owner_intent", "user_id", "intent_id", "created_at"),
+        Index("ix_md_rdb_status_created", "status", "created_at"),
+    )
+
+    id = Column(String(36), primary_key=True, default=_uuid)
+    user_id = Column(
+        String(36),
+        ForeignKey("users.id", name="fk_md_rdb_user", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    intent_id = Column(String(128), nullable=False)
+    binding_hash = Column(String(_SHA256_LENGTH), nullable=False)
+    binding_schema_version = Column(String(64), nullable=False)
+    status = Column(String(16), nullable=False, default="ACTIVE")
+    artifact_relative_path = Column(String(512), nullable=False)
+    artifact_sha256 = Column(String(_SHA256_LENGTH), nullable=False)
+    artifact_size_bytes = Column(BigInteger, nullable=False)
+    manifest_json = Column(JSON, default=dict, nullable=False)
+    manifest_sha256 = Column(String(_SHA256_LENGTH), nullable=False)
+    canonical_id = Column(exact_identifier_string(512), nullable=False)
+    instrument_metadata_version = Column(String(128), nullable=False)
+    dataset_code = Column(String(255), nullable=False)
+    family_id = Column(String(128), nullable=False)
+    family_contract_version = Column(String(64), nullable=False)
+    data_kind = Column(String(64), nullable=False)
+    frequency = Column(String(32), nullable=False)
+    source_policy_id = Column(String(128), nullable=False)
+    query_fingerprint = Column(String(_SHA256_LENGTH), nullable=False)
+    knowledge_cutoff = Column(PITDateTime, nullable=False)
+    identity_knowledge_cutoff = Column(PITDateTime, nullable=False)
+    visibility_at = Column(PITDateTime, nullable=False)
+    visibility_sequence = Column(BigInteger, nullable=False)
+    identity_visibility_at = Column(PITDateTime, nullable=False)
+    identity_visibility_sequence = Column(BigInteger, nullable=False)
+    created_at = Column(PITDateTime, default=_utcnow, nullable=False)
+
+
+class MdResearchDataBindingScope(Base):
+    """The one research workspace that may consume a sealed binding.
+
+    A binding is issued before the AI-research pipeline has created its first
+    strategy unit.  This immutable server-side scope is therefore established
+    by that trusted pipeline immediately after the first unit exists.  It
+    prevents an owner from copying an otherwise valid token into a different
+    workspace through the generic workspace API.
+    """
+
+    __tablename__ = "md_research_data_binding_scopes"
+    __table_args__ = (
+        CheckConstraint("length(intent_id) > 0", name="ck_md_rdb_scope_intent_nonempty"),
+        Index("ix_md_rdb_scope_workspace", "workspace_id", "created_at"),
+    )
+
+    binding_id = Column(
+        String(36),
+        ForeignKey(
+            "md_research_data_bindings.id",
+            name="fk_md_rdb_scope_binding",
+            ondelete="RESTRICT",
+        ),
+        primary_key=True,
+    )
+    user_id = Column(String(36), nullable=False)
+    intent_id = Column(String(128), nullable=False)
+    workspace_id = Column(String(36), nullable=False)
+    created_at = Column(PITDateTime, default=_utcnow, nullable=False)
+
+
+class MdResearchDataBindingConsumer(Base):
+    """One server-attested research unit allowed to consume a binding.
+
+    The row is not derived from browser ``data_config``.  Runtime resolution
+    requires this exact binding/workspace/unit/intent tuple in addition to the
+    HMAC token, so copying the token to another user-created unit fails
+    closed.
+    """
+
+    __tablename__ = "md_research_data_binding_consumers"
+    __table_args__ = (
+        UniqueConstraint("binding_id", "unit_id", name="uq_md_rdb_consumer_binding_unit"),
+        UniqueConstraint("unit_id", name="uq_md_rdb_consumer_unit"),
+        CheckConstraint("length(intent_id) > 0", name="ck_md_rdb_consumer_intent_nonempty"),
+        Index("ix_md_rdb_consumer_lookup", "binding_id", "workspace_id", "intent_id"),
+    )
+
+    id = Column(String(36), primary_key=True, default=_uuid)
+    binding_id = Column(
+        String(36),
+        ForeignKey(
+            "md_research_data_bindings.id",
+            name="fk_md_rdb_consumer_binding",
+            ondelete="RESTRICT",
+        ),
+        nullable=False,
+    )
+    user_id = Column(String(36), nullable=False)
+    intent_id = Column(String(128), nullable=False)
+    workspace_id = Column(String(36), nullable=False)
+    unit_id = Column(String(36), nullable=False)
+    created_at = Column(PITDateTime, default=_utcnow, nullable=False)
+
+
+class MdResearchDataBindingRevocation(Base):
+    """Append-only emergency invalidation for a sealed binding artifact."""
+
+    __tablename__ = "md_research_data_binding_revocations"
+    __table_args__ = (
+        UniqueConstraint("binding_id", name="uq_md_rdb_revocation_binding"),
+        CheckConstraint(
+            "status IN ('REVOKED', 'INVALID')",
+            name="ck_md_rdb_revocation_status",
+        ),
+        CheckConstraint("length(reason_code) > 0", name="ck_md_rdb_revocation_reason_nonempty"),
+        Index("ix_md_rdb_revocation_created", "created_at"),
+    )
+
+    id = Column(String(36), primary_key=True, default=_uuid)
+    binding_id = Column(
+        String(36),
+        ForeignKey(
+            "md_research_data_bindings.id",
+            name="fk_md_rdb_revocation_binding",
+            ondelete="RESTRICT",
+        ),
+        nullable=False,
+    )
+    actor_user_id = Column(String(36), nullable=True)
+    status = Column(String(16), nullable=False)
+    reason_code = Column(String(128), nullable=False)
+    revoked_at = Column(PITDateTime, default=_utcnow, nullable=False)
+    created_at = Column(PITDateTime, default=_utcnow, nullable=False)
+
+
 def _deny_immutable_mutation(_mapper: Any, _connection: Any, target: Any) -> None:
     """Keep evidence entities append-only when accessed through the ORM."""
     raise ImmutableMarketDataRecordError(
         f"{target.__class__.__name__} records are immutable; append a new version instead"
     )
+
+
+def _deny_research_binding_mutation(
+    _mapper: Any,
+    _connection: Any,
+    target: MdResearchDataBinding,
+) -> None:
+    """Keep the binding receipt immutable; revocations use their own receipt."""
+    state = inspect(target)
+    changed = [attribute.key for attribute in state.attrs if attribute.history.has_changes()]
+    if changed:
+        _deny_immutable_mutation(_mapper, _connection, target)
 
 
 for _immutable_model in (
@@ -843,6 +1027,12 @@ for _immutable_model in (
     MdCalendarEvent,
     MdInstrumentIdentityRevision,
     MdPublication,
+    MdResearchDataBindingScope,
+    MdResearchDataBindingConsumer,
+    MdResearchDataBindingRevocation,
 ):
     event.listen(_immutable_model, "before_update", _deny_immutable_mutation)
     event.listen(_immutable_model, "before_delete", _deny_immutable_mutation)
+
+event.listen(MdResearchDataBinding, "before_update", _deny_research_binding_mutation)
+event.listen(MdResearchDataBinding, "before_delete", _deny_immutable_mutation)

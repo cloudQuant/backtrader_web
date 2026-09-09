@@ -4,11 +4,15 @@ Strategy API routes.
 
 import logging
 import typing
+import uuid
 from functools import lru_cache
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 
 from app.api.deps import get_current_user
+from app.config import get_settings
+from app.db.database import get_db
 from app.schemas.ai_strategy_research import (
     AIStrategyLiveHandoffApprovalRequest,
     AIStrategyLiveHandoffPackage,
@@ -75,11 +79,14 @@ from app.services.strategy_service import (
     get_strategy_readme,
     get_template_by_id,
 )
+from app.services.workspace.units import MarketDataBindingUnitMutationError
 from app.utils.response_cache import cache_response
 
 _logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+_MARKET_DATA_BINDING_ERROR_PREFIX = "MARKET_DATA_BINDING_"
 
 
 @lru_cache
@@ -100,6 +107,144 @@ def get_ai_strategy_research_objective_optimizer() -> typing.Any:
 @lru_cache
 def get_ai_strategy_research_tasks() -> typing.Any:
     return get_ai_strategy_research_task_manager()
+
+
+class _MarketDataResearchBindingRequestFactory:
+    """Open a v2 database session only while the enabled bridge binds a request."""
+
+    def __init__(self, *, artifact_root: Path, signing_key: str) -> None:
+        self._artifact_root = artifact_root
+        self._signing_key = signing_key
+
+    async def bind_request(
+        self,
+        *,
+        user_id: str,
+        request: AIStrategyResearchRunRequest,
+        intent_id: str,
+    ) -> AIStrategyResearchRunRequest:
+        """Compose and use the v2 service inside one short-lived DB session."""
+        database_dependency = get_db()
+        try:
+            db = await database_dependency.__anext__()
+            from app.api.data.base import get_legacy_market_data_query_contract_resolver
+            from app.api.data.deps import get_market_data_access_authorizer
+            from app.api.data.queries import get_market_data_query_service
+            from app.services.market_data.research_binding import MarketDataResearchBindingService
+
+            service = MarketDataResearchBindingService(
+                db,
+                get_market_data_query_service(db),
+                get_legacy_market_data_query_contract_resolver(db),
+                get_market_data_access_authorizer(db),
+                self._artifact_root,
+                binding_signing_key=self._signing_key,
+            )
+            return await service.bind_request(
+                user_id=user_id,
+                request=request,
+                intent_id=intent_id,
+            )
+        except StopAsyncIteration as exc:
+            raise RuntimeError("AI research market-data database dependency is unavailable") from exc
+        finally:
+            await database_dependency.aclose()
+
+
+def get_ai_strategy_research_market_data_binding_service() -> typing.Any | None:
+    """Build the enabled Iteration 197 research-data request factory.
+
+    V2 imports, database sessions, and provider-policy construction are all
+    delayed until ``bind_request`` and therefore absent from legacy API calls
+    while the default-disabled bridge remains off.
+    """
+    settings = get_settings()
+    if not bool(getattr(settings, "MARKET_DATA_RESEARCH_BACKTEST_BRIDGE_ENABLED", False)):
+        return None
+    return _MarketDataResearchBindingRequestFactory(
+        artifact_root=Path(str(settings.MARKET_DATA_RESEARCH_ARTIFACT_ROOT)),
+        signing_key=str(settings.MARKET_DATA_RESEARCH_ARTIFACT_SIGNING_KEY),
+    )
+
+
+def _market_data_research_request_preparer(
+    binding_service: typing.Any | None,
+    *,
+    user_id: str,
+) -> typing.Callable[[str, AIStrategyResearchRunRequest], typing.Any] | None:
+    """Return the task-scoped server-side binder only when the bridge is on."""
+    if binding_service is None:
+        return None
+
+    async def prepare(
+        intent_id: str,
+        request: AIStrategyResearchRunRequest,
+    ) -> AIStrategyResearchRunRequest:
+        return await binding_service.bind_request(
+            user_id=user_id,
+            request=request,
+            intent_id=intent_id,
+        )
+
+    return prepare
+
+
+async def _prepare_ai_research_run_request(
+    binding_service: typing.Any | None,
+    *,
+    user_id: str,
+    request: AIStrategyResearchRunRequest,
+) -> AIStrategyResearchRunRequest:
+    """Bind a synchronous AI-research run before it can create workspace work."""
+    preparer = _market_data_research_request_preparer(binding_service, user_id=user_id)
+    if preparer is None:
+        return request
+    return await preparer(str(uuid.uuid4()), request)
+
+
+def _market_data_binding_http_exception(error: Exception) -> HTTPException | None:
+    """Translate stable binding failures without exposing internal traces."""
+    code = str(getattr(error, "code", "") or "").strip()
+    if not code.startswith(_MARKET_DATA_BINDING_ERROR_PREFIX):
+        return None
+
+    normalized = code.upper()
+    if normalized.endswith(
+        (
+            "_ACCESS_DENIED",
+            "_OWNER_DENIED",
+            "_PERMISSION_DENIED",
+            "_UNAUTHORIZED",
+        )
+    ):
+        status_code = status.HTTP_403_FORBIDDEN
+    elif any(
+        token in normalized
+        for token in (
+            "UNAVAILABLE",
+            "DISABLED",
+            "SIGNING_KEY",
+            "LOCAL_QUERY",
+            "LOCAL_INCOMPLETE",
+            "FETCH_FORBIDDEN",
+            "PAGINATION_FORBIDDEN",
+            "OHLC_REQUIRED",
+            "NO_OBSERVATIONS",
+            "WRITE_CONFLICT",
+            "WRITE_FAILED",
+        )
+    ):
+        status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    else:
+        status_code = status.HTTP_400_BAD_REQUEST
+    return HTTPException(status_code=status_code, detail={"code": code})
+
+
+def _raise_ai_research_request_error(error: Exception) -> None:
+    """Raise the bounded HTTP error for a known bridge failure, if any."""
+    binding_error = _market_data_binding_http_exception(error)
+    if binding_error is not None:
+        raise binding_error from error
 
 
 @lru_cache
@@ -311,11 +456,22 @@ async def run_ai_strategy_research_loop(
     data: AIStrategyResearchRunRequest,
     current_user: typing.Any = Depends(get_current_user),
     service: AIStrategyResearchService = Depends(get_ai_strategy_research_service),
+    binding_service: typing.Any | None = Depends(
+        get_ai_strategy_research_market_data_binding_service
+    ),
 ) -> typing.Any:
     """Generate, backtest, improve, and optionally start paper trading."""
     try:
-        return redact_ai_strategy_research_payload(await service.run(current_user.sub, data))
-    except ValueError as exc:
+        request = await _prepare_ai_research_run_request(
+            binding_service,
+            user_id=current_user.sub,
+            request=data,
+        )
+        return redact_ai_strategy_research_payload(await service.run(current_user.sub, request))
+    except Exception as exc:
+        _raise_ai_research_request_error(exc)
+        if not isinstance(exc, ValueError):
+            raise
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
@@ -521,11 +677,24 @@ async def submit_ai_strategy_research_task(
     current_user: typing.Any = Depends(get_current_user),
     service: AIStrategyResearchService = Depends(get_ai_strategy_research_service),
     task_manager: AIStrategyResearchTaskManager = Depends(get_ai_strategy_research_tasks),
+    binding_service: typing.Any | None = Depends(
+        get_ai_strategy_research_market_data_binding_service
+    ),
 ) -> typing.Any:
     """Submit a long-running AI research loop and poll it by task id."""
     try:
-        return await task_manager.submit(current_user.sub, data, service=service)
-    except ValueError as exc:
+        request_preparer = _market_data_research_request_preparer(
+            binding_service,
+            user_id=current_user.sub,
+        )
+        submit_kwargs: dict[str, typing.Any] = {"service": service}
+        if request_preparer is not None:
+            submit_kwargs["request_preparer"] = request_preparer
+        return await task_manager.submit(current_user.sub, data, **submit_kwargs)
+    except Exception as exc:
+        _raise_ai_research_request_error(exc)
+        if not isinstance(exc, ValueError):
+            raise
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
@@ -595,16 +764,29 @@ async def continue_ai_strategy_research_task(
     current_user: typing.Any = Depends(get_current_user),
     service: AIStrategyResearchService = Depends(get_ai_strategy_research_service),
     task_manager: AIStrategyResearchTaskManager = Depends(get_ai_strategy_research_tasks),
+    binding_service: typing.Any | None = Depends(
+        get_ai_strategy_research_market_data_binding_service
+    ),
 ) -> typing.Any:
     """Submit a new research task rebuilt from a saved task snapshot."""
     try:
+        request_preparer = _market_data_research_request_preparer(
+            binding_service,
+            user_id=current_user.sub,
+        )
+        continue_kwargs: dict[str, typing.Any] = {"service": service}
+        if request_preparer is not None:
+            continue_kwargs["request_preparer"] = request_preparer
         task = await task_manager.continue_task(
             current_user.sub,
             task_id,
             overrides=data.overrides if data is not None else {},
-            service=service,
+            **continue_kwargs,
         )
-    except ValueError as exc:
+    except Exception as exc:
+        _raise_ai_research_request_error(exc)
+        if not isinstance(exc, ValueError):
+            raise
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     if task is None:
         raise HTTPException(status_code=404, detail="AI research task not found")
@@ -928,7 +1110,13 @@ async def add_strategy_copilot_draft_to_workspace(
     service: StrategyService = Depends(get_strategy_service),
 ) -> typing.Any:
     """Persist a strategy draft and add it to a workspace unit."""
-    result = await service.add_copilot_draft_to_workspace(current_user.sub, workspace_id, data)
+    try:
+        result = await service.add_copilot_draft_to_workspace(current_user.sub, workspace_id, data)
+    except MarketDataBindingUnitMutationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": exc.code},
+        ) from exc
     if result is None:
         raise HTTPException(status_code=404, detail="Workspace or strategy not found")
     return result
@@ -947,7 +1135,13 @@ async def backtest_strategy_copilot_draft(
     service: StrategyService = Depends(get_strategy_service),
 ) -> typing.Any:
     """Persist a strategy draft, create a workspace unit, and trigger backtest."""
-    result = await service.backtest_copilot_draft(current_user.sub, workspace_id, data)
+    try:
+        result = await service.backtest_copilot_draft(current_user.sub, workspace_id, data)
+    except MarketDataBindingUnitMutationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": exc.code},
+        ) from exc
     if result is None:
         raise HTTPException(status_code=404, detail="Workspace or strategy not found")
     return result
