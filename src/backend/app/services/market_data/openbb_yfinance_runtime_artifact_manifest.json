@@ -1,0 +1,60 @@
+{
+  "manifest_version": "openbb-yfinance-runtime-artifact-manifest-v1",
+  "artifact_set_version": "openbb-yfinance-us-nyse-1d-fork-candidate-v1",
+  "attestation_state": "candidate",
+  "outbound_end_bound_contract": "openbb-yfinance-daily-inclusive-to-yfinance-exclusive-v1",
+  "artifacts": [
+    {
+      "distribution": "openbb",
+      "version": "4.7.3",
+      "files": [
+        {
+          "relative_path": "openbb/__init__.py",
+          "sha256": "8544b1b5c1e5ad6ce542a90ef11578f46c60eb1519e8c361d4de92e098447ac1"
+        }
+      ]
+    },
+    {
+      "distribution": "openbb-core",
+      "version": "1.6.13",
+      "files": [
+        {
+          "relative_path": "openbb_core/__init__.py",
+          "sha256": "5b12bc3a0056af50fd5fefd2234a1c91aeaa77350522d1b232c40c32312e1808"
+        }
+      ]
+    },
+    {
+      "distribution": "openbb-yfinance",
+      "version": "1.6.3.post1",
+      "files": [
+        {
+          "relative_path": "openbb_yfinance/__init__.py",
+          "sha256": "a7b85014364f1c3cefc0214ec86345693e2fa65cdff714b2c7b7c0f5c043a3b5"
+        },
+        {
+          "relative_path": "openbb_yfinance/models/equity_historical.py",
+          "sha256": "f8cc3030c604bcec1b8d3ee1d3fb7e1d79e472dbcc92c7fda474d60d696cf20a"
+        },
+        {
+          "relative_path": "openbb_yfinance/utils/helpers.py",
+          "sha256": "35b711fab32552c20bfafeaff3a32d758d528fc8074938b7b015021f359eab3e"
+        }
+      ]
+    },
+    {
+      "distribution": "yfinance",
+      "version": "1.4.1",
+      "files": [
+        {
+          "relative_path": "yfinance/__init__.py",
+          "sha256": "d6eda141e64f87a6107edb04f398b350aad6671f3e7eb9bf5f128b29f8c40061"
+        },
+        {
+          "relative_path": "yfinance/multi.py",
+          "sha256": "6f892e1289a9384979771d3d1ec7335406f8652b7cce02df6514992bae05e2d6"
+        }
+      ]
+    }
+  ]
+}

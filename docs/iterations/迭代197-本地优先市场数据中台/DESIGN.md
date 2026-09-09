@@ -195,7 +195,7 @@ lease key 对 canonical identity、dataset、metadata version、asset/market、�
 
 `OpenBBSubprocessProvider` 只执行运维配置的命令，不通过 shell 拼接。协议包含版本、关联请求 ID 和完整请求 DTO；运行器必须回显它们。Web 进程对超时、非零退出、超大输出、无效 JSON、错配 ID、重复/越界事件全部拒绝。
 
-父进程创建子进程时只转交运行所需的基础环境变量、`OPENBB_ALLOWED_PROVIDERS` 和可选 `HOME=OPENBB_RUNNER_HOME`；不会把数据库 URL、JWT/session 密钥、代理凭据、Python import path 或主应用 `HOME` 直接传给 runner。子进程 `cwd` 使用绝对且存在的 `OPENBB_RUNNER_WORKDIR`，未配置时退到系统临时目录，配置非法时失败为 `OPENBB_RUNNER_WORKDIR_INVALID`。这只能避免继承当前工作树与大量环境变量，不能阻止同一操作系统账户读取可访问的文件。
+父进程创建子进程时只转交运行所需的基础环境变量和 `OPENBB_ALLOWED_PROVIDERS`；不会把数据库 URL、JWT/session 密钥、代理凭据、Python import path 或主应用 `HOME` 直接传给 runner。运维必须显式提供独立、绝对且已存在的 `OPENBB_RUNNER_HOME` 和 `OPENBB_RUNNER_WORKDIR`：前者被设为 runner 的 `HOME`，后者被设为子进程 `cwd`。任一变量缺失、非法、指向主进程工作目录、继承的主进程 HOME 或系统临时根目录时分别以 `OPENBB_RUNNER_HOME_INVALID` 或 `OPENBB_RUNNER_WORKDIR_INVALID` 拒绝；不存在临时目录或当前工作树回退。这只能避免继承当前工作树与大量环境变量，不能阻止同一操作系统账户读取可访问的文件。
 
 `scripts/openbb_market_data_runner.py` 在 runner 环境中运行隔离 JSON 协议。它保留有大小上限的预规范化原始 records 封套（`format=openbb-records-pre-normalization-v1`）和其 SHA-256；父进程使用稳定 JSON 重新计算哈希，任何缺失、非映射载荷或哈希不一致的响应均拒绝，不进入 `md_source_snapshots`。但当前静态 OpenBB runtime permit matrix **显式为空**：`MARKET_DATA_OPENBB_ALLOWED_MARKETS` 只能收窄未来逐轴审核的 permit，不能由非空值生成 asset、market、endpoint 或 provider fallback，也不会注册 OpenBB provider。未来 permit 的 `route_id`、`family_id`、provider、asset、market、kind、frequency、四个语义轴和 `endpoint` 必须同时投影到 server-owned route、回显 provider DTO 和 runner mirror permit；runner 逐项核验后只按 `(asset_type, endpoint)` 的静态映射分发，不能仅凭 `route_id` 或 asset type 选择端点。runner 只接受恰为 `yfinance` 的 `OPENBB_ALLOWED_PROVIDERS`，扩展、重复或未知 token 一律失败关闭。首批 runner 不做复权、币种、单位或价格口径转换，因而任何声明转换要求都会失败关闭。
 

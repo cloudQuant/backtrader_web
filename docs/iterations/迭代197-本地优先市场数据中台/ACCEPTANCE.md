@@ -230,7 +230,7 @@ npm run lint
 3. 保存已解析 canonical identity、metadata version、冻结 identity projection、数据系列、来源策略、日历版本、查询 fingerprint、知识截止点、source/calendar/identity publication receipt、来源快照和修订 ID 至研究/回测工件。
 4. 同一候选数据集进行两次本地重放，输出行、字段哈希和工件指纹应一致；不一致必须按 `FAIL` 处理，不能以“数据源更新”解释。
 
-此专项与迭代 196 的最终工件格式存在依赖，当前为 `BLOCKED`，详见第 9 节。
+迭代 196/197 的工件格式、迁移链与本地 strict-binding 回归已完成集成；本专项不再因“迭代 196 最终工件格式”本身而阻塞。它仍等待已批准真实数据的 PIT 重放、浏览器/API/数据库三方证据和部署运行证据，详见第 9 节。
 
 ## 7. 数据库迁移与灾备验收
 
