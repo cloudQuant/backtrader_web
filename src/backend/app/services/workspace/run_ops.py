@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 from sqlalchemy import select
@@ -362,45 +363,87 @@ class WorkspaceRunOpsMixin:
 
             # Submit backtest for each unit, write back task_id immediately
             async def _submit_single(unit: StrategyUnit) -> dict[str, Any]:
+                binding_required = _requires_research_market_data_binding(unit)
                 try:
                     workspace_settings = _workspace_settings_dict(ws)
-                    # A bound research unit is revalidated immediately before
-                    # its runtime files are written.  This prevents a stale or
-                    # edited unit config from selecting a generic workspace
-                    # CSV path, and it happens before any backtest task or
-                    # subprocess can be created.
-                    market_data_binding = None
-                    if _requires_research_market_data_binding(unit):
+
+                    async def runtime_preflight() -> Path:
+                        """Rebuild a current unit snapshot after binding checks.
+
+                        BacktestService owns the private execution capability
+                        and invokes this immediately before task creation and
+                        again before its subprocess starts.  Keeping the
+                        authorization replay here preserves WorkspaceService
+                        as the only caller allowed to materialize a unit
+                        runtime directory.
+                        """
                         # A parallel batch cannot share the outer workspace
-                        # session with concurrent binding queries.  Give each
-                        # revalidation its own short-lived read session before
-                        # it writes runtime files or submits a backtest task.
+                        # session with concurrent binding queries.  Read the
+                        # unit once in an independent session and use that
+                        # same snapshot for both strict-binding resolution and
+                        # runtime materialization.  The outer ``unit`` may
+                        # otherwise retain an older, yet valid OOS window.
                         async with async_session_maker() as binding_session:
-                            market_data_binding = (
-                                await workspace_unit_runtime.resolve_required_market_data_binding(
-                                    unit,
-                                    user_id,
-                                    db=binding_session,
+                            current_unit = await self._get_unit(
+                                binding_session,
+                                workspace_id,
+                                str(unit.id),
+                            )
+                            if current_unit is None:
+                                raise workspace_unit_runtime.MarketDataBindingRuntimeError(
+                                    "MARKET_DATA_BINDING_RUNTIME_INTENT_DENIED"
                                 )
+
+                            current_binding_required = _requires_research_market_data_binding(
+                                current_unit
                             )
-                        if market_data_binding is None:
-                            raise workspace_unit_runtime.MarketDataBindingRuntimeError(
-                                "MARKET_DATA_BINDING_RUNTIME_REVALIDATION_FAILED"
+                            if binding_required and not current_binding_required:
+                                raise workspace_unit_runtime.MarketDataBindingRuntimeError(
+                                    "MARKET_DATA_BINDING_RUNTIME_INTENT_DENIED"
+                                )
+
+                            market_data_binding = None
+                            if current_binding_required:
+                                market_data_binding = (
+                                    await workspace_unit_runtime.resolve_required_market_data_binding(
+                                        current_unit,
+                                        user_id,
+                                        db=binding_session,
+                                    )
+                                )
+                                if market_data_binding is None:
+                                    raise workspace_unit_runtime.MarketDataBindingRuntimeError(
+                                        "MARKET_DATA_BINDING_RUNTIME_REVALIDATION_FAILED"
+                                    )
+                            return workspace_unit_runtime.sync_unit_runtime(
+                                current_unit,
+                                workspace_settings,
+                                market_data_binding=market_data_binding,
                             )
-                    workspace_unit_runtime.sync_unit_runtime(
-                        unit,
-                        workspace_settings,
-                        market_data_binding=market_data_binding,
-                    )
+
                     bt_request = self._build_backtest_request(unit)
                     response = None
                     deadline = time.monotonic() + 1800
                     while response is None:
                         try:
-                            response = await backtest_service.run_backtest(user_id, bt_request)
+                            response = await backtest_service.run_workspace_unit_backtest(
+                                user_id,
+                                bt_request,
+                                workspace_id=workspace_id,
+                                unit_id=str(unit.id),
+                                runtime_preflight=runtime_preflight,
+                            )
                         except ValueError as exc:
                             if "concurrent task limit" not in str(exc).lower():
                                 raise
+                            if binding_required:
+                                # The failed attempt did not create a task, so
+                                # its generated configuration is stale while we
+                                # wait.  Remove it before the next preflight.
+                                workspace_unit_runtime.remove_unit_dir(
+                                    unit.workspace_id,
+                                    unit.id,
+                                )
                             if time.monotonic() >= deadline:
                                 raise TimeoutError(
                                     "Timed out waiting for an available backtest execution slot"
@@ -421,6 +464,18 @@ class WorkspaceRunOpsMixin:
 
                 except Exception as e:
                     logger.error("Unit %s submit failed: %s", unit.id, e)
+                    if binding_required:
+                        # Do not leave a runnable, previously authorized
+                        # research runtime behind when the current preflight
+                        # fails or the unit exhausts its queue wait.
+                        try:
+                            workspace_unit_runtime.remove_unit_dir(unit.workspace_id, unit.id)
+                        except Exception:
+                            logger.warning(
+                                "Unable to remove rejected bound runtime for unit %s",
+                                unit.id,
+                                exc_info=True,
+                            )
                     async with async_session_maker() as s_err:
                         u_err = await self._get_unit(s_err, workspace_id, str(unit.id))
                         if u_err:

@@ -994,6 +994,7 @@ class TestWorkspaceUnitRuntime:
                 id=f"unit-{index}",
                 workspace_id="workspace-1",
                 run_status="idle",
+                run_count=0,
                 data_config={"market_data_binding_required": True},
             )
             for index in range(2)
@@ -1035,8 +1036,10 @@ class TestWorkspaceUnitRuntime:
         async def fake_load_workspace(*_args: object, **_kwargs: object) -> object:
             return SimpleNamespace(settings={}, workspace_type="research")
 
-        async def fake_get_unit(*_args: object, **_kwargs: object) -> None:
-            return None
+        async def fake_get_unit(
+            _session: object, _workspace_id: str, unit_id: str
+        ) -> object | None:
+            return next((unit for unit in units if unit.id == unit_id), None)
 
         async def fake_resolve_binding(
             _unit: object,
@@ -1050,13 +1053,25 @@ class TestWorkspaceUnitRuntime:
             )
 
         class FakeBacktestService:
-            async def run_backtest(self, *_args: object, **_kwargs: object) -> object:
+            async def run_workspace_unit_backtest(
+                self,
+                *_args: object,
+                runtime_preflight: object,
+                **_kwargs: object,
+            ) -> object:
+                assert callable(runtime_preflight)
+                await runtime_preflight()
                 backtest_calls.append(object())
                 raise AssertionError("A failed binding must not submit a backtest")
 
         monkeypatch.setattr(workspace_run_ops, "async_session_maker", session_maker)
         monkeypatch.setattr(WorkspaceService, "_load_workspace", staticmethod(fake_load_workspace))
         monkeypatch.setattr(WorkspaceService, "_get_unit", staticmethod(fake_get_unit))
+        monkeypatch.setattr(
+            WorkspaceService,
+            "_build_backtest_request",
+            staticmethod(lambda _unit: SimpleNamespace()),
+        )
         monkeypatch.setattr(
             workspace_unit_runtime,
             "resolve_required_market_data_binding",
@@ -1085,6 +1100,298 @@ class TestWorkspaceUnitRuntime:
         assert all(item["error"] == "MARKET_DATA_BINDING_NOT_FOUND" for item in results)
         assert sync_calls == []
         assert backtest_calls == []
+
+    @pytest.mark.asyncio
+    async def test_bound_retry_revalidates_after_queue_wait_and_removes_stale_runtime(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A revoked binding cannot reuse a runtime written before a full queue retry."""
+        from app.services.workspace import run_ops as workspace_run_ops
+        from app.services.workspace_service import WorkspaceService
+
+        unit = SimpleNamespace(
+            id="bound-unit",
+            workspace_id="workspace-1",
+            run_status="idle",
+            run_count=0,
+            data_config={"market_data_binding_required": True},
+        )
+
+        class FakeSession:
+            async def execute(self, _statement: object) -> object:
+                return SimpleNamespace(
+                    scalars=lambda: SimpleNamespace(all=lambda: [unit])
+                )
+
+            async def commit(self) -> None:
+                return None
+
+        class FakeSessionContext:
+            def __init__(self, session: FakeSession) -> None:
+                self.session = session
+
+            async def __aenter__(self) -> FakeSession:
+                return self.session
+
+            async def __aexit__(self, *_args: object) -> None:
+                return None
+
+        class FakeSessionMaker:
+            def __init__(self) -> None:
+                self.sessions: list[FakeSession] = []
+
+            def __call__(self) -> FakeSessionContext:
+                session = FakeSession()
+                self.sessions.append(session)
+                return FakeSessionContext(session)
+
+        resolve_calls: list[FakeSession] = []
+        sync_calls: list[object] = []
+        cleanup_calls: list[tuple[str, str]] = []
+        task_creation_calls: list[object] = []
+
+        async def fake_load_workspace(*_args: object, **_kwargs: object) -> object:
+            return SimpleNamespace(settings={}, workspace_type="research")
+
+        async def fake_get_unit(*_args: object, **_kwargs: object) -> object:
+            return unit
+
+        async def fake_resolve_binding(
+            _unit: object,
+            _user_id: str,
+            *,
+            db: FakeSession,
+        ) -> object:
+            resolve_calls.append(db)
+            if len(resolve_calls) == 1:
+                return SimpleNamespace()
+            raise workspace_unit_runtime.MarketDataBindingRuntimeError(
+                "MARKET_DATA_BINDING_RUNTIME_REVOKED"
+            )
+
+        class FakeBacktestService:
+            async def run_workspace_unit_backtest(
+                self,
+                *_args: object,
+                runtime_preflight: object,
+                **_kwargs: object,
+            ) -> object:
+                assert callable(runtime_preflight)
+                await runtime_preflight()
+                task_creation_calls.append(object())
+                raise ValueError("concurrent task limit")
+
+        async def no_wait(_seconds: float) -> None:
+            return None
+
+        session_maker = FakeSessionMaker()
+        monkeypatch.setattr(workspace_run_ops, "async_session_maker", session_maker)
+        monkeypatch.setattr(WorkspaceService, "_load_workspace", staticmethod(fake_load_workspace))
+        monkeypatch.setattr(WorkspaceService, "_get_unit", staticmethod(fake_get_unit))
+        monkeypatch.setattr(
+            WorkspaceService,
+            "_build_backtest_request",
+            staticmethod(lambda _unit: SimpleNamespace()),
+        )
+        monkeypatch.setattr(
+            workspace_unit_runtime,
+            "resolve_required_market_data_binding",
+            fake_resolve_binding,
+        )
+        monkeypatch.setattr(
+            workspace_unit_runtime,
+            "sync_unit_runtime",
+            lambda *_args, **_kwargs: sync_calls.append(object()),
+        )
+        monkeypatch.setattr(
+            workspace_unit_runtime,
+            "remove_unit_dir",
+            lambda workspace_id, unit_id: cleanup_calls.append((workspace_id, unit_id)),
+        )
+        monkeypatch.setattr(workspace_run_ops.asyncio, "sleep", no_wait)
+        import app.services.backtest.service as backtest_service_module
+
+        monkeypatch.setattr(backtest_service_module, "BacktestService", FakeBacktestService)
+
+        results = await WorkspaceService().run_units(
+            "workspace-1",
+            "user-1",
+            [unit.id],
+        )
+
+        assert len(resolve_calls) == 2
+        assert len(task_creation_calls) == 1
+        assert len(sync_calls) == 1
+        assert cleanup_calls == [
+            ("workspace-1", "bound-unit"),
+            ("workspace-1", "bound-unit"),
+        ]
+        assert results == [
+            {
+                "unit_id": "bound-unit",
+                "task_id": None,
+                "status": "failed",
+                "error": "MARKET_DATA_BINDING_RUNTIME_REVOKED",
+            }
+        ]
+        assert unit.run_status == "failed"
+        assert unit.run_count == 1
+
+    @pytest.mark.asyncio
+    async def test_bound_preflight_materializes_current_valid_oos_window(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A stale outer unit cannot overwrite a newer valid OOS runtime window."""
+        from app.services.workspace import run_ops as workspace_run_ops
+        from app.services.workspace_service import WorkspaceService
+
+        outer_unit = SimpleNamespace(
+            id="bound-unit",
+            workspace_id="workspace-1",
+            run_status="idle",
+            data_config={
+                "market_data_binding_required": True,
+                "range_type": "date",
+                "start_date": "2024-01-01",
+                "end_date": "2024-01-10",
+            },
+        )
+        current_unit = SimpleNamespace(
+            id="bound-unit",
+            workspace_id="workspace-1",
+            run_status="idle",
+            run_count=0,
+            last_task_id=None,
+            data_config={
+                "market_data_binding_required": True,
+                "range_type": "date",
+                "start_date": "2024-02-01",
+                "end_date": "2024-02-15",
+            },
+        )
+
+        class FakeSession:
+            async def execute(self, _statement: object) -> object:
+                return SimpleNamespace(
+                    scalars=lambda: SimpleNamespace(all=lambda: [outer_unit])
+                )
+
+            async def commit(self) -> None:
+                return None
+
+        class FakeSessionContext:
+            def __init__(self, session: FakeSession) -> None:
+                self.session = session
+
+            async def __aenter__(self) -> FakeSession:
+                return self.session
+
+            async def __aexit__(self, *_args: object) -> None:
+                return None
+
+        class FakeSessionMaker:
+            def __init__(self) -> None:
+                self.sessions: list[FakeSession] = []
+
+            def __call__(self) -> FakeSessionContext:
+                session = FakeSession()
+                self.sessions.append(session)
+                return FakeSessionContext(session)
+
+        current_read_sessions: list[FakeSession] = []
+        resolve_units: list[object] = []
+        resolve_sessions: list[FakeSession] = []
+        binding = SimpleNamespace(binding_id="binding-1")
+        runtime_dir = tmp_path / "workspace-runtime"
+
+        async def fake_load_workspace(*_args: object, **_kwargs: object) -> object:
+            return SimpleNamespace(settings={}, workspace_type="research")
+
+        async def fake_get_unit(
+            session: FakeSession, _workspace_id: str, _unit_id: str
+        ) -> object:
+            current_read_sessions.append(session)
+            return current_unit
+
+        async def fake_resolve_binding(
+            unit: object,
+            _user_id: str,
+            *,
+            db: FakeSession,
+        ) -> object:
+            resolve_units.append(unit)
+            resolve_sessions.append(db)
+            return binding
+
+        def fake_sync_unit_runtime(
+            unit: object,
+            _workspace_settings: dict[str, object],
+            *,
+            market_data_binding: object | None = None,
+        ) -> Path:
+            assert unit is current_unit
+            assert market_data_binding is binding
+            runtime_dir.mkdir()
+            (runtime_dir / "config.yaml").write_text(
+                yaml.safe_dump(
+                    {
+                        "data": {
+                            "start_date": unit.data_config["start_date"],
+                            "end_date": unit.data_config["end_date"],
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+            return runtime_dir
+
+        class FakeBacktestService:
+            async def run_workspace_unit_backtest(
+                self,
+                *_args: object,
+                runtime_preflight: object,
+                **_kwargs: object,
+            ) -> object:
+                assert callable(runtime_preflight)
+                await runtime_preflight()
+                return SimpleNamespace(task_id="")
+
+        monkeypatch.setattr(workspace_run_ops, "async_session_maker", FakeSessionMaker())
+        monkeypatch.setattr(WorkspaceService, "_load_workspace", staticmethod(fake_load_workspace))
+        monkeypatch.setattr(WorkspaceService, "_get_unit", staticmethod(fake_get_unit))
+        monkeypatch.setattr(
+            WorkspaceService,
+            "_build_backtest_request",
+            staticmethod(lambda _unit: SimpleNamespace()),
+        )
+        monkeypatch.setattr(
+            workspace_unit_runtime,
+            "resolve_required_market_data_binding",
+            fake_resolve_binding,
+        )
+        monkeypatch.setattr(
+            workspace_unit_runtime,
+            "sync_unit_runtime",
+            fake_sync_unit_runtime,
+        )
+        import app.services.backtest.service as backtest_service_module
+
+        monkeypatch.setattr(backtest_service_module, "BacktestService", FakeBacktestService)
+
+        results = await WorkspaceService().run_units(
+            "workspace-1",
+            "user-1",
+            [outer_unit.id],
+        )
+
+        assert results == [{"unit_id": "bound-unit", "task_id": "", "status": "running"}]
+        assert resolve_units == [current_unit]
+        assert current_read_sessions[0] is resolve_sessions[0]
+        runtime_config = yaml.safe_load((runtime_dir / "config.yaml").read_text(encoding="utf-8"))
+        assert runtime_config["data"] == {
+            "start_date": "2024-02-01",
+            "end_date": "2024-02-15",
+        }
 
     @pytest.mark.asyncio
     async def test_trading_bound_unit_fails_closed_without_starting_runtime(
