@@ -2,7 +2,7 @@
 
 > 文档状态：196/197 集成候选，本地回归已完成（2026-09-09）
 > 适用工作树：`codex/iteration-197-acceptance`
-> 当前结论：**尚未达到发布验收条件。** 迭代 196 已冻结并接入本候选；本文仍把本地自动化、真实环境和页面灰度证据分开记录，没有命令输出、数据库快照或外部回执的项目不得标记为 `PASS`。
+> 当前结论：**尚未达到发布验收条件。** 迭代 196 已冻结并接入本候选；本文仍把本地自动化、真实环境和页面灰度证据分开记录，没有命令输出、数据库快照或外部回执的项目不得标记为 `PASS`。本次 OpenBB yfinance fork 记录是文档与离线构件候选更新：没有安装扩展、构建镜像、创建 permit/route、发起真实 OpenBB/yfinance 网络调用或写入市场数据。
 
 ## 1. 验收目的、边界与判定语言
 
@@ -53,6 +53,7 @@
 - `md_fetch_leases` 的代码级 owner/fence/expiry 协议在候选中已实现，但 SQLite/替身回归不能证明真实多 Web worker、多个进程/pod、数据库时钟、故障接管或零重复 provider 调用。
 - 日历导入锁只串行化同一 `calendar_code` 的 calendar manifest 导入；它不是 observation/source snapshot 的多进程 writer lease，也不能证明并发写入的 ownership、fencing、接管或零重复网络调用。
 - OpenBB 运行器在独立 service account/container 中的文件系统、挂载和凭据隔离；环境变量白名单与受控 `cwd` 不能证明该边界。
+- fork `24d06a7657ab9e19d07b5ba4f801394a440287a1` / `openbb-yfinance 1.6.3.post1` 的完整动态扩展导入闭包、不可变镜像、AGPL-3.0-only 许可证审查和最小出网审计；静态构件清单或离线 fork 测试都不能证明这些事项。
 - 每个连接的 MySQL/PostgreSQL UTC session time zone、真实跨连接 PIT 行为和恢复后的时间比较。MySQL `DATETIME` 不保存时区，SQLite 时间行为不能替代。
 
 这些事项必须在第 7 至第 10 节完成，不能用 mock、fixture、SQLite 或历史日志替代。
@@ -80,7 +81,7 @@
 4. 每个准备启用的来源策略均有经过审核的提供方、路由、数据许可、允许用途、字段/口径和保留策略记录。用于证明覆盖的每个 calendar manifest 还必须声明已注册的 `source_registry_id`、冻结治理描述符和 `VERIFIED` 状态；该 source ID 必须属于对应请求当前授权的 route source allow-list，否则 calendar 只能返回 `unknown_calendar`。
 5. 参与 v2 灰度的用户已通过独立、经过批准的 RBAC provisioning 获得 `data:read`。当前注册流程不自动写入角色；不得为了开启市场数据读取而修改注册语义或把“已登录”视为授权。
 6. 线上开关默认保持关闭：`MARKET_DATA_QUERY_V2_ENABLED=false`、`MARKET_DATA_ONLINE_FETCH_ENABLED=false`、`MARKET_DATA_RESEARCH_CACHE_FILL_ENABLED=false`、`VITE_MARKET_DATA_QUERY_V2_ENABLED=false`、`VITE_MARKET_DATA_QUERY_BUNDLE_ENABLED=false` 和 `VITE_MARKET_DATA_STRATEGY_BRIDGE_ENABLED=false`。前端 bundle 只能作为已启用页面 v2 的子开关；策略页 bridge 还必须等待 196/197 集成候选。`research_cache_fill` 还需要独立的后端开关、当前研究用途授权和本节其它 v2 前置条件；浏览器 flag 不构成写入授权。若开启 v2，运维管理的 `MARKET_DATA_CURSOR_SIGNING_KEY` 必须存在且至少 32 bytes；不得记录其值。只有完成本文件相应闸门后才可按灰度计划开启。
-7. 若需启用 OpenBB，`OPENBB_MARKET_DATA_RUNNER`、恰为 `yfinance` 的 `OPENBB_ALLOWED_PROVIDERS`、`OPENBB_RUNNER_HOME` 和绝对存在的 `OPENBB_RUNNER_WORKDIR` 已由 runner 运维方审核；主应用进程不能把自身的数据库凭据、项目工作树或服务账户权限作为 runner 前置条件。当前 matrix 为空且 yfinance 出站 end bound 未获证明，不能以这些配置启用 route。
+7. 若需启用 OpenBB，`OPENBB_MARKET_DATA_RUNNER`、恰为 `yfinance` 的 `OPENBB_ALLOWED_PROVIDERS`、独立且绝对存在的 `OPENBB_RUNNER_HOME` 与 `OPENBB_RUNNER_WORKDIR` 已由 runner 运维方审核；后二者不可缺失、回退为临时目录/主应用 HOME/工作树，主应用进程也不能把自身的数据库凭据、项目工作树或服务账户权限作为 runner 前置条件。当前 permit matrix 为空。fork `24d06a7657ab9e19d07b5ba4f801394a440287a1` / `openbb-yfinance 1.6.3.post1` 仅是 `1d`、UTC 日对齐、最长 3650 天、包含式 OpenBB 日终到排他 yfinance `end` 的构件候选；在完整隔离导入闭包、不可变镜像、AGPL-3.0-only 许可证和最小出网审计完成前，正常请求必须在动态扩展导入前拒绝，不能用这些配置启用 route。
 8. 启用 `MARKET_DATA_RESEARCH_BACKTEST_BRIDGE_ENABLED` 前，必须有独立签名 key、受控 artifact root、当前 `data:read` 和 source registry/backtest 许可。通用 workspace create/batch API 不得接受任何 `market_data_binding_*` 字段；仅 AI 研究编排可在 unit 创建后写入服务器侧 consumer receipt。公共 `/api/v1/backtests/run` 与通用 `BacktestService.run_backtest` 不得接受客户端 `runtime_dir`；workspace unit 只能通过 server-only preflight 执行。
 
 ## 4. 必须执行的自动化回归
@@ -112,7 +113,7 @@ npm run build
 npm run lint
 ```
 
-自动化范围说明：AkShare 测试使用受控假函数，OpenBB 测试使用临时 JSON runner，数据库迁移测试使用 SQLite 和离线方言渲染。它们能证明边界契约、拒绝逻辑、单进程日历网格/字段可用修订/singleflight，以及 durable lease 的 owner/follower/接管/fence 单元语义；不能证明真实第三方服务、真实许可证、操作系统级 OpenBB 隔离、真实跨 worker 去重或生产数据库。
+自动化范围说明：AkShare 测试使用受控假函数，OpenBB 测试使用临时 JSON runner 与离线 fork 参数替身，数据库迁移测试使用 SQLite 和离线方言渲染。它们能证明边界契约、拒绝逻辑、单进程日历网格/字段可用修订/singleflight，以及 durable lease 的 owner/follower/接管/fence 单元语义；不能证明真实第三方服务、真实 OpenBB/yfinance 网络请求、完整动态扩展导入闭包、不可变镜像、AGPL-3.0-only 许可证、操作系统级 OpenBB 隔离、真实跨 worker 去重或生产数据库。
 
 ## 5. 自动化验收矩阵与执行记录
 
@@ -124,7 +125,7 @@ npm run lint
 | E-197-02 | 第 4 节 Ruff 命令 | 新增/修改的中台模块和测试 | `NOT_RUN` | 候选提交上的退出码 0；若工具未安装，应记录为 `BLOCKED`，不得静默跳过。 |
 | E-197-03 | `alembic heads` 与升级后 schema 审计 | 196/197 整合后的单 head 和 binding scope/consumer/revocation 表 | `NOT_RUN`（正式候选） | 输出恰有一个 head，临时隔离库升级后存在四张 binding receipt 表；MySQL/PostgreSQL 仍需独立演练。 |
 | E-197-04 | 真实 AkShare 受控探测 | 实时路由及三个 B1 候选路由的字段、时间窗、回执和写回 | `FAIL`（已执行 `stock.liquidity`；其它真实 AkShare 路线仍为 `NOT_RUN`） | 第 8.1 节的匿名化请求/响应摘要、来源回执和本地复读证据。 |
-| E-197-05 | 真实 OpenBB 隔离运行器探测 | runner 环境、协议、上游许可与写回 | `BLOCKED` | 第 8.2 节的隔离进程、协议日志摘要、原始载荷 hash、回执和本地复读证据；当前 matrix 为空，且 yfinance 真实出站 end bound 未获证明，runner 在导入前拒绝，不能记为成功验证。 |
+| E-197-05 | 真实 OpenBB 隔离运行器探测 | runner 环境、协议、上游许可与写回 | `BLOCKED` | 第 8.2 节的隔离进程、镜像/动态导入闭包、许可证/出网审计、协议日志摘要、原始载荷 hash、回执和本地复读证据；当前 permit matrix 为空。fork `24d06a7657ab9e19d07b5ba4f801394a440287a1` / `openbb-yfinance 1.6.3.post1` 只是 `1d` daily end-bound 构件候选，正常请求在动态扩展导入前拒绝，不能记为成功验证。 |
 | E-197-06 | `/data/market`、`/investment/strategies` 端到端回归 | 页面灰度、授权、回退防护、196 工件绑定 | `NOT_RUN` | 保存浏览器/API/数据库三方一致证据；196 冻结和桥接不等于浏览器或真实数据通过。 |
 | E-197-07 | MySQL/PostgreSQL UTC session、PIT 与 exact-identity collation 演练 | 时区、跨连接写入/读取、迁移、恢复及 `RB0`/`rb0` 精确身份 | `NOT_RUN` | 每个新连接的会话时区输出、边界时间写入/读取、迁移和恢复记录，以及 authority/projection/lookup 的 MySQL `utf8mb4_bin`、PostgreSQL `C` 实际列审计和 case-distinct lookup 回归。 |
 | E-197-08 | 多 worker/多进程同缺口及事实写入并发 | 跨进程 writer lease/fencing、故障接管和零重复外部访问 | `NOT_RUN` | L-197-10 已在 disposable PostgreSQL 以两个 OS 进程和确定性 provider 证明一个精确缺口只有一次调用，且 follower 从本地重读；仍需真实 AkShare/OpenBB、应用 HTTP worker、故障接管与崩溃恢复证据。当前 AkShare thread timeout 不能杀死底层同步调用，故超时后的零重复 I/O 为 `NO-GO`，直至可终止 runner 或租约 heartbeat 设计通过验收。calendar import lock 不适用于 observation 写入。 |
@@ -174,7 +175,7 @@ npm run lint
 | AC-197-008 | 本地完整、local-only 缺口、local-first 缺口、日历未知、在线关闭和严格历史查询分别执行。 | 完整本地不触网；`local_only` 永不触网；成功补齐后只从本地返回；未知日历不声称完整；严格历史不以实时获取污染回放。 | `test_query_service.py` | `NOT_RUN` |
 | AC-197-009 | 提供方返回的 provider ID、关联请求、时间窗、事件或来源回执与路由/原始请求不一致。 | 结果不持久化；返回稳定 warning/error；后续批准路由可在仍有真实缺口时按优先级尝试。 | `test_query_service.py`、`test_store.py`、`test_openbb_provider.py` | `NOT_RUN` |
 | AC-197-010 | 使用假 AkShare SDK 返回正确/错误代码、不同市场、越界时间、超大表、超时和不支持语义；另对股票/ETF流动性和 FX range 验证精确 route ID、字段与口径。 | 显式路由只接受批准的资产/市场/口径；`stock.liquidity` 与 `fund.liquidity` 只能走其 `reference_series` route，`fx.range` 必须保留完整 OHLC；响应被截为半开区间；不支持项快速失败，不走样例或其它资产。 | `test_akshare_provider.py` | `NOT_RUN` |
-| AC-197-011 | 使用临时 OpenBB JSON runner 验证正常协议、错配 request ID、未配置或非法 runner 命令、无界/朴素请求、stdout/stderr 超限、预规范化原始封套/hash、受控工作目录，以及 timeout 后的子进程回收；对真实 runner 执行 `--self-check` 和一次表面合法的 yfinance DTO。 | 主进程只交互 JSON；协议错配、缺/非法 runner、非法 `cwd`、任一输出流越过上限、无 `format`/records 映射封套、自洽摘要替代原始 records、hash 不一致均失败关闭；POSIX timeout/cancel 终止 runner 专属进程组，即使 leader 已退出而后代仍持有管道；`--self-check` 不导入 OpenBB、不联网、不输出密钥，只给出协议/包版本/静态空 permit matrix/配置摘要；环境 provider 列表必须恰为 `yfinance`，扩展 token 拒绝。未来 permit 的 family 和 endpoint 必须同时存在于回显 DTO 与 runner mirror，任一 sibling family/endpoint 失配均拒绝。当前表面合法请求在导入 OpenBB 前以 `OPENBB_YFINANCE_OUTBOUND_END_BOUND_UNATTESTED` 拒绝。 | `test_openbb_provider.py` | `NOT_RUN` |
+| AC-197-011 | 使用临时 OpenBB JSON runner 验证正常协议、错配 request ID、未配置或非法 runner 命令、无界/朴素请求、stdout/stderr 超限、预规范化原始封套/hash、受控 HOME/工作目录，以及 timeout 后的子进程回收；对真实 runner 只执行无网络 `--self-check` 和一条表面合法 yfinance DTO 的导入前拒绝。 | 主进程只交互 JSON；协议错配、缺/非法 runner、非法 HOME/cwd、任一输出流越过上限、无 `format`/records 映射封套、自洽摘要替代原始 records、hash 不一致均失败关闭；POSIX timeout/cancel 终止 runner 专属进程组，即使 leader 已退出而后代仍持有管道。`--self-check` 不导入 OpenBB、不联网、不输出密钥、绝对包路径或文件哈希，只给出协议/包元数据摘要、构件候选状态、空 permit coverage 和非敏感配置摘要。环境 provider 列表必须恰为 `yfinance`，扩展 token 拒绝。当前无 permit/route，且构件清单仍为 `candidate`；即使包文件匹配，候选、未封装或与清单不匹配的环境均以 `OPENBB_YFINANCE_RUNTIME_ARTIFACT_UNATTESTED` 在动态扩展导入前拒绝。静态构件自检不能升级为安装、许可或网络验证。 | `test_openbb_provider.py` | `NOT_RUN` |
 | AC-197-012 | 在后端和浏览器 v2 开关关闭/开启的替身服务下调用 `POST /api/v1/data/queries`，并检查遗留数据路由和前端 v2 合约桥接。 | 浏览器 v2 关闭时，行情页不请求 contract、bundle 或事实接口，策略页不请求 bridge；默认后端为 503 稳定码。开启后默认选择 `<asset_type>.realtime`；只有 bundle 已签发且用户明确选择本资产的 `ready + calendar_grid + 无维度` 的 `bars/reference_series` family 时，contract 才带该精确 binding。流动性显示声明字段表，`fx.range` 才使用 OHLC/K线；`crypto.realtime` 未配置时页面不执行事实或 legacy 数据读取来伪装 v2。输入错误在服务执行前 422；遗留接口仍注册。bundle 已签发后，v2 binding/必填字段/执行错误不能静默回退旧接口；普通行情查询使用 v2 `local_first`，`refresh` 仅由明确操作发出。 | `test_query_api.py`、`marketData.test.ts`、`DataPage.test.ts`、`StrategyPage.test.ts` | `NOT_RUN` |
 | AC-197-013 | 两个同一 Web 进程、同一事件循环内的等价 `local_first` 缺口并发到达；并发 `refresh` 请求单列。 | 只有 `local_first` leader 发起一次 provider 调用并提交；follower 在独立 session 上复读持久化结果；`refresh` 保持各自执行语义而不复用 `local_first` follower；leader 取消/失败不遗留后台事务。 | `test_query_api.py`、本地优先持久化回归 | `NOT_RUN` |
 | AC-197-014 | 多 Web worker/多进程的同一缺口或事实写入并发到达；分别模拟 follower、到期接管、陈旧 owner 写事实、事务 A 后 B 前失去 fence、release 丢失、通用 recovery 跳过 fenced pending receipt、provider 计数和 AkShare timeout 后同步线程仍运行。 | 候选代码以 `md_fetch_leases` 保证 exact-gap owner/follower、递增 fence、事实/可见性双栅栏；follower 不调用 provider，generic recovery 不会发布任何 fenced source receipt。真实 MySQL/PostgreSQL 多进程、数据库时间、崩溃/接管和零重复调用计数未完成前保持 `NOT_RUN`；AkShare timeout 的零重复 I/O 在可终止 runner 或心跳租约设计完成前为 `NO-GO`，不可因 SQLite 或单进程测试改写为 `PASS`。 | `test_fetch_lease.py`、`test_store.py`、`test_query_service.py`；真实多 worker 压测 | `NOT_RUN` |
@@ -182,7 +183,7 @@ npm run lint
 | AC-197-016 | 先后导入首尾相接的 calendar manifest，再导入重叠 manifest；并发导入同一 `calendar_code`，并在事务 A/B 间读取。 | 已发布且时区一致的相邻 segments 可连续覆盖窗口；孔洞、重叠、重复 event 或缺少频率 grid 返回 typed unknown。`md_calendar_import_locks` 串行化同代码导入，pending segment 在 publication 前不可见。 | `test_calendar_importer.py`、`test_store.py`；相邻 segments/单 lock 见 L-197-01；MySQL/PostgreSQL 并发演练 | `NOT_RUN` |
 | AC-197-017 | 发布 identity projection 后修改可变 `asset_instruments` authority；另写入 pending projection 并以两个 cutoff 严格解析。 | strict resolver 不因可变 authority/裸 lookup key 改写历史；只按已发布 frozen revision、有效期和 cutoff 解析。pending projection 不可见，发布后才在合适 cutoff 出现。 | `test_identity.py`、`identity_projection.py`；identity T0/T1/T2 见 L-197-01 | `NOT_RUN` |
 | AC-197-018 | 让行情页 v2 返回超过 500 条的多页响应（当前开发回归为 17 页、516 条），并注入 query ID、identity/observation knowledge cutoff、revision 不一致、重复 cursor、篡改签名或不同 HMAC key 签发的 token。 | helper 持续收集至 `next_cursor=null`，不以 500 条或固定页数截断；任何分页完整性不一致 fail closed。签名不符在本地读取、provider 调用或写入前以 `CURSOR_SIGNATURE_INVALID` 拒绝。 | `src/__tests__/views/DataPage.test.ts`、`test_query_service.py`；见 L-197-01、L-197-03 | `NOT_RUN` |
-| AC-197-019 | 对 date-indexed OpenBB `OBBject` 和离线 yfinance 参数转换分别请求 `1d`、`1w`、`1mo`、分钟频率与半开日期边界；再对真实 runner 提交同类 DTO。 | 离线代码使用 `to_df(index=None)` 保留 event 时间；仅映射 `1d→1d`、`1w→1W`、`1mo→1M`，分钟/非日对齐窗口拒绝；目标 date 仍按 `end - 1 microsecond` 计算。它们不证明真实出站调用带有 end bound。未来启用还必须证明 static permit、source-policy route、provider DTO 和 runner mirror 在 family/endpoint 上逐项一致，并由 runner 的 `(asset_type, endpoint)` 静态映射分发。当前真实 runner 必须在导入/调用 OpenBB 前稳定返回 `OPENBB_YFINANCE_OUTBOUND_END_BOUND_UNATTESTED`；没有这一可审计 end-bound 证据、显式 permit 与后续隔离验收，不得测试或启用真实网络。 | `test_openbb_provider.py`、runner 离线测试；第 8.2 节真实运行器演练 | `NOT_RUN` |
+| AC-197-019 | 对 date-indexed OpenBB `OBBject` 和离线 yfinance fork 参数转换请求 UTC 日对齐的 `1d` 半开边界、最长 3650 天边界、超长窗口、`1w`/`1mo`、分钟和非日对齐窗口；真实 runner 只允许验证导入前拒绝。 | 离线代码以 `to_df(index=None)` 保留 event 时间。fork `24d06a7657ab9e19d07b5ba4f801394a440287a1` / `openbb-yfinance 1.6.3.post1` 只允许 `1d`：由父 `[start,end)` 的最后一个 UTC 日得到 OpenBB 包含式 `end_date`，并以 `period=None` 向 yfinance 传递该日期加一天的排他 `end`；保存结果仍裁剪回父窗口。`1w`、`1mo`、分钟、非 UTC 日对齐和超过 3650 天的窗口必须在扩展导入前拒绝。离线 fork 测试不证明真实出站请求、返回数据或许可。未来还必须证明完整隔离导入闭包、不可变镜像、AGPL-3.0-only 许可证、出网审计、static permit/source-policy/provider DTO/runner mirror 的逐轴一致性；当前 permit 为空，正常请求不得导入扩展或测试网络。 | `test_openbb_provider.py`、fork 离线测试；第 8.2 节真实运行器演练 | `BLOCKED` |
 | AC-197-020 | 用无 `data:read` 用户访问 `query-bundle`、`query-contract` 和事实查询；再分别使用失效/未授权主来源、仍获准 fallback、本地旧/compatibility 来源、撤权 calendar、授权变更后的 cursor、provider 请求期间撤销角色/registry、同一 provider 的重复 request ID、以及 provider DTO hash 错配执行查询/写入。 | 无读取权在家族、目录、主数据、calendar 或事实 I/O 前 403；只允许当前 registry 批准的 route source、`VERIFIED` `MdSourceSnapshot` 和位于同一 allow-list 的 `VERIFIED` calendar 参与读取。成功获取分别保存静态 policy 摘要、动态 access-grant 摘要和冻结 source authorization；无 grant 不能触发在线写入，显式 compatibility 回执不进入 v2 结果。网络返回后的 current/locking recheck、旧 cursor 或 follower 重读若发现角色/registry 改变均失败关闭；同一 provider 的重复 request ID 与错误 request evidence 均不落库。 | `test_access_authorization.py`、`test_query_service.py`、`test_store.py`、`test_storage_models.py`、`test_calendar_importer.py`、`test_query_api.py` | `NOT_RUN` |
 | AC-197-021 | 对同一 snapshot 的多条 `option_chain`（不同 expiry/strike/right）和同一 report date 的多条 `position_report`（不同 reporting entity/rank）发起请求；分别尝试未绑定和绑定到目前未配置家族的路径。 | **NO-GO：当前不把这类请求视为可执行的数据产品。** 公共 HTTP 未绑定请求在 catalog/identity/provider 前以 schema HTTP 422 拒绝；抵达 resolver 的未绑定内部请求以 `DATA_FAMILY_BINDING_REQUIRED` 拒绝；已绑定的未配置家族以 `DATA_FAMILY_UNCONFIGURED` 拒绝。任何未来启用必须先证明稳定 record key、事实唯一性/读取/分页/provenance、slice/report completeness 及同一时间多行 `provider → store → PIT replay`；本地单行或空响应不能作为通过证据。 | `test_query_resolution.py`、`test_query_api.py`；未来多记录端到端回归 | `BLOCKED` |
 | AC-197-022 | 自动输入预检和用户明确策略预检分别执行；后者尝试手工构造错误 mode/consistency/cutoff/cursor、关闭后端开关、display-only source、research-only source、成功 receipt 与不完整响应。 | 自动预检只能 `local_only + research + strict` 且不触网。显式补齐只能 `local_first + research_cache_fill + display`，无 cutoff/cursor；后端开关关闭时以 `MARKET_DATA_RESEARCH_CACHE_FILL_DISABLED` 拒绝，display-only source 不可借用。成功时只保存带该 purpose 的中台 receipt/revision 并本地复读，页面不得把它改写为迭代 196 precheck 通过、研究/回测/审批工件或 PIT 证据。 | `test_query_contract.py`、`test_query_api.py`、`test_access_authorization.py`、`test_store.py`、`StrategyPage.test.ts`；真实 E-197-10 | `BLOCKED` |
@@ -273,20 +274,25 @@ npm run lint
 
 ### 8.2 OpenBB 隔离运行器验证
 
-仅在单独的 OpenBB 运行环境执行；FastAPI/主应用进程不得安装或导入未经审核的 OpenBB 扩展以满足测试：
+仅在单独的、可销毁的 OpenBB 运行环境执行；FastAPI/主应用进程不得安装或导入未经审核的 OpenBB 扩展以满足测试。
 
-当前静态 permit matrix 为**空**，`MARKET_DATA_OPENBB_ALLOWED_MARKETS` 不会生成 route 或 legacy contract，且 runner 在导入 OpenBB 前阻断 yfinance。因此本轮不得执行真实 OpenBB/yfinance 网络调用或把自检称为来源验收；只可运行无网络的 `--self-check`，其输出不得含密钥或环境变量值。未来解除阻断时，必须以独立变更逐轴添加 permit，并完成以下所有步骤。
+当前静态 permit matrix 为**空**，`MARKET_DATA_OPENBB_ALLOWED_MARKETS` 不会生成 route、legacy contract 或 provider fallback。fork `24d06a7657ab9e19d07b5ba4f801394a440287a1` 的 `openbb-yfinance 1.6.3.post1` 仅是待封装构件候选：它把 daily route 的 OpenBB 包含式 `end_date` 转为 yfinance 的排他 `end=end_date + 1 UTC calendar day`，并使用 `period=None`。候选只定义 `1d`、UTC 日对齐、最长 3650 天的父半开窗口；它不批准 `1w`、`1mo`、分钟、非日对齐或超长窗口。构件清单的版本/包内哈希检查只能证明期望构件一致性，不能证明可导入、可联网、可使用或获许可。
 
-1. 设置经运维审核的 `OPENBB_MARKET_DATA_RUNNER` 命令、`OPENBB_ALLOWED_PROVIDERS`、独立 runner `HOME` 和绝对存在的 `OPENBB_RUNNER_WORKDIR`。记录实际 `cwd`、允许 provider、镜像/虚拟环境版本和启动命令哈希，但不记录密钥。
-2. 验证协议版本、request ID、请求 DTO、输出大小、超时、非零退出、无效 JSON、错配 ID、重复事件和越界事件均按稳定码失败关闭；再验证缺失原始 records 封套、hash 格式错误和父进程复算 hash 不一致也不落库。
-3. 对每个批准 OpenBB provider/extension 保存版本、安装清单、数据许可、账户权限、允许资产/数据类型与配置哈希；不批准的 provider 不得被请求参数动态指定。
-4. 以独立 service account 或容器运行 runner，审计其 UID/镜像、`cwd`、文件挂载、环境变量和网络权限。它不得读取主应用数据库凭据、项目工作树、应用 `.env`、数据库 volume/socket 或其它应用密钥；环境白名单测试不能替代该审计。
-5. 对一个成功的小窗口运行“网络获取 → `md_source_snapshots`/`md_observation_revisions` 持久化 → `local_only` 复读”，并证明 API 返回的是本地修订 ID、来源回执和经父进程验证的原始载荷 hash。
-6. 检查 Web 服务导入图/运行日志，证明请求期间只启动配置的子进程协议，没有直接在 Web 进程加载 OpenBB extension。
-7. 对日期索引的真实 OBBject 验证 runner 以 `to_df(index=None)` 保留 event 时间；对 yfinance 的 `1d`、`1w`、`1mo` 验证分别向上游传递 `1d`、`1W`、`1M`，分钟频率和非 UTC 日对齐窗口应被拒绝。验证 provider end date 以 `end - 1 microsecond` 映射后，保存结果仍被裁剪回父 `[start,end)`。
-8. 对每个拟启用 permit 执行 parity 回归：static permit、source-policy route、provider DTO 和 runner mirror 的 route ID、family、provider、asset、market、kind、frequency、四个语义轴及 endpoint 必须逐项相同；故意替换 sibling family 或 endpoint 必须在导入 OpenBB 前拒绝，且 runner 仅按 `(asset_type, endpoint)` 的静态映射调用。
+在完整隔离动态扩展导入闭包、不可变运行镜像、AGPL-3.0-only 许可证书面审查和最小出网审计完成前，任何正常 OpenBB 请求必须在**动态扩展导入前**拒绝。本轮不得执行真实 OpenBB/yfinance 网络调用或把 `--self-check` 称为来源验收；只可运行无网络自检，其输出不得含密钥、环境变量值、绝对包路径或文件哈希。当前构件清单的 `candidate` 状态、未封装环境或与清单不匹配环境都应返回 `OPENBB_YFINANCE_RUNTIME_ARTIFACT_UNATTESTED`；不得把清单数据改写为启用状态，未来必须由新的执行认证代码和独立验收解除该拒绝。该机器码不能被解释为已安装或已通过运行审计。
 
-当前状态：`BLOCKED`。本地 OpenBB yfinance helper 的实际 `yf.download` 调用未传递 end bound（只在响应后裁剪），所以当前 runner 稳定返回 `OPENBB_YFINANCE_OUTBOUND_END_BOUND_UNATTESTED`，不能作为 OpenBB route、持久化、索引/interval 修正或隔离的成功证据。须先证明真实出站 end bound、完成许可与配置审计、添加精确 permit，再重新执行第 4、5、7 步。临时 fake runner 的协议测试和本地 `--self-check` 也不等同于本机 OpenBB、`openbb-docs`、`agents-for-openbb` checkout 或 GitHub 社区仓库中的任一扩展已安装、可用或获授权。
+解除该阻断必须在独立变更中同时完成并留下可复核证据：
+
+1. 固定隔离镜像（digest）和完整动态 OpenBB 扩展/传递依赖导入闭包；证明主应用进程没有导入这些扩展。候选 fork commit、`openbb-yfinance 1.6.3.post1`、所有被验证发行版和包内文件哈希必须与该镜像逐项一致。
+2. 完成 AGPL-3.0-only 许可证书面审查，覆盖 fork、镜像分发、服务部署、源代码提供义务、动态扩展闭包和与本项目组合方式；同时完成所有上游数据访问、再分发和商用许可审查。
+3. 设置经运维审核的 `OPENBB_MARKET_DATA_RUNNER`、恰为 `yfinance` 的 `OPENBB_ALLOWED_PROVIDERS`、独立绝对存在的 runner `HOME` 与 `OPENBB_RUNNER_WORKDIR`。记录实际 `cwd`、镜像 digest、允许 provider、挂载和启动命令哈希，但不记录密钥；任何 HOME/workdir 临时回退、主应用工作树、主应用 HOME 或秘密挂载均失败关闭。
+4. 审计 service account/container 的 UID、文件挂载、环境变量、网络策略和出网目的地/端口/限流。它不得读取主应用数据库凭据、项目工作树、应用 `.env`、数据库 volume/socket 或其它应用密钥；环境白名单、受控 cwd 或静态构件哈希不能替代该审计。
+5. 逐项验证协议版本、request ID、请求 DTO、输出大小、超时、非零退出、无效 JSON、错配 ID、重复事件和越界事件均按稳定码失败关闭；再验证缺失原始 records 封套、hash 格式错误和父进程复算 hash 不一致也不落库。
+6. 在隔离镜像内对一个受批准、精确的小窗口验证：只有 `1d`、UTC 日对齐且不超过 3650 天可到达 daily helper；捕获或可审计地证明 helper 以 `period=None` 向 yfinance 传入排他 `end`，该 `end` 恰为 OpenBB 包含式结束日的下一 UTC 日。之后验证返回 records 被裁剪回父 `[start,end)`。
+7. 以一个成功的小窗口完成“网络获取 → `md_source_snapshots`/`md_observation_revisions` 持久化 → `local_only` 复读”，并证明 API 返回的是本地修订 ID、来源回执和经父进程验证的原始载荷 hash。该步骤必须使用独立清理后的验收库，且不记录未经授权原始载荷。
+8. 仅在上述前置条件全部通过后，以独立变更逐轴添加一个精确 permit。static permit、source-policy route、provider DTO 和 runner mirror 的 route ID、family、provider、asset、market、kind、frequency、四个语义轴及 endpoint 必须逐项相同；故意替换 sibling family 或 endpoint 必须在导入 OpenBB 前拒绝，runner 仅按 `(asset_type, endpoint)` 的静态映射调用。
+
+当前状态：`BLOCKED` / `NO-GO`。本次记录只确认了 fork 候选及其日终转换意图，没有安装、镜像、动态导入、许可证、出网或真实网络证据。permit matrix 仍为空，因此没有可执行的 OpenBB route，也没有 OpenBB 持久化或 `local_only` 回读的成功证据。临时 fake runner、离线 fork 参数测试和 `--self-check` 不等同于本机 OpenBB、`openbb-docs`、`agents-for-openbb` checkout 或 GitHub 社区仓库中的任一扩展已安装、可用、获授权或可安全部署。
+
 
 ## 9. 迭代 196 整合闸门
 
@@ -335,7 +341,7 @@ npm run lint
    对 lookup-key 回填按返回游标重复受限批次，直到处理结果为零；先审阅 pending publication 恢复 dry-run 的 JSON 摘要，再执行 `--apply`，并保留恢复前后本地读取证据。该通用恢复脚本只允许处理 calendar、identity 等非 source-fenced pending receipt；它必须跳过任何带 lease generation 的 source receipt。每个已启用 `(market, data_kind, frequency)` 都需单独审核、导入和记录 calendar grid。不得使用脚本或页面代码自行创建缺失 identity、频率事件或来源许可。
 
 3. 保持 `MARKET_DATA_QUERY_V2_ENABLED=false` 和 `MARKET_DATA_ONLINE_FETCH_ENABLED=false`，仅用 `local_only` 验证导入后的 identity、字段可用修订、日历网格、PIT 和来源链。单进程 concurrent case 可作为开发回归；若要在 E-197-08 仍为 `NOT_RUN` 时灰度 v2，部署范围必须显式限制为单一 Web worker，并记录该限制和回退动作。
-4. 完成第 8 节某一已许可来源的真实回填、原始载荷 hash 和 OpenBB service-account/container 审计后，才针对该来源策略和小范围 identity 开启 `local_first`。
+4. 完成第 8 节某一已许可来源的真实回填、原始载荷 hash 和 OpenBB service-account/container 审计后，才针对该来源策略和小范围 identity 开启 `local_first`。OpenBB 还必须先完成完整动态扩展导入闭包、不可变镜像、AGPL-3.0-only 许可证及出网审计，并在独立变更中添加精确 permit；fork 构件候选或自检不允许绕过这些步骤。
 5. 196 整合闸门全部通过后，灰度迁移 `/data/market`，再迁移 `/investment/strategies` 的严格研究/回测消费。
 
 ### 10.2 运行时拒绝条件
@@ -345,7 +351,7 @@ npm run lint
 - 返回了 canonical identity 不同、时间窗越界、字段/口径不符或无来源回执的数据；
 - `complete` 覆盖由未知/不充分日历得出；
 - 严格查询读取到 cutoff 后新增的身份或观测修订；
-- 发生 provider receipt 错配、来源策略绕过、OpenBB 协议错配或泄漏原始异常；
+- 发生 provider receipt 错配、来源策略绕过、OpenBB 协议/构件认证错配、未批准动态扩展导入、未审计出网或泄漏原始异常；
 - 缺少请求频率的日历 grid，却返回 `complete`，或新窄字段修订使已缓存的完整字段重新触网；
 - 在多 worker 环境将同进程 singleflight 作为零重复网络请求的证明；
 - Alembic 多 head、迁移修改遗留 AkShare 事实、或恢复演练失败；
@@ -363,7 +369,7 @@ npm run lint
 - [ ] 静态检查为 `PASS`，或有经过批准、可追踪的例外。
 - [ ] 所有 AC-197-001 至 AC-197-024 均有对应证据；开发回归、候选验收和真实验证的边界清楚可查。
 - [ ] 七类资产和当前页面已支持数据类型都有经过验证的本地命中/受控补齐，或稳定的明确不支持/未配置状态。
-- [ ] 真实 AkShare/OpenBB 验证、数据许可、来源策略登记、OpenBB 原始载荷 hash 与独立 service account/container 审计完成，或未启用对应在线路由。
+- [ ] 真实 AkShare/OpenBB 验证、数据许可、来源策略登记、OpenBB 原始载荷 hash、完整动态扩展导入闭包、不可变镜像、AGPL-3.0-only 许可证与独立 service account/container/出网审计完成，或未启用对应在线路由。
 - [ ] 每个已启用频率都有审核后的显式 calendar grid、连续 calendar segment 和导入锁证据；MySQL/PostgreSQL 候选迁移、每连接 UTC/PIT A/B publication 与恢复演练、`utf8mb4_bin`/`C` 精确身份列审计和单 head 检查完成。
 - [ ] 实际部署已二选一：要么限制 v2 市场数据请求到一个经验证的 Web worker 并记录容量/回退边界，要么已完成多 worker/多进程的数据库 lease、接管和并发调用计数验收；不得把同进程 singleflight 表述为全局去重。
 - [ ] IG-196-01 至 IG-196-05 均具备对应证据，并完成页面端到端灰度证据。
