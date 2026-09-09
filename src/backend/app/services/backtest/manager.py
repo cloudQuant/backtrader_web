@@ -6,9 +6,10 @@ execution is still launched by the API process.
 """
 
 import logging
+import uuid
 from typing import Any
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm.attributes import flag_modified
 
 from app.db.database import async_session_maker
@@ -116,8 +117,14 @@ class BacktestExecutionManager:
 
         return True
 
-    async def create_task(self, user_id: str, request: BacktestRequest) -> BacktestTask:
-        """Create a new persisted backtest task."""
+    async def create_task(
+        self,
+        user_id: str,
+        request: BacktestRequest,
+        *,
+        task_id: str | None = None,
+    ) -> BacktestTask:
+        """Create a new persisted backtest task with an optional server-known id."""
         from app.utils.tracing import business_span
 
         with business_span(
@@ -131,6 +138,7 @@ class BacktestExecutionManager:
                 )
 
             task = BacktestTask(
+                id=task_id or str(uuid.uuid4()),
                 user_id=user_id,
                 strategy_id=request.strategy_id,
                 symbol=request.symbol,
@@ -145,6 +153,35 @@ class BacktestExecutionManager:
 
             logger.info("Created backtest task %s for user %s", task.id, user_id)
             return task
+
+    async def cancel_pending_task(
+        self,
+        task_id: str,
+        user_id: str,
+        *,
+        error_message: str = "User cancelled task",
+    ) -> bool:
+        """Atomically cancel a task only while it is still unstarted.
+
+        Execution claims the same ``pending`` state before it can run.  A
+        conditional transition makes cancellation and execution-start a
+        single-winner race across processes rather than two stale ORM writes.
+        """
+        async with async_session_maker() as session:
+            result = await session.execute(
+                update(BacktestTask)
+                .where(
+                    BacktestTask.id == task_id,
+                    BacktestTask.user_id == user_id,
+                    BacktestTask.status == TaskStatus.PENDING,
+                )
+                .values(
+                    status=TaskStatus.CANCELLED,
+                    error_message=error_message,
+                )
+            )
+            await session.commit()
+        return int(getattr(result, "rowcount", 0) or 0) == 1
 
     async def get_task(self, task_id: str, user_id: str | None = None) -> BacktestTask | None:
         """Return one task, optionally enforcing ownership."""

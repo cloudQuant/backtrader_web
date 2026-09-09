@@ -120,6 +120,7 @@ class TestBacktestTaskLifecycle:
         task_runner = MagicMock(spec=BacktestExecutionRunner)
         task_runner.cancel_local_execution.return_value = False
         task_manager = MagicMock(spec=BacktestExecutionManager)
+        task_manager.cancel_pending_task = AsyncMock(return_value=True)
         task_manager.update_task_status = AsyncMock()
         svc = BacktestService(task_manager=task_manager, task_runner=task_runner)
 
@@ -128,9 +129,11 @@ class TestBacktestTaskLifecycle:
             result = await svc.cancel_task("task1", "user1")
 
         assert result is True
-        task_manager.update_task_status.assert_awaited_once_with(
-            "task1", TaskStatus.CANCELLED, error_message="User cancelled task"
+        task_manager.cancel_pending_task.assert_awaited_once_with(
+            "task1",
+            "user1",
         )
+        task_manager.update_task_status.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_cancel_completed_task_returns_false(self):

@@ -11,6 +11,7 @@ import os
 import shutil
 import subprocess
 import sys
+import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import datetime
@@ -461,8 +462,23 @@ class BacktestService:
         if hasattr(request, "model_copy"):
             request = request.model_copy(update={"data_precheck": precheck.model_dump(mode="json")})
 
-        # Use BacktestExecutionManager for database-backed task creation
-        task = await self.task_manager.create_task(user_id, request)
+        # Generate the identity before the durable create.  If request
+        # cancellation arrives after the database commit but before
+        # ``create_task`` returns its ORM object, this known id still lets us
+        # atomically cancel the orphaned PENDING row.
+        created_task_id = str(uuid.uuid4())
+        try:
+            task = await self.task_manager.create_task(
+                user_id,
+                request,
+                task_id=created_task_id,
+            )
+        except asyncio.CancelledError:
+            await self._cancel_unpromoted_persisted_task(created_task_id, user_id)
+            # A workspace lease has not been promoted at this point.  Its
+            # owning run_ops caller releases only that exact lease in its
+            # cancellation handler; do not invoke a task finalizer here.
+            raise
 
         if workspace_runtime is not None and workspace_runtime.claim_promoter is not None:
             # A backtest task is persistent before it can be scheduled.  Give
@@ -558,6 +574,29 @@ class BacktestService:
             logger.warning(
                 "Unable to finalize workspace runtime fence for unit %s",
                 runtime.unit_id,
+                exc_info=True,
+            )
+
+    async def _cancel_unpromoted_persisted_task(self, task_id: str, user_id: str) -> None:
+        """Best-effort cleanup for cancellation during durable task creation.
+
+        The task id is allocated before ``create_task`` starts, so this is
+        safe whether cancellation interrupted before or after its commit.  A
+        shield lets the database transition finish if the request task is
+        cancelled again while its cleanup is in progress.
+        """
+        try:
+            await asyncio.shield(
+                self.task_manager.cancel_pending_task(
+                    task_id,
+                    user_id,
+                    error_message="Task creation was cancelled before scheduling",
+                )
+            )
+        except Exception:
+            logger.warning(
+                "Unable to cancel task %s after submission cancellation",
+                task_id,
                 exc_info=True,
             )
 
@@ -1108,23 +1147,35 @@ class BacktestService:
         if not task or task.user_id != user_id:
             return False
 
-        if task.status not in (TaskStatus.PENDING, TaskStatus.RUNNING):
+        status = TaskStatus(task.status)
+        if status == TaskStatus.PENDING:
+            # PENDING -> CANCELLED and PENDING -> RUNNING are competing CAS
+            # transitions.  A success prevents the scheduled coroutine from
+            # spawning; a loser must reread rather than falsely cancelling a
+            # task that another process already started.
+            if await self.task_manager.cancel_pending_task(task_id, user_id):
+                await invalidate_cache("backtests")
+                return True
+            task = await self.task_repo.get_by_id(task_id)
+            if not task or task.user_id != user_id:
+                return False
+            status = TaskStatus(task.status)
+
+        if status != TaskStatus.RUNNING:
             return False
 
+        # A RUNNING task needs a real process-local cancellation signal.  Do
+        # not write a terminal database status from a stale observer: the
+        # execution coroutine owns its CancelledError transition after its
+        # subprocess/task handle has actually been interrupted.
         cancelled_locally = self.task_runner.cancel_local_execution(task_id)
-        if task.status == TaskStatus.RUNNING and not cancelled_locally:
+        if not cancelled_locally:
             logger.warning(
                 "Cannot cancel running backtest %s: no local execution handle in this process",
                 task_id,
             )
             return False
 
-        # Update task status using task_manager
-        await self.task_manager.update_task_status(
-            task_id,
-            TaskStatus.CANCELLED,
-            error_message="User cancelled task",
-        )
         await invalidate_cache("backtests")
         return True
 
