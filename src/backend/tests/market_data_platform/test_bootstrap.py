@@ -22,6 +22,7 @@ from app.services.market_data.bootstrap import (
     CANONICAL_DATASET_CODES,
     CANONICAL_PHYSICAL_TABLE,
     CANONICAL_QUOTE_SNAPSHOT_DATASET_CODE,
+    CANONICAL_STOCK_VALUATION_CAPTURED_SNAPSHOT_DATASET_CODE,
     CANONICAL_STORAGE_ID,
     CANONICAL_WRITE_MODE,
     SUPPORTED_ASSET_TYPES,
@@ -169,6 +170,9 @@ async def test_bootstrap_registers_b1_logical_datasets_without_routes() -> None:
     assert set(datasets) == set(CANONICAL_DATASET_CODES)
     bars_dataset = datasets[CANONICAL_DATASET_CODE]
     quote_dataset = datasets[CANONICAL_QUOTE_SNAPSHOT_DATASET_CODE]
+    captured_valuation_dataset = datasets[
+        CANONICAL_STOCK_VALUATION_CAPTURED_SNAPSHOT_DATASET_CODE
+    ]
     assert bars_dataset.canonical_schema["supported_asset_types"] == list(SUPPORTED_ASSET_TYPES)
     assert bars_dataset.primary_key == [
         "semantic_key_sha256",
@@ -185,6 +189,29 @@ async def test_bootstrap_registers_b1_logical_datasets_without_routes() -> None:
     assert "last" not in quote_fields
     assert "amount" not in quote_fields
     assert quote_dataset.primary_key == bars_dataset.primary_key
+    captured_valuation_schema = captured_valuation_dataset.canonical_schema
+    assert captured_valuation_schema["schema_version"] == (
+        "market-stock-valuation-captured-snapshot-v1"
+    )
+    assert captured_valuation_schema["internal_only"] is True
+    assert captured_valuation_schema["data_kind"] == "valuation_snapshot"
+    assert captured_valuation_schema["frequency"] == "snapshot"
+    assert captured_valuation_schema["frequency_semantics"] == "snapshot"
+    assert captured_valuation_schema["time_basis"] == "collector_observed"
+    assert captured_valuation_schema["supported_asset_types"] == ["stock"]
+    assert {
+        "market_cap",
+        "float_market_cap",
+        "pe",
+        "pb",
+    } <= set(captured_valuation_schema["observation_fields"])
+    assert "as_of" not in captured_valuation_schema["observation_fields"]
+    assert captured_valuation_schema["provenance_constraints"] == {
+        "source_event_time": None,
+        "source_as_of": None,
+        "time_basis": "collector_observed",
+    }
+    assert captured_valuation_dataset.primary_key == bars_dataset.primary_key
     expected_reference_schemas = {
         "market.valuation": ("stock", {"market_cap", "float_market_cap", "pe", "pb", "as_of"}),
         "market.liquidity": ("stock", {"volume", "turnover", "turnover_rate"}),
@@ -303,7 +330,7 @@ async def test_bootstrap_is_idempotent_and_does_not_duplicate_control_plane_rows
             "provider": await session.scalar(select(func.count()).select_from(DgProvider)),
         }
 
-    assert len(first.created) == 18
+    assert len(first.created) == 2 + 2 * len(CANONICAL_DATASET_CODES)
     assert first.dataset_code == CANONICAL_DATASET_CODE
     assert first.dataset_codes == CANONICAL_DATASET_CODES
     assert second.created == ()

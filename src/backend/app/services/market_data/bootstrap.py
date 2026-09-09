@@ -49,6 +49,9 @@ CANONICAL_STORAGE_ROLE = "canonical"
 CANONICAL_PHYSICAL_TABLE = "md_observation_revisions"
 CANONICAL_DATASET_CODE = "market.bars"
 CANONICAL_QUOTE_SNAPSHOT_DATASET_CODE = "market.quote_snapshot"
+CANONICAL_STOCK_VALUATION_CAPTURED_SNAPSHOT_DATASET_CODE = (
+    "market.stock_valuation_captured_snapshot"
+)
 CANONICAL_VALUATION_DATASET_CODE = "market.valuation"
 CANONICAL_LIQUIDITY_DATASET_CODE = "market.liquidity"
 CANONICAL_SETTLEMENT_DATASET_CODE = "market.settlement"
@@ -66,6 +69,7 @@ CANONICAL_REFERENCE_SERIES_DATASET_CODES = (
 CANONICAL_DATASET_CODES = (
     CANONICAL_DATASET_CODE,
     CANONICAL_QUOTE_SNAPSHOT_DATASET_CODE,
+    CANONICAL_STOCK_VALUATION_CAPTURED_SNAPSHOT_DATASET_CODE,
     *CANONICAL_REFERENCE_SERIES_DATASET_CODES,
 )
 CANONICAL_WRITE_MODE = "canonical_append_only"
@@ -684,6 +688,12 @@ def _canonical_dataset_specs() -> tuple[tuple[str, str, dict[str, object], list[
             _canonical_quote_snapshot_primary_key(),
         ),
         (
+            CANONICAL_STOCK_VALUATION_CAPTURED_SNAPSHOT_DATASET_CODE,
+            "Internal captured stock valuation snapshots",
+            _canonical_stock_valuation_captured_snapshot_schema(),
+            _canonical_observation_revision_primary_key(),
+        ),
+        (
             CANONICAL_VALUATION_DATASET_CODE,
             "Stock valuation reference series",
             _canonical_valuation_schema(),
@@ -814,6 +824,59 @@ def _canonical_quote_snapshot_schema() -> dict[str, object]:
 def _canonical_quote_snapshot_primary_key() -> list[str]:
     """Return quote revision identity without claiming bars share its semantics."""
     return _canonical_observation_revision_primary_key()
+
+
+def _canonical_stock_valuation_captured_snapshot_schema() -> dict[str, object]:
+    """Describe the private collector-observed valuation snapshot candidate.
+
+    This is an internal logical dataset over the shared immutable revision
+    table.  It has no public family, route, freshness policy, or declared
+    coverage semantics.  The capture instant is an observation timestamp, not
+    a source-row event time or a daily valuation ``as_of`` claim.
+    """
+    return {
+        "schema_version": "market-stock-valuation-captured-snapshot-v1",
+        "internal_only": True,
+        "data_kind": "valuation_snapshot",
+        "frequency": "snapshot",
+        "frequency_semantics": "snapshot",
+        "time_basis": "collector_observed",
+        "supported_asset_types": ["stock"],
+        "identity_fields": [
+            "canonical_id",
+            "asset_type",
+            "market",
+            "instrument_metadata_version",
+        ],
+        "series_dimensions": [
+            "frequency",
+            "adjustment",
+            "price_basis",
+            "currency",
+            "unit",
+            "source_policy_id",
+        ],
+        "observation_fields": {
+            "event_time": "timestamp",
+            "event_end": "timestamp|null",
+            "available_at": "timestamp",
+            "market_cap": "decimal|null",
+            "float_market_cap": "decimal|null",
+            "pe": "decimal|null",
+            "pb": "decimal|null",
+        },
+        "provenance_constraints": {
+            "source_event_time": None,
+            "source_as_of": None,
+            "time_basis": "collector_observed",
+        },
+        "provenance_fields": [
+            "source_snapshot_id",
+            "revision_number",
+            "quality_status",
+            "normalization_version",
+        ],
+    }
 
 
 def _canonical_valuation_schema() -> dict[str, object]:

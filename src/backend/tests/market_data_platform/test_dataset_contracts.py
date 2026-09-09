@@ -133,6 +133,7 @@ def test_ready_entries_are_only_explicitly_reviewed_product_contracts() -> None:
     assert all(entry.reason_code is None for entry in ready)
     assert all(entry.source_policy_id is None for entry in not_ready)
     assert all(entry.reason_code is not None for entry in not_ready)
+    assert all(entry.data_kind != "valuation_snapshot" for entry in entries)
 
     by_id = {entry.family_id: entry for entry in entries}
     for family_id in {
@@ -358,6 +359,10 @@ def test_contract_dto_rejects_a_non_bar_product_claiming_ready_bars_compatibilit
             "snapshot data kinds require the explicit snapshot frequency",
         ),
         (
+            {"data_kind": "valuation_snapshot", "frequency": "1d"},
+            "snapshot data kinds require the explicit snapshot frequency",
+        ),
+        (
             {"data_kind": "position_report", "frequency": "snapshot"},
             "report and reference-series queries require a non-snapshot frequency",
         ),
@@ -380,6 +385,7 @@ def test_query_dto_rejects_unsupported_data_kind_frequency_combinations(
     "changes",
     [
         {"data_kind": "quote_snapshot", "frequency": "snapshot"},
+        {"data_kind": "valuation_snapshot", "frequency": "snapshot"},
         {"data_kind": "option_chain", "frequency": "snapshot"},
         {"data_kind": "option_risk_surface", "frequency": "snapshot"},
         {"data_kind": "reference_series", "frequency": "1d"},

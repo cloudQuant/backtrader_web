@@ -1,6 +1,6 @@
 # MD-197-SCOPE-MANIFEST：冻结基线后的范围证据工具
 
-> 状态：已为当前 `dev` 候选生成并验证范围清单（2026-09-10；manifest SHA-256：`24f142337cf01f59e14afeb4401d97c0f2f45c750aedc1c3daa953681b94ec29`）。
+> 状态：已为当前 `dev` 候选生成并验证范围清单（2026-09-10；manifest SHA-256：`d1dd587a1d199c2b155789d1c24d53eb3c0e320165b62daf5c57fc55d3544cd1`）。
 >
 > 冻结输入：[iter196-market-data-baseline-20260909.json](iter196-market-data-baseline-20260909.json)；生成结果：[iteration197-market-data-scope-manifest-20260909.json](iteration197-market-data-scope-manifest-20260909.json)。基线引用迭代 196 的冻结候选和收据 SHA-256，而不是当前工作树或测试夹具。
 

@@ -108,6 +108,7 @@ def test_snapshot_row_schemas_stay_out_of_the_request_time_provider_registry() -
         "reference_series",
     }
     assert get_akshare_snapshot_row_schema("stock").collector_observed_allowed is True
+    assert all(route.endpoint != "stock_zh_a_spot_em" for route in AKSHARE_ROUTE_REGISTRY)
     assert get_akshare_snapshot_row_schema("fund").collector_observed_allowed is False
     assert get_akshare_snapshot_row_schema("fund").field_aliases["IOPV"] == "iopv"
     assert get_akshare_snapshot_row_schema("fx").field_aliases["最新价"] == "price"

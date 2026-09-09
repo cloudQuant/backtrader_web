@@ -19,6 +19,7 @@ MarketDataAssetType = Literal["stock", "futures", "bond", "fund", "option", "fx"
 MarketDataKind = Literal[
     "bars",
     "quote_snapshot",
+    "valuation_snapshot",
     "option_chain",
     "position_report",
     "reference_series",
@@ -262,7 +263,12 @@ class MarketDataFamilyContractResponse(_StrictMarketDataModel):
             optional_fields=self.optional_fields,
             dimension_fields=self.dimension_fields,
         )
-        snapshot_kinds = {"quote_snapshot", "option_chain", "option_risk_surface"}
+        snapshot_kinds = {
+            "quote_snapshot",
+            "valuation_snapshot",
+            "option_chain",
+            "option_risk_surface",
+        }
         has_snapshot_frequency = "snapshot" in self.frequencies
         if self.frequency_semantics == "snapshot":
             if self.frequencies != ("snapshot",) or self.data_kind not in snapshot_kinds:
@@ -437,7 +443,12 @@ class MarketDataQueryRequest(_StrictMarketDataModel):
             raise ValueError("family_id and family_contract_version must be specified together")
         if self.start >= self.end:
             raise ValueError("end must be later than start for half-open [start, end) queries")
-        snapshot_kinds = {"quote_snapshot", "option_chain", "option_risk_surface"}
+        snapshot_kinds = {
+            "quote_snapshot",
+            "valuation_snapshot",
+            "option_chain",
+            "option_risk_surface",
+        }
         report_kinds = {"position_report", "inventory_report"}
         if self.data_kind == "bars":
             if self.frequency is None:

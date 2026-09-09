@@ -270,8 +270,18 @@ _STOCK_SNAPSHOT_FIELD_ALIASES = {
     "成交额": "turnover",
     "turnover": "turnover",
     "换手率": "turnover_rate",
+    # ``stock_zh_a_spot_em`` is a broad offline/scheduled snapshot source.
+    # Keep its valuation aliases on the snapshot schema only: adding them
+    # here must never promote the wide table into ``AKSHARE_ROUTE_REGISTRY``.
+    "总市值": "market_cap",
+    "market_cap": "market_cap",
+    "流通市值": "float_market_cap",
+    "float_market_cap": "float_market_cap",
+    "市盈率-动态": "pe",
     "市盈率": "pe",
+    "pe": "pe",
     "市净率": "pb",
+    "pb": "pb",
 }
 _FUND_SNAPSHOT_FIELD_ALIASES = {
     "最新价": "price",

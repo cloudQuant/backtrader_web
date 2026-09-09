@@ -1,8 +1,8 @@
 # 迭代 197 候选实现与验收状态
 
 > 记录日期：2026-09-10<br>
-> 文档性质：当前 `dev` 工作树的未冻结候选实现审计，不是生产发布证明。<br>
-> 设计基线：迭代 196 已冻结并已接入 `dev`；本候选仍待完成干净提交，本文件不解除真实数据、数据库、浏览器和部署验收闸门。
+> 文档性质：当前 `dev` 候选实现审计，不是生产发布证明。<br>
+> 设计基线：迭代 196 已冻结并已接入 `dev`；本候选尚未进入 release 签收，本文件不解除真实数据、数据库、浏览器和部署验收闸门。
 
 ## 1. 阅读规则和状态含义
 
@@ -16,7 +16,7 @@
 | `BLOCKED` | 必须等待真实环境授权、外部服务或尚未实现的数据模型；不把本地候选代码当作解除条件。 |
 | `NOT_RUN` | 本次没有在真实 AkShare/OpenBB、共享数据库、浏览器或生产环境中执行；不能从 fixture、静态审计或历史日志推断成功。 |
 
-历史候选提交后的复核曾发现一项 PIT 回放测试不确定性：测试使用虚构的 13:00 cutoff，却让 publication 使用真实时钟，记录正确地在该 cutoff 后才可见。历史候选提交 `c474a57b` 仅为该测试注入固定的可信 publication clock，未改变生产语义。随后对 `tests/market_data_platform`、`tests/test_config.py`、`tests/test_market_instrument_api.py` 和 `tests/test_market_instrument_freshness.py` 的最终组合离线运行报告为 `357 passed, 32 warnings in 76.18s`；历史候选提交 `20e214dd` 已格式化当时引入的 9 个文件，Ruff 格式和规则检查通过，Alembic head 为 `20260908_market_data_shared_dataset_bindings`。当时的前端相关验证按文件串行运行：`marketData.test.ts` 为 `12 passed`，`DataPage.test.ts` 为 `28 passed`，`StrategyPage.test.ts` 为 `100 passed`；`npm run typecheck` 与 `npm run build` 均通过。后端 warnings 来自已安装 Backtrader、Alembic 配置和 Starlette 的弃用提示；前端构建仍报告 Browserslist 数据陈旧及既有大 chunk 警告。以上 SHA、分支、计数和结论均是历史快照，**不覆盖本次未提交 completion candidate 的 capability、cache-fill 或策略 bridge 增量**；该增量必须在冻结候选上按 [验收文档](ACCEPTANCE.md#4-必须执行的自动化回归) 复跑后才能记入新的执行记录。它们都不将本地结果升级为全量、真实数据或生产验收。
+历史候选提交后的复核曾发现一项 PIT 回放测试不确定性：测试使用虚构的 13:00 cutoff，却让 publication 使用真实时钟，记录正确地在该 cutoff 后才可见。历史候选提交 `c474a57b` 仅为该测试注入固定的可信 publication clock，未改变生产语义。随后对 `tests/market_data_platform`、`tests/test_config.py`、`tests/test_market_instrument_api.py` 和 `tests/test_market_instrument_freshness.py` 的最终组合离线运行报告为 `357 passed, 32 warnings in 76.18s`；历史候选提交 `20e214dd` 已格式化当时引入的 9 个文件，Ruff 格式和规则检查通过，Alembic head 为 `20260908_market_data_shared_dataset_bindings`。当时的前端相关验证按文件串行运行：`marketData.test.ts` 为 `12 passed`，`DataPage.test.ts` 为 `28 passed`，`StrategyPage.test.ts` 为 `100 passed`；`npm run typecheck` 与 `npm run build` 均通过。后端 warnings 来自已安装 Backtrader、Alembic 配置和 Starlette 的弃用提示；前端构建仍报告 Browserslist 数据陈旧及既有大 chunk 警告。以上 SHA、分支、计数和结论均是历史快照，**不覆盖本次 completion candidate 的 capability、cache-fill 或策略 bridge 增量**；该增量必须在冻结候选上按 [验收文档](ACCEPTANCE.md#4-必须执行的自动化回归) 复跑后才能记入新的执行记录。它们都不将本地结果升级为全量、真实数据或生产验收。
 
 ## 2. 候选实现总览
 
@@ -29,7 +29,7 @@
 | quote snapshot local-first 覆盖 | `DONE` | `SnapshotCoveragePlanner` 已避免把 quote 强行塞入交易日历；产品 SLA 以 `source_policy_version` 锚定，quote 响应会隐藏超过该 policy freshness 的记录。 | `NOT_RUN`：真实 snapshot feed、七资产 identity 映射和 freshness 行为尚未在真实来源验证。 |
 | F1 市场页控制面 | `DONE`（L-197-15，本地候选） | 已认证 capability 文档是 v2/bundle 唯一前端开关；有效 bundle 中 `unconfigured/not_applicable` 不走 legacy lookup，旧服务明确兼容错误才走无 bundle v2。静止候选的 capability API、cache 矩阵、选择器竞态和页面 v2 回归已通过。 | `NOT_RUN`：未在浏览器、真实后端、真实数据状态下 E2E。 |
 | F1 策略页严格本地预检 | `DONE`（L-197-15，本地候选） | 普通预检只读 `local_only + research + strict`；只有显式缓存补齐受 `query_v2 + online_fetch + cache_fill` 有效 capability 控制，独立于 bridge，成功后允许 strict 本地 v2 复读但不产生工件。bridge marker 从同一次提交的 symbol 快照派生，bridge 禁用时在同步/异步持久化前失败关闭；同步/异步拒绝与研究链全量回归已通过。 | `NOT_RUN`：未在真实数据、浏览器和部署环境完成工件回放。 |
-| F2 quote/valuation/settlement/NAV/reference | `IN_PROGRESS` | `stock.liquidity`、`fund.liquidity`、`fund.nav` 和 `fx.range` 已具 request-time 候选 contract/route；其中 NAV 仅为 CN ETF 日线源报告净值。其余 quote、valuation、settlement、宽表 importer 和多记录产品仍保持 fail-closed。 | `NOT_RUN`：没有真实采集、回填或页面灰度验收。 |
+| F2 quote/valuation/settlement/NAV/reference | `IN_PROGRESS` | `stock.liquidity`、`fund.liquidity`、`fund.nav` 和 `fx.range` 已具 request-time 候选 contract/route；其中 NAV 仅为 CN ETF 日线源报告净值。A 股估值已落地为默认关闭的私有 `market.stock_valuation_captured_snapshot / valuation_snapshot / snapshot` 离线批次 collector：无 fetch/HTTP/route/public family，精确 capture instant、封装 hash、quarantine 与写前证据预算均有本地回归。公开 `stock.valuation` 仍未配置。其余 quote、valuation、settlement、宽表 importer 和多记录产品保持 fail-closed。 | `NOT_RUN`：没有真实采集、回填或页面灰度验收。 |
 | 共享 binding migration 与 server capability 代码整合 | `DONE`（代码整合） | 196/197 migration chain 与 binding consumer 已进入集成基线；server capability 接线不改变默认关闭状态。真实回填、页面灰度和生产开关不属于这一行的完成声明。 | `NOT_RUN`：未在可恢复真实数据库、页面灰度或生产部署执行。 |
 
 ## 3. 当前 21 个页面数据族
@@ -41,8 +41,8 @@
 | family | 当前候选合同/状态 | F2 预期产品 | F2 实施状态 | 当前不能宣称的能力 |
 | --- | --- | --- | --- | --- |
 | `stock.realtime` | `DONE`：`market.bars` / `bars` / 1d、1w、1mo | `market.quote_snapshot` / snapshot | `NOT_CONFIGURED` | 实时逐笔/盘口或源 tick 时间。 |
-| `stock.valuation` | `NOT_CONFIGURED`：`market.valuation` / reference / 1d | 市值、PE、PB、as-of | `NOT_CONFIGURED` | 用局部字段或历史 bars 补齐估值。 |
-| `stock.liquidity` | `DONE`（候选 `ready`）：`market.liquidity` / reference series / 1d | volume、turnover、turnover rate | 候选 exact route；真实验收 `NOT_RUN` | 真实来源、完整覆盖或写回已经通过。 |
+| `stock.valuation` | `NOT_CONFIGURED`：`market.valuation` / reference / 1d | 市值、PE、PB、`as_of`（公开合同仍未配置） | 私有 `market.stock_valuation_captured_snapshot / valuation_snapshot / snapshot` collector 已完成离线候选与 139 条聚焦回归；`event_at` 仅为精确 `collector_observed` capture instant，无 source `as_of`，无 public family/route/page | 将私有批次、历史 bars 或 collector 时间表述为实时、日线完整覆盖、来源 `as_of` 或页面可用。 |
+| `stock.liquidity` | `DONE`（候选 `ready`）：`market.liquidity` / reference series / 1d | volume、turnover、turnover rate | 候选 exact route；已执行真实零行子用例为 `FAIL`，其余真实验收仍 `NOT_RUN` | 真实来源、完整覆盖或写回已经通过。 |
 | `futures.realtime` | `DONE`：`market.bars` / 1d | `market.quote_snapshot` / snapshot | `NOT_CONFIGURED` | 现货 bid/ask、当前 OI。 |
 | `futures.settlement` | `NOT_CONFIGURED`：`market.settlement` / reference / 1d | settle、previous settle、OI | `IN_PROGRESS`：legacy bridge 设计 | 不带 `MARKET` 的旧表查询或由日线猜昨结。 |
 | `futures.inventory` | `NOT_CONFIGURED`：`market.inventory` / inventory report | 仓单、库存、交割数量 | `NOT_CONFIGURED` | 将不同来源库存/仓单拼成一条报告。 |
@@ -83,12 +83,20 @@
 
 | 来源 | 方法和关键 source key | 可规划的产品 | 当前状态 |
 | --- | --- | --- | --- |
-| A 股宽表 | `stock_zh_a_spot_em()`；`代码`，无输出交易所和逐行时间 | stock quote、stock valuation | `NOT_CONFIGURED`：可在冻结 `(venue, code)` 映射后做 collector-observed snapshot。 |
+| A 股宽表 | `stock_zh_a_spot_em()`；`代码`，无输出交易所和逐行时间 | stock quote、stock valuation | `IN_PROGRESS`：仅估值的私有离线 collector 已落地，输入必须是已捕获批次；固定 envelope/hash、冻结 `(venue, code)` mapping、`collector_observed` capture instant、unknown quarantine、2 MiB/10 MiB/32 MiB/16-target 写前边界和 durable-prefix 语义均已本地验证。它没有 provider route 或网络调用，公开 `stock.valuation` 保持 `NOT_CONFIGURED`。 |
 | ETF 宽表 | `fund_etf_spot_em()`；`代码`、数据日期、更新时间 | ETF quote | `NOT_CONFIGURED`：先验证更新时间原始单位/时区和 listing 映射。 |
 | 开放式基金净值 | `fund_open_fund_info_em()` 的“单位净值走势”与“累计净值走势” | fund NAV | `NOT_CONFIGURED`：不是 `[start,end)` exact API；仅可做有行数上限的双收据定时 importer。 |
 | 期货结算 legacy bridge | `FUTURES_DAILY_MARKET`，需 settle/previous settle/OI | futures settlement | `NOT_CONFIGURED`：只按 `(MARKET,SYMBOL,TRADE_DATE)` 导入，原表不是运行时查询源。 |
 
-collector 无法获得可信 provider row time 时，`event_at` 只能被明确标记为 `collector_observed`；`available_at` 是本系统收到并发布证据的时间。它不得冒充交易所 tick 时间，也不得用于历史严格 PIT 在线补数。
+collector 无法获得可信 provider row time 时，`event_at` 只能被明确标记为 `collector_observed`；`available_at` 是本系统收到并发布证据的时间。捕获 UTC 日期不是来源 `as_of`，不得伪造、推断或写入该字段。它不得冒充交易所 tick 时间，也不得用于历史严格 PIT 在线补数。
+
+#### 4.2.1 A 股估值预捕获批次候选
+
+已落地的 `StockValuationCollector` 不是页面 fallback。它只持久化私有 `market.stock_valuation_captured_snapshot / valuation_snapshot / snapshot`，由受控 scheduler 或测试夹具交付已捕获的 AkShare 宽表；默认入口零 fetch、零 HTTP、零 request-time provider route，且没有 public family、API、freshness 或 legacy bridge。处理前冻结 CN-SSE/CN-SZSE `(venue, code) → canonical identity` map、目标集合、四字段 profile、`local_only + display` 语义以及精确 aware `captured_at` 的一微秒选择窗口。宽表没有可信逐行来源事件时间，故 observation `event_at` 只表示 `collector_observed` capture instant，receipt 明确记录 `source_event_time=null` 和 `source_as_of=null`；它不能改写为交易所时间、日线 close、日历 event 或公开 `as_of`。
+
+capture envelope 固定 provider、`stock_zh_a_spot_em` endpoint、空 args/kwargs、collector version、source revision、captured_at、time basis 和自排除 batch SHA-256；构造时递归冻结 raw payload。已知 target 的 identity、重复、缺字段或规范化错误会整批零写入；未知结构有效的代码只留在 quarantine 与每 target 的 raw receipt。写入前严格限制 2 MiB source envelope、16 target、10 MiB 单条 receipt 和 32 MiB 精确复制 fan-out；生产级 content-addressed shared receipt 尚未实现。完整预检后各 target 独立 publication，后续失败返回 durable prefix；只有 publication 后的 Store `local_only` 重读才构成本地持久化证据。
+
+本地 139 条聚焦 pytest 已覆盖默认关闭、网络防护、身份、封装、时间语义、quarantine、预算、部分发布、递归冻结和 Store 回读。真实 AkShare、scheduler、许可、calendar、MySQL/PostgreSQL、浏览器与策略/回测仍为 `NOT_RUN`；即使内部候选通过离线回归，公开 `stock.valuation` 仍不是可用能力。
 
 ### 4.3 必须保持 `NOT_CONFIGURED` 的来源和 family
 
@@ -123,7 +131,7 @@ collector 无法获得可信 provider row time 时，`event_at` 只能被明确�
 
 | 验收项 | 状态 | 必需证据 |
 | --- | --- | --- |
-| 历史候选后端及市场接口兼容总回归 | 历史记录（`357 passed, 32 warnings`） | `market_data_platform`、配置、市场接口和 freshness 套件的历史提交后组合输出；不覆盖本次未提交 completion candidate，也不等价于生产验收。 |
+| 历史候选后端及市场接口兼容总回归 | 历史记录（`357 passed, 32 warnings`） | `market_data_platform`、配置、市场接口和 freshness 套件的历史提交后组合输出；不覆盖本次 completion candidate，也不等价于生产验收。 |
 | 历史候选代码格式、规则和 migration head | 历史记录（Ruff format/check、`alembic heads`） | 当时 48 个目标 Python 文件格式通过，规则检查通过，head 为 `20260908_market_data_shared_dataset_bindings`；不描述当前 head，且未运行真实迁移。 |
 | 历史候选前端相关单元、类型和构建门禁 | 历史记录（`12 + 28 + 100` 单元测试、`vue-tsc --noEmit`、Vite build） | 当时按文件串行的本地验证；不覆盖本次 capability/bridge 增量，Browserslist 与 bundle-size 警告已记录，不等价于浏览器 E2E。 |
 | 本次 capability/cache-fill/bridge guard 增量 | `PASS`（L-197-15，本地） | 静止候选已完成 capability API、cache 状态矩阵、同步/异步 bridge 拒绝、symbol 快照竞态和四份前端 v2 测试；不替代浏览器、真实数据或部署证据。 |
@@ -132,6 +140,7 @@ collector 无法获得可信 provider row time 时，`event_at` 只能被明确�
 | large-file ratchet | `BLOCKED / NO-GO`（L-197-18） | 当前 38 项超限，未改写 baseline；该全仓质量闸门恢复前不得作发布签收。 |
 | 真实 AkShare exact route | `NOT_RUN` | 每条 route 的实际请求/回执、字段和身份 mismatch 反例、限流与错误码证据。 |
 | F2 collector 宽表刷新 | `IN_PROGRESS` | 离线 schedule/shadow snapshot importer 候选已存在，但没有 route 或网络调用；真实 feed-level singleflight、raw snapshot、ambiguous-row quarantine、首次导入后第二次同请求零网络仍为 `NOT_RUN`。 |
+| A 股 `stock.valuation` 预捕获宽表采集候选 | `PASS`（本地开发回归，139 条聚焦 pytest） | 私有 `market.stock_valuation_captured_snapshot / valuation_snapshot / snapshot` 默认关闭 collector 已验证零 fetch/HTTP、封装 hash、递归冻结、精确 collector-observed capture instant、unknown quarantine、2 MiB/10 MiB/32 MiB/16-target 写前限制、部分发布与 Store 回读；共享内容寻址 receipt 仍非本候选能力，公开 `stock.valuation` 仍非 `ready`。真实 source/database/browser/scheduler 仍 `NOT_RUN`。 |
 | OpenBB operator runner | `NOT_RUN` | 独立环境、provider allow-list、extension 版本、许可证/凭据、子进程隔离和真实 data receipt。 |
 | 真实数据库迁移与 PIT | `BLOCKED` | 196/197 共同 migration head、MySQL 精度/索引检查、升级/降级或恢复演练、publication recovery。 |
 | `/data/market` 浏览器灰度 | `NOT_RUN` | V1/V2 双路径、未配置展示、bars 非实时标签、网络观察和回滚。 |

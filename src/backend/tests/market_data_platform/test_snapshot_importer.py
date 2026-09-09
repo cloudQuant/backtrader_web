@@ -253,6 +253,31 @@ def test_snapshot_importer_normalizes_numeric_strings_and_decimals_for_json_stor
     assert json.loads(json.dumps(dict(fields))) == {"price": expected_price}
 
 
+def test_stock_snapshot_importer_normalizes_valuation_columns_only_for_offline_batches() -> None:
+    """The broad A-share valuation fields stay usable by a scheduled importer only."""
+    result = _import(
+        rows=[
+            {
+                "代码": "000001",
+                "总市值": "1000000000",
+                "流通市值": "800000000",
+                "市盈率-动态": "12.5",
+                "市净率": "1.25",
+            }
+        ],
+        required_fields=frozenset({"market_cap", "float_market_cap", "pe", "pb"}),
+        time_basis="collector_observed",
+        collected_at=datetime(2026, 9, 8, 1, 35, tzinfo=UTC),
+    )
+
+    assert result.observations[0].fields == {
+        "market_cap": "1000000000",
+        "float_market_cap": "800000000",
+        "pe": "12.5",
+        "pb": "1.25",
+    }
+
+
 def test_stock_collector_observed_requires_a_caller_audit_time_and_discloses_its_basis() -> None:
     """Wide stock rows may use collection time only when the caller explicitly supplies it."""
     collected_at = datetime(2026, 9, 8, 1, 35, tzinfo=UTC)

@@ -98,7 +98,7 @@
     "schema_version": "iter196-market-data-baseline-v1",
     "status": "frozen"
   },
-  "manifest_sha256": "24f142337cf01f59e14afeb4401d97c0f2f45c750aedc1c3daa953681b94ec29",
+  "manifest_sha256": "d1dd587a1d199c2b155789d1c24d53eb3c0e320165b62daf5c57fc55d3544cd1",
   "rows": [
     {
       "api": {
@@ -1268,7 +1268,7 @@
     {
       "path": "src/backend/app/schemas/market_data_platform.py",
       "role": "backend_query_schema",
-      "sha256": "f91564973476ef145c694e372d3bc7a82470e8aad18d3ab7be5bb326e46bf0a2"
+      "sha256": "9dd4b89e89445483096d0a95daf385a35687e82ebc1c75c5c543646a6257b22a"
     },
     {
       "path": "src/backend/app/services/market_data/legacy_contract.py",
