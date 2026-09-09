@@ -31,13 +31,19 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.market_data_platform import MdResearchDataBinding
+from app.models.market_data_platform import (
+    MdResearchDataBinding,
+    MdResearchDataBindingConsumer,
+    MdResearchDataBindingRevocation,
+    MdResearchDataBindingScope,
+)
 from app.models.user import User
 from app.schemas.ai_strategy_research import AIStrategyResearchRunRequest
 from app.schemas.market_data_platform import MarketDataQueryRequest
 from app.services.market_data.access import (
     MarketDataAccessAuthorizer,
     MarketDataAuthorizationError,
+    MarketDataPrincipal,
     MarketDataQueryAccess,
 )
 from app.services.market_data.coverage import CoverageStatus
@@ -94,6 +100,7 @@ class MarketDataResearchRuntimeBinding:
     binding_id: str
     binding_hash: str
     user_id: str
+    intent_id: str
     signature: str
     artifact_directory: Path
     artifact_path: Path
@@ -296,24 +303,128 @@ class MarketDataResearchBindingService:
         binding_id: str,
         binding_hash: str,
         signature: str,
+        workspace_id: str,
+        unit_id: str,
+        intent_id: str,
         symbol: str | None = None,
         timeframe: str | None = None,
         timeframe_n: int | None = None,
         start: str | datetime | None = None,
         end: str | datetime | None = None,
     ) -> MarketDataResearchRuntimeBinding:
-        """Recheck DB ownership, token, artifact integrity, and optional unit subset."""
+        """Authorize one exact server-attested unit to read a sealed artifact.
+
+        A valid owner HMAC is necessary but deliberately insufficient.  The
+        binding must be attached by trusted AI-research orchestration to this
+        precise workspace/unit/intent, and the current principal/source-policy
+        decision must still authorize the sealed local evidence.
+        """
         signing_key = self._require_signing_key()
         owner_id = _required_text(user_id, field_name="user_id", maximum=36)
         normalized_binding_id = _required_text(binding_id, field_name="binding_id", maximum=36)
         normalized_binding_hash = _required_sha256(binding_hash, field_name="binding_hash")
-        binding = await self._db.get(MdResearchDataBinding, normalized_binding_id)
-        if binding is None:
-            raise MarketDataResearchBindingError("MARKET_DATA_BINDING_NOT_FOUND")
-        if binding.user_id != owner_id:
-            raise MarketDataResearchBindingError("MARKET_DATA_BINDING_OWNER_DENIED")
-        if binding.binding_hash != normalized_binding_hash:
-            raise MarketDataResearchBindingError("MARKET_DATA_BINDING_HASH_MISMATCH")
+        normalized_workspace_id = _required_text(
+            workspace_id,
+            field_name="workspace_id",
+            maximum=36,
+        )
+        normalized_unit_id = _required_text(unit_id, field_name="unit_id", maximum=36)
+        normalized_intent_id = _normalized_intent_id(intent_id)
+        binding = await self._load_runtime_binding(
+            binding_id=normalized_binding_id,
+            user_id=owner_id,
+            binding_hash=normalized_binding_hash,
+        )
+        manifest = _validated_manifest(binding)
+        await self._require_active_runtime_consumer(
+            binding=binding,
+            user_id=owner_id,
+            workspace_id=normalized_workspace_id,
+            unit_id=normalized_unit_id,
+            intent_id=normalized_intent_id,
+        )
+        await self._require_research_workspace_unit(
+            user_id=owner_id,
+            workspace_id=normalized_workspace_id,
+            unit_id=normalized_unit_id,
+            binding=binding,
+            signature=signature,
+            intent_id=normalized_intent_id,
+        )
+        await self._revalidate_current_runtime_access(
+            binding=binding,
+            manifest=manifest,
+        )
+
+        # MySQL/InnoDB REPEATABLE READ pins ordinary SELECTs to the first
+        # transaction snapshot. The prior replay can be long enough for a
+        # revocation or entitlement change to commit, so another ordinary
+        # SELECT in that transaction is not an authorization fence. This
+        # resolver is read-only: discard the completed snapshot, reload every
+        # runtime authority, then repeat the strict current-policy replay.
+        await self._end_runtime_read_snapshot()
+        binding = await self._load_runtime_binding(
+            binding_id=normalized_binding_id,
+            user_id=owner_id,
+            binding_hash=normalized_binding_hash,
+        )
+        manifest = _validated_manifest(binding)
+        await self._require_active_runtime_consumer(
+            binding=binding,
+            user_id=owner_id,
+            workspace_id=normalized_workspace_id,
+            unit_id=normalized_unit_id,
+            intent_id=normalized_intent_id,
+        )
+        await self._require_research_workspace_unit(
+            user_id=owner_id,
+            workspace_id=normalized_workspace_id,
+            unit_id=normalized_unit_id,
+            binding=binding,
+            signature=signature,
+            intent_id=normalized_intent_id,
+        )
+        replay_principal = await self._revalidate_current_runtime_access(
+            binding=binding,
+            manifest=manifest,
+        )
+
+        # A revocation may itself commit while the fresh replay is in flight.
+        # Restart again and use locking current reads for the short final
+        # authorization fence. Do not use any ORM instance from either
+        # discarded snapshot to construct the runtime artifact.
+        await self._end_runtime_read_snapshot()
+        binding = await self._load_runtime_binding(
+            binding_id=normalized_binding_id,
+            user_id=owner_id,
+            binding_hash=normalized_binding_hash,
+            lock_current=True,
+        )
+        await self._require_active_runtime_consumer(
+            binding=binding,
+            user_id=owner_id,
+            workspace_id=normalized_workspace_id,
+            unit_id=normalized_unit_id,
+            intent_id=normalized_intent_id,
+            lock_current=True,
+        )
+        await self._require_research_workspace_unit(
+            user_id=owner_id,
+            workspace_id=normalized_workspace_id,
+            unit_id=normalized_unit_id,
+            binding=binding,
+            signature=signature,
+            intent_id=normalized_intent_id,
+            lock_current=True,
+        )
+        try:
+            await self._access_authorizer.revalidate_principal_for_write(
+                principal=replay_principal,
+            )
+        except MarketDataAuthorizationError as exc:
+            raise MarketDataResearchBindingError(
+                "MARKET_DATA_BINDING_RUNTIME_READ_ACCESS_DENIED"
+            ) from exc
         runtime = await self._runtime_from_model(
             binding,
             user_id=owner_id,
@@ -334,8 +445,422 @@ class MarketDataResearchBindingService:
             )
         return runtime
 
+    async def attach_runtime_binding_consumer(
+        self,
+        *,
+        user_id: str,
+        binding_id: str,
+        binding_hash: str,
+        signature: str,
+        intent_id: str,
+        workspace_id: str,
+        unit_id: str,
+    ) -> None:
+        """Persist a server-only authorization from a binding to one research unit.
+
+        This method is intentionally called after trusted AI orchestration has
+        created the unit and before it submits the backtest.  The generic
+        workspace API has no path to invoke it.  A binding may serve several
+        iteration units in one research workspace, but can never be scoped to
+        a second workspace or a unit outside its issued intent.
+        """
+        signing_key = self._require_signing_key()
+        owner_id = _required_text(user_id, field_name="user_id", maximum=36)
+        normalized_binding_id = _required_text(binding_id, field_name="binding_id", maximum=36)
+        normalized_binding_hash = _required_sha256(binding_hash, field_name="binding_hash")
+        normalized_intent_id = _normalized_intent_id(intent_id)
+        normalized_workspace_id = _required_text(
+            workspace_id,
+            field_name="workspace_id",
+            maximum=36,
+        )
+        normalized_unit_id = _required_text(unit_id, field_name="unit_id", maximum=36)
+
+        binding = await self._db.scalar(
+            select(MdResearchDataBinding)
+            .where(MdResearchDataBinding.id == normalized_binding_id)
+            .with_for_update()
+        )
+        if binding is None:
+            raise MarketDataResearchBindingError("MARKET_DATA_BINDING_NOT_FOUND")
+        if binding.user_id != owner_id:
+            raise MarketDataResearchBindingError("MARKET_DATA_BINDING_OWNER_DENIED")
+        if binding.binding_hash != normalized_binding_hash:
+            raise MarketDataResearchBindingError("MARKET_DATA_BINDING_HASH_MISMATCH")
+        if binding.intent_id != normalized_intent_id:
+            raise MarketDataResearchBindingError("MARKET_DATA_BINDING_RUNTIME_INTENT_DENIED")
+
+        revoked = await self._db.scalar(
+            select(MdResearchDataBindingRevocation).where(
+                MdResearchDataBindingRevocation.binding_id == binding.id
+            )
+        )
+        if revoked is not None:
+            raise MarketDataResearchBindingError("MARKET_DATA_BINDING_REVOKED")
+
+        # Validate the HMAC and immutable artifact before authorizing any
+        # consumer.  This also rejects a revoked/invalid binding state.
+        await self._runtime_from_model(
+            binding,
+            user_id=owner_id,
+            signature=signature,
+            signing_key=signing_key,
+        )
+        manifest = _validated_manifest(binding)
+        await self._revalidate_current_runtime_access(binding=binding, manifest=manifest)
+        await self._require_research_workspace_unit(
+            user_id=owner_id,
+            workspace_id=normalized_workspace_id,
+            unit_id=normalized_unit_id,
+            binding=binding,
+            signature=signature,
+            intent_id=normalized_intent_id,
+        )
+
+        scope = await self._db.get(MdResearchDataBindingScope, binding.id)
+        if scope is None:
+            scope = MdResearchDataBindingScope(
+                binding_id=binding.id,
+                user_id=owner_id,
+                intent_id=normalized_intent_id,
+                workspace_id=normalized_workspace_id,
+            )
+            self._db.add(scope)
+        elif (
+            scope.user_id != owner_id
+            or scope.intent_id != normalized_intent_id
+            or scope.workspace_id != normalized_workspace_id
+        ):
+            raise MarketDataResearchBindingError("MARKET_DATA_BINDING_RUNTIME_INTENT_DENIED")
+
+        consumer = await self._db.scalar(
+            select(MdResearchDataBindingConsumer).where(
+                MdResearchDataBindingConsumer.unit_id == normalized_unit_id
+            )
+        )
+        if consumer is None:
+            self._db.add(
+                MdResearchDataBindingConsumer(
+                    binding_id=binding.id,
+                    user_id=owner_id,
+                    intent_id=normalized_intent_id,
+                    workspace_id=normalized_workspace_id,
+                    unit_id=normalized_unit_id,
+                )
+            )
+        elif (
+            consumer.binding_id != binding.id
+            or consumer.user_id != owner_id
+            or consumer.intent_id != normalized_intent_id
+            or consumer.workspace_id != normalized_workspace_id
+        ):
+            raise MarketDataResearchBindingError("MARKET_DATA_BINDING_RUNTIME_INTENT_DENIED")
+        try:
+            await self._db.commit()
+        except IntegrityError as exc:
+            await self._db.rollback()
+            raise MarketDataResearchBindingError("MARKET_DATA_BINDING_CONSUMER_WRITE_CONFLICT") from exc
+        except SQLAlchemyError as exc:
+            await self._db.rollback()
+            raise MarketDataResearchBindingError("MARKET_DATA_BINDING_CONSUMER_WRITE_FAILED") from exc
+
+    async def revoke_runtime_binding(
+        self,
+        *,
+        binding_id: str,
+        reason_code: str,
+        actor_user_id: str | None = None,
+        status: str = "REVOKED",
+    ) -> None:
+        """Append one irreversible emergency revocation receipt for a binding.
+
+        This service-level control is intentionally not exposed through a
+        browser route.  Operations can use it after their own authorization
+        procedure; runtime resolution rejects the receipt immediately.
+        """
+        normalized_binding_id = _required_text(binding_id, field_name="binding_id", maximum=36)
+        normalized_reason = _required_text(reason_code, field_name="reason_code", maximum=128)
+        normalized_status = _required_text(status, field_name="status", maximum=16).upper()
+        if normalized_status not in {"REVOKED", "INVALID"}:
+            raise MarketDataResearchBindingError("MARKET_DATA_BINDING_REVOCATION_STATUS_INVALID")
+        normalized_actor = (
+            _required_text(actor_user_id, field_name="actor_user_id", maximum=36)
+            if actor_user_id is not None
+            else None
+        )
+        binding = await self._db.get(MdResearchDataBinding, normalized_binding_id)
+        if binding is None:
+            raise MarketDataResearchBindingError("MARKET_DATA_BINDING_NOT_FOUND")
+        existing = await self._db.scalar(
+            select(MdResearchDataBindingRevocation).where(
+                MdResearchDataBindingRevocation.binding_id == normalized_binding_id
+            )
+        )
+        if existing is not None:
+            if (
+                existing.status == normalized_status
+                and existing.reason_code == normalized_reason
+                and existing.actor_user_id == normalized_actor
+            ):
+                return
+            raise MarketDataResearchBindingError("MARKET_DATA_BINDING_ALREADY_REVOKED")
+        self._db.add(
+            MdResearchDataBindingRevocation(
+                binding_id=normalized_binding_id,
+                actor_user_id=normalized_actor,
+                status=normalized_status,
+                reason_code=normalized_reason,
+                revoked_at=_trusted_now(self._clock),
+            )
+        )
+        try:
+            await self._db.commit()
+        except IntegrityError as exc:
+            await self._db.rollback()
+            raise MarketDataResearchBindingError("MARKET_DATA_BINDING_ALREADY_REVOKED") from exc
+        except SQLAlchemyError as exc:
+            await self._db.rollback()
+            raise MarketDataResearchBindingError("MARKET_DATA_BINDING_REVOCATION_WRITE_FAILED") from exc
+
+    async def _require_active_runtime_consumer(
+        self,
+        *,
+        binding: MdResearchDataBinding,
+        user_id: str,
+        workspace_id: str,
+        unit_id: str,
+        intent_id: str,
+        lock_current: bool = False,
+    ) -> None:
+        if binding.intent_id != intent_id:
+            raise MarketDataResearchBindingError("MARKET_DATA_BINDING_RUNTIME_INTENT_DENIED")
+        revocation_statement = (
+            select(MdResearchDataBindingRevocation)
+            .where(MdResearchDataBindingRevocation.binding_id == binding.id)
+            .execution_options(populate_existing=True)
+        )
+        if lock_current:
+            revocation_statement = revocation_statement.with_for_update()
+        revoked = (await self._db.execute(revocation_statement)).scalar_one_or_none()
+        if revoked is not None:
+            raise MarketDataResearchBindingError("MARKET_DATA_BINDING_REVOKED")
+        scope_statement = (
+            select(MdResearchDataBindingScope)
+            .where(MdResearchDataBindingScope.binding_id == binding.id)
+            .execution_options(populate_existing=True)
+        )
+        if lock_current:
+            scope_statement = scope_statement.with_for_update()
+        scope = (await self._db.execute(scope_statement)).scalar_one_or_none()
+        if (
+            scope is None
+            or scope.user_id != user_id
+            or scope.intent_id != intent_id
+            or scope.workspace_id != workspace_id
+        ):
+            raise MarketDataResearchBindingError("MARKET_DATA_BINDING_RUNTIME_INTENT_DENIED")
+        consumer_statement = (
+            select(MdResearchDataBindingConsumer)
+            .where(
+                MdResearchDataBindingConsumer.binding_id == binding.id,
+                MdResearchDataBindingConsumer.user_id == user_id,
+                MdResearchDataBindingConsumer.intent_id == intent_id,
+                MdResearchDataBindingConsumer.workspace_id == workspace_id,
+                MdResearchDataBindingConsumer.unit_id == unit_id,
+            )
+            .execution_options(populate_existing=True)
+        )
+        if lock_current:
+            consumer_statement = consumer_statement.with_for_update()
+        consumer = (await self._db.execute(consumer_statement)).scalar_one_or_none()
+        if consumer is None:
+            raise MarketDataResearchBindingError("MARKET_DATA_BINDING_RUNTIME_INTENT_DENIED")
+
+    async def _require_research_workspace_unit(
+        self,
+        *,
+        user_id: str,
+        workspace_id: str,
+        unit_id: str,
+        binding: MdResearchDataBinding,
+        signature: str,
+        intent_id: str,
+        lock_current: bool = False,
+    ) -> None:
+        """Verify an attachment target is an owned research unit with the token."""
+        from app.models.workspace import StrategyUnit, Workspace
+
+        workspace_statement = (
+            select(Workspace)
+            .where(Workspace.id == workspace_id)
+            .execution_options(populate_existing=True)
+        )
+        unit_statement = (
+            select(StrategyUnit)
+            .where(StrategyUnit.id == unit_id)
+            .execution_options(populate_existing=True)
+        )
+        if lock_current:
+            workspace_statement = workspace_statement.with_for_update()
+            unit_statement = unit_statement.with_for_update()
+        workspace = (await self._db.execute(workspace_statement)).scalar_one_or_none()
+        unit = (await self._db.execute(unit_statement)).scalar_one_or_none()
+        if (
+            workspace is None
+            or unit is None
+            or workspace.user_id != user_id
+            or unit.workspace_id != workspace_id
+            or str(workspace.workspace_type).strip().lower() != "research"
+        ):
+            raise MarketDataResearchBindingError("MARKET_DATA_BINDING_RUNTIME_INTENT_DENIED")
+        config = dict(unit.data_config or {})
+        if (
+            config.get("market_data_binding_required") is not True
+            or config.get("market_data_binding_id") != binding.id
+            or config.get("market_data_binding_hash") != binding.binding_hash
+            or config.get("market_data_binding_signature") != signature
+            or config.get("market_data_binding_intent_id") != intent_id
+        ):
+            raise MarketDataResearchBindingError("MARKET_DATA_BINDING_RUNTIME_INTENT_DENIED")
+
+    async def _revalidate_current_runtime_access(
+        self,
+        *,
+        binding: MdResearchDataBinding,
+        manifest: Mapping[str, object],
+    ) -> MarketDataPrincipal:
+        """Replay the sealed strict query under current entitlement and policy.
+
+        The replay is strictly local-only and uses the original PIT window. It
+        therefore cannot fetch or replace historical data, while current
+        source-policy/registry checks and full evidence comparison prevent a
+        revoked grant or a permitted substitute source from reusing the CSV.
+        """
+        semantics = _manifest_query_semantics(manifest)
+        try:
+            user = await self._load_owner(binding.user_id)
+            principal = await self._access_authorizer.principal_for_user(user)
+            self._access_authorizer.require_read_data(principal=principal)
+        except MarketDataAuthorizationError as exc:
+            raise MarketDataResearchBindingError(
+                "MARKET_DATA_BINDING_RUNTIME_READ_ACCESS_DENIED"
+            ) from exc
+
+        start_at = _parse_runtime_timestamp(semantics["full_window_start"], "full_window_start")
+        end_at = _parse_runtime_timestamp(semantics["full_window_end"], "full_window_end")
+        cutoff = _stored_utc(binding.knowledge_cutoff, "knowledge_cutoff")
+        contract = await self._resolve_contract(
+            asset_type=str(semantics["asset_type"]),
+            symbol=str(semantics["symbol"]),
+            timeframe=str(semantics["timeframe"]),
+        )
+        query = _strict_local_only_query(
+            contract=contract,
+            expected_family_id=str(semantics["family_id"]),
+            start_at=start_at,
+            end_at=end_at,
+            knowledge_cutoff=cutoff,
+        )
+        try:
+            execution = await self._query_service.execute(
+                query,
+                access=MarketDataQueryAccess(
+                    principal=principal,
+                    authorizer=self._access_authorizer,
+                ),
+            )
+        except MarketDataAuthorizationError as exc:
+            raise MarketDataResearchBindingError(
+                "MARKET_DATA_BINDING_RUNTIME_SOURCE_POLICY_ACCESS_DENIED"
+            ) from exc
+        except (
+            MarketDataIdentityResolutionError,
+            MarketDataQueryResolutionError,
+            MarketDataQueryServiceError,
+            MarketDataSourcePolicyError,
+            MarketDataStoreError,
+        ) as exc:
+            raise MarketDataResearchBindingError(
+                "MARKET_DATA_BINDING_RUNTIME_SOURCE_POLICY_ACCESS_DENIED"
+            ) from exc
+        _validate_execution(
+            execution,
+            query=query,
+            expected_symbol=str(semantics["symbol"]),
+            expected_asset_type=str(semantics["asset_type"]),
+            expected_cutoff=cutoff,
+        )
+        replay_semantics = _query_semantics(
+            execution=execution,
+            symbol=str(semantics["symbol"]),
+            timeframe=str(semantics["timeframe"]),
+            timeframe_n=int(semantics["timeframe_n"]),
+        )
+        if replay_semantics != semantics:
+            raise MarketDataResearchBindingError("MARKET_DATA_BINDING_RUNTIME_CONTRACT_MISMATCH")
+        replay_csv, replay_evidence = _materialize_csv(execution)
+        material = manifest.get("material")
+        if not isinstance(material, Mapping):
+            raise MarketDataResearchBindingError("MARKET_DATA_BINDING_MANIFEST_INVALID")
+        if (
+            _sha256_bytes(replay_csv) != binding.artifact_sha256
+            or len(replay_csv) != binding.artifact_size_bytes
+            or replay_evidence != material.get("observations")
+        ):
+            raise MarketDataResearchBindingError(
+                "MARKET_DATA_BINDING_RUNTIME_SOURCE_EVIDENCE_MISMATCH"
+            )
+        try:
+            return await self._access_authorizer.revalidate_principal(principal=principal)
+        except MarketDataAuthorizationError as exc:
+            raise MarketDataResearchBindingError(
+                "MARKET_DATA_BINDING_RUNTIME_READ_ACCESS_DENIED"
+            ) from exc
+
+    async def _load_runtime_binding(
+        self,
+        *,
+        binding_id: str,
+        user_id: str,
+        binding_hash: str,
+        lock_current: bool = False,
+    ) -> MdResearchDataBinding:
+        """Load a binding without retaining an identity-map snapshot value."""
+        statement = (
+            select(MdResearchDataBinding)
+            .where(MdResearchDataBinding.id == binding_id)
+            .execution_options(populate_existing=True)
+        )
+        if lock_current:
+            # InnoDB locking reads are current reads under REPEATABLE READ.
+            # They appear only in the final, short authorization fence.
+            statement = statement.with_for_update()
+        binding = (await self._db.execute(statement)).scalar_one_or_none()
+        if binding is None:
+            raise MarketDataResearchBindingError("MARKET_DATA_BINDING_NOT_FOUND")
+        if binding.user_id != user_id:
+            raise MarketDataResearchBindingError("MARKET_DATA_BINDING_OWNER_DENIED")
+        if binding.binding_hash != binding_hash:
+            raise MarketDataResearchBindingError("MARKET_DATA_BINDING_HASH_MISMATCH")
+        return binding
+
+    async def _end_runtime_read_snapshot(self) -> None:
+        """End a completed read-only replay before the next current-read fence."""
+        try:
+            await self._db.rollback()
+        except SQLAlchemyError as exc:
+            raise MarketDataResearchBindingError(
+                "MARKET_DATA_BINDING_RUNTIME_CURRENT_READ_FAILED"
+            ) from exc
+
     async def _load_owner(self, user_id: str) -> User:
-        user = await self._db.get(User, user_id)
+        user = (
+            await self._db.execute(
+                select(User)
+                .where(User.id == user_id)
+                .execution_options(populate_existing=True)
+            )
+        ).scalar_one_or_none()
         if user is None:
             raise MarketDataResearchBindingError("MARKET_DATA_BINDING_OWNER_INVALID")
         return user
@@ -480,6 +1005,7 @@ class MarketDataResearchBindingService:
             binding_id=binding.id,
             binding_hash=binding.binding_hash,
             user_id=user_id,
+            intent_id=binding.intent_id,
             signature=expected_signature,
             artifact_directory=artifact_path.parent,
             artifact_path=artifact_path,
@@ -640,6 +1166,7 @@ def _bound_request(
                 "market_data_binding_id": runtime.binding_id,
                 "market_data_binding_hash": runtime.binding_hash,
                 "market_data_binding_signature": runtime.signature,
+                "market_data_binding_intent_id": runtime.intent_id,
                 "market_data_binding_required": True,
             }
         }

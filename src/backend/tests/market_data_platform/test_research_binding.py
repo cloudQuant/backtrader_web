@@ -3,23 +3,35 @@
 from __future__ import annotations
 
 import importlib.util
+from collections.abc import Awaitable, Callable
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
 import pytest
 import sqlalchemy as sa
-from sqlalchemy import func, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.dialects import mysql, postgresql, sqlite
 
 from app.db.database import async_session_maker
-from app.models.market_data_platform import ImmutableMarketDataRecordError, MdResearchDataBinding
+from app.models.market_data_platform import (
+    ImmutableMarketDataRecordError,
+    MdResearchDataBinding,
+    MdResearchDataBindingConsumer,
+    MdResearchDataBindingRevocation,
+    MdResearchDataBindingScope,
+)
 from app.models.permission import Role, user_roles
 from app.models.user import User
+from app.models.workspace import StrategyUnit, Workspace
 from app.schemas.ai_strategy_research import AIStrategyResearchRunRequest
 from app.schemas.asset_research import InstrumentIdentity
 from app.schemas.market_data_platform import MarketDataQueryRequest, ResolvedMarketDataQuery
-from app.services.market_data.access import MarketDataAccessAuthorizer, MarketDataQueryAccess
+from app.services.market_data.access import (
+    MarketDataAccessAuthorizer,
+    MarketDataAuthorizationError,
+    MarketDataQueryAccess,
+)
 from app.services.market_data.catalog import DatasetStorageResolution
 from app.services.market_data.coverage import (
     CoveragePlan,
@@ -87,10 +99,20 @@ class _ContractResolver:
 
 
 class _LocalOnlyQueryService:
-    def __init__(self, *, missing_ohlc: bool = False) -> None:
+    def __init__(
+        self,
+        *,
+        missing_ohlc: bool = False,
+        execution_error: Exception | None = None,
+        close_adjustment: float = 0.0,
+        on_execute: Callable[[MarketDataQueryRequest], Awaitable[None]] | None = None,
+    ) -> None:
         self.requests: list[MarketDataQueryRequest] = []
         self.accesses: list[MarketDataQueryAccess | None] = []
         self.missing_ohlc = missing_ohlc
+        self.execution_error = execution_error
+        self.close_adjustment = close_adjustment
+        self.on_execute = on_execute
         self.online_fetch_attempts = 0
 
     async def execute(
@@ -101,7 +123,15 @@ class _LocalOnlyQueryService:
     ) -> MarketDataQueryExecution:
         self.requests.append(request)
         self.accesses.append(access)
-        return _execution_for(request, missing_ohlc=self.missing_ohlc)
+        if self.on_execute is not None:
+            await self.on_execute(request)
+        if self.execution_error is not None:
+            raise self.execution_error
+        return _execution_for(
+            request,
+            missing_ohlc=self.missing_ohlc,
+            close_adjustment=self.close_adjustment,
+        )
 
 
 async def _user(*, username: str) -> User:
@@ -117,6 +147,51 @@ async def _user(*, username: str) -> User:
         await db.execute(user_roles.insert().values(user_id=user.id, role=Role.USER.value))
         await db.commit()
         return user
+
+
+async def _attach_research_unit(
+    *,
+    db: Any,
+    service: MarketDataResearchBindingService,
+    user: User,
+    bound: AIStrategyResearchRunRequest,
+    workspace_name: str = "binding research workspace",
+) -> tuple[str, str]:
+    """Create a trusted research unit and persist its binding consumer receipt."""
+    workspace = Workspace(
+        user_id=user.id,
+        name=workspace_name,
+        workspace_type="research",
+    )
+    db.add(workspace)
+    await db.flush()
+    unit = StrategyUnit(
+        workspace_id=workspace.id,
+        strategy_name="binding strategy",
+        symbol="600000",
+        timeframe="1d",
+        timeframe_n=1,
+        category="stock",
+        data_config={
+            **dict(bound.data_config),
+            "range_type": "date",
+            "start_date": "2026-01-05",
+            "end_date": "2026-01-06",
+            "use_end_date": True,
+        },
+    )
+    db.add(unit)
+    await db.commit()
+    await service.attach_runtime_binding_consumer(
+        user_id=user.id,
+        binding_id=str(bound.data_config["market_data_binding_id"]),
+        binding_hash=str(bound.data_config["market_data_binding_hash"]),
+        signature=str(bound.data_config["market_data_binding_signature"]),
+        intent_id=str(bound.data_config["market_data_binding_intent_id"]),
+        workspace_id=workspace.id,
+        unit_id=unit.id,
+    )
+    return workspace.id, unit.id
 
 
 def _request(data_config: dict[str, object] | None = None) -> AIStrategyResearchRunRequest:
@@ -167,6 +242,7 @@ def _execution_for(
     request: MarketDataQueryRequest,
     *,
     missing_ohlc: bool,
+    close_adjustment: float = 0.0,
 ) -> MarketDataQueryExecution:
     resolved_query = ResolvedMarketDataQuery.from_request(
         request,
@@ -221,7 +297,7 @@ def _execution_for(
             "open": "10.00",
             "high": "11.00",
             "low": "9.50",
-            "close": 10.5,
+            "close": 10.5 + close_adjustment,
             "volume": "1000",
             "open_interest": "12",
         }
@@ -324,6 +400,7 @@ async def test_bind_request_forces_strict_local_only_and_persists_deterministic_
         "market_data_binding_id",
         "market_data_binding_hash",
         "market_data_binding_signature",
+        "market_data_binding_intent_id",
         "market_data_binding_required",
     }
     assert bound.data_config["market_data_asset_type"] == "stock"
@@ -404,11 +481,20 @@ async def test_runtime_binding_rechecks_owner_signature_subset_and_artifact_dige
             intent_id="ai-research-task-004",
         )
         config = bound.data_config
+        workspace_id, unit_id = await _attach_research_unit(
+            db=db,
+            service=service,
+            user=owner,
+            bound=bound,
+        )
         runtime = await service.resolve_runtime_binding(
             user_id=owner.id,
             binding_id=str(config["market_data_binding_id"]),
             binding_hash=str(config["market_data_binding_hash"]),
             signature=str(config["market_data_binding_signature"]),
+            workspace_id=workspace_id,
+            unit_id=unit_id,
+            intent_id=str(config["market_data_binding_intent_id"]),
             symbol="600000",
             timeframe="1d",
             timeframe_n=1,
@@ -425,6 +511,9 @@ async def test_runtime_binding_rechecks_owner_signature_subset_and_artifact_dige
                 binding_id=str(config["market_data_binding_id"]),
                 binding_hash=str(config["market_data_binding_hash"]),
                 signature=str(config["market_data_binding_signature"]),
+                workspace_id=workspace_id,
+                unit_id=unit_id,
+                intent_id=str(config["market_data_binding_intent_id"]),
             )
         assert cross_owner.value.code == "MARKET_DATA_BINDING_OWNER_DENIED"
 
@@ -434,6 +523,9 @@ async def test_runtime_binding_rechecks_owner_signature_subset_and_artifact_dige
                 binding_id=str(config["market_data_binding_id"]),
                 binding_hash=str(config["market_data_binding_hash"]),
                 signature=str(config["market_data_binding_signature"]),
+                workspace_id=workspace_id,
+                unit_id=unit_id,
+                intent_id=str(config["market_data_binding_intent_id"]),
                 symbol="600000",
                 timeframe="1d",
                 timeframe_n=1,
@@ -450,8 +542,327 @@ async def test_runtime_binding_rechecks_owner_signature_subset_and_artifact_dige
                 binding_id=str(config["market_data_binding_id"]),
                 binding_hash=str(config["market_data_binding_hash"]),
                 signature=str(config["market_data_binding_signature"]),
+                workspace_id=workspace_id,
+                unit_id=unit_id,
+                intent_id=str(config["market_data_binding_intent_id"]),
             )
     assert tampered.value.code == "MARKET_DATA_BINDING_ARTIFACT_SIZE_MISMATCH"
+
+
+@pytest.mark.asyncio
+async def test_runtime_binding_rejects_a_copied_token_without_a_server_consumer(
+    tmp_path: Path,
+) -> None:
+    """An owner cannot reuse a sealed token in a second browser-created unit."""
+    owner = await _user(username="binding-copy-owner")
+    query_service = _LocalOnlyQueryService()
+    async with async_session_maker() as db:
+        service = MarketDataResearchBindingService(
+            db,
+            query_service,
+            _ContractResolver(),
+            MarketDataAccessAuthorizer(db, clock=lambda: NOW),
+            tmp_path,
+            binding_signing_key=SIGNING_KEY,
+            clock=lambda: NOW,
+        )
+        bound = await service.bind_request(
+            user_id=owner.id,
+            request=_request(),
+            intent_id="ai-research-task-copy-001",
+        )
+        workspace_id, trusted_unit_id = await _attach_research_unit(
+            db=db,
+            service=service,
+            user=owner,
+            bound=bound,
+        )
+        copied_unit = StrategyUnit(
+            workspace_id=workspace_id,
+            strategy_name="copied binding strategy",
+            symbol="600000",
+            timeframe="1d",
+            timeframe_n=1,
+            category="stock",
+            data_config={
+                **dict(bound.data_config),
+                "range_type": "date",
+                "start_date": "2026-01-05",
+                "end_date": "2026-01-06",
+                "use_end_date": True,
+            },
+        )
+        db.add(copied_unit)
+        await db.commit()
+        binding_id = str(bound.data_config["market_data_binding_id"])
+        scope = await db.get(MdResearchDataBindingScope, binding_id)
+        consumers = list(
+            (
+                await db.scalars(
+                    select(MdResearchDataBindingConsumer).where(
+                        MdResearchDataBindingConsumer.binding_id == binding_id
+                    )
+                )
+            ).all()
+        )
+
+        assert scope is not None
+        assert scope.workspace_id == workspace_id
+        assert [consumer.unit_id for consumer in consumers] == [trusted_unit_id]
+
+        with pytest.raises(MarketDataResearchBindingError) as copied:
+            await service.resolve_runtime_binding(
+                user_id=owner.id,
+                binding_id=binding_id,
+                binding_hash=str(bound.data_config["market_data_binding_hash"]),
+                signature=str(bound.data_config["market_data_binding_signature"]),
+                workspace_id=workspace_id,
+                unit_id=copied_unit.id,
+                intent_id=str(bound.data_config["market_data_binding_intent_id"]),
+            )
+
+        workspace = await db.get(Workspace, workspace_id)
+        assert workspace is not None
+        workspace.workspace_type = "trading"
+        await db.commit()
+        with pytest.raises(MarketDataResearchBindingError) as moved_to_trading:
+            await service.resolve_runtime_binding(
+                user_id=owner.id,
+                binding_id=binding_id,
+                binding_hash=str(bound.data_config["market_data_binding_hash"]),
+                signature=str(bound.data_config["market_data_binding_signature"]),
+                workspace_id=workspace_id,
+                unit_id=trusted_unit_id,
+                intent_id=str(bound.data_config["market_data_binding_intent_id"]),
+            )
+
+    assert copied.value.code == "MARKET_DATA_BINDING_RUNTIME_INTENT_DENIED"
+    assert moved_to_trading.value.code == "MARKET_DATA_BINDING_RUNTIME_INTENT_DENIED"
+    # Binding + trusted attachment query only; a copied unit is rejected before
+    # the potentially expensive current-policy local replay.
+    assert len(query_service.requests) == 2
+
+
+@pytest.mark.asyncio
+async def test_runtime_binding_rechecks_current_read_permission_and_source_policy(
+    tmp_path: Path,
+) -> None:
+    """Revoked data entitlements and source access fail before the artifact is reused."""
+    owner = await _user(username="binding-current-access-owner")
+    query_service = _LocalOnlyQueryService()
+    async with async_session_maker() as db:
+        service = MarketDataResearchBindingService(
+            db,
+            query_service,
+            _ContractResolver(),
+            MarketDataAccessAuthorizer(db, clock=lambda: NOW),
+            tmp_path,
+            binding_signing_key=SIGNING_KEY,
+            clock=lambda: NOW,
+        )
+        bound = await service.bind_request(
+            user_id=owner.id,
+            request=_request(),
+            intent_id="ai-research-task-current-access-001",
+        )
+        workspace_id, unit_id = await _attach_research_unit(
+            db=db,
+            service=service,
+            user=owner,
+            bound=bound,
+        )
+        resolve_kwargs = {
+            "user_id": owner.id,
+            "binding_id": str(bound.data_config["market_data_binding_id"]),
+            "binding_hash": str(bound.data_config["market_data_binding_hash"]),
+            "signature": str(bound.data_config["market_data_binding_signature"]),
+            "workspace_id": workspace_id,
+            "unit_id": unit_id,
+            "intent_id": str(bound.data_config["market_data_binding_intent_id"]),
+        }
+
+        await db.execute(
+            delete(user_roles).where(
+                user_roles.c.user_id == owner.id,
+                user_roles.c.role == Role.USER.value,
+            )
+        )
+        await db.commit()
+        with pytest.raises(MarketDataResearchBindingError) as no_read_access:
+            await service.resolve_runtime_binding(**resolve_kwargs)
+        assert no_read_access.value.code == "MARKET_DATA_BINDING_RUNTIME_READ_ACCESS_DENIED"
+
+        await db.execute(
+            user_roles.insert().values(user_id=owner.id, role=Role.USER.value)
+        )
+        await db.commit()
+        query_service.execution_error = MarketDataAuthorizationError("SOURCE_LICENSE_DENIED")
+        with pytest.raises(MarketDataResearchBindingError) as no_source_access:
+            await service.resolve_runtime_binding(**resolve_kwargs)
+
+    assert no_source_access.value.code == "MARKET_DATA_BINDING_RUNTIME_SOURCE_POLICY_ACCESS_DENIED"
+
+
+@pytest.mark.asyncio
+async def test_runtime_binding_rejects_changed_current_source_evidence_and_revocation(
+    tmp_path: Path,
+) -> None:
+    """A permitted substitute datum and an append-only revocation both fail closed."""
+    owner = await _user(username="binding-evidence-owner")
+    query_service = _LocalOnlyQueryService()
+    async with async_session_maker() as db:
+        service = MarketDataResearchBindingService(
+            db,
+            query_service,
+            _ContractResolver(),
+            MarketDataAccessAuthorizer(db, clock=lambda: NOW),
+            tmp_path,
+            binding_signing_key=SIGNING_KEY,
+            clock=lambda: NOW,
+        )
+        bound = await service.bind_request(
+            user_id=owner.id,
+            request=_request(),
+            intent_id="ai-research-task-evidence-001",
+        )
+        workspace_id, unit_id = await _attach_research_unit(
+            db=db,
+            service=service,
+            user=owner,
+            bound=bound,
+        )
+        resolve_kwargs = {
+            "user_id": owner.id,
+            "binding_id": str(bound.data_config["market_data_binding_id"]),
+            "binding_hash": str(bound.data_config["market_data_binding_hash"]),
+            "signature": str(bound.data_config["market_data_binding_signature"]),
+            "workspace_id": workspace_id,
+            "unit_id": unit_id,
+            "intent_id": str(bound.data_config["market_data_binding_intent_id"]),
+        }
+
+        query_service.close_adjustment = 0.5
+        with pytest.raises(MarketDataResearchBindingError) as changed_evidence:
+            await service.resolve_runtime_binding(**resolve_kwargs)
+        assert changed_evidence.value.code == "MARKET_DATA_BINDING_RUNTIME_SOURCE_EVIDENCE_MISMATCH"
+
+        query_service.close_adjustment = 0.0
+        await service.revoke_runtime_binding(
+            binding_id=resolve_kwargs["binding_id"],
+            reason_code="OPERATOR_EMERGENCY_REVOKE",
+            actor_user_id=owner.id,
+        )
+        revocation = await db.scalar(
+            select(MdResearchDataBindingRevocation).where(
+                MdResearchDataBindingRevocation.binding_id == resolve_kwargs["binding_id"]
+            )
+        )
+        assert revocation is not None
+        assert revocation.status == "REVOKED"
+        revocation.status = "INVALID"
+        with pytest.raises(ImmutableMarketDataRecordError):
+            await db.commit()
+        await db.rollback()
+
+        with pytest.raises(MarketDataResearchBindingError) as revoked:
+            await service.resolve_runtime_binding(**resolve_kwargs)
+
+    assert revoked.value.code == "MARKET_DATA_BINDING_REVOKED"
+
+
+@pytest.mark.asyncio
+async def test_runtime_binding_reloads_after_revocation_commits_during_replay(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A revocation committed at the replay fence cannot reuse an old snapshot.
+
+    The shared in-memory SQLite test engine cannot hold an independent writer
+    transaction while the resolver owns its read snapshot. The execute hook
+    therefore records the revocation request during the long replay, and the
+    snapshot-end wrapper commits it through a separate session immediately
+    after the old snapshot is discarded. This models the MySQL interleaving
+    where the operator transaction commits before the fresh current read.
+    """
+    owner = await _user(username="binding-replay-revocation-owner")
+    query_service = _LocalOnlyQueryService()
+    async with async_session_maker() as db:
+        service = MarketDataResearchBindingService(
+            db,
+            query_service,
+            _ContractResolver(),
+            MarketDataAccessAuthorizer(db, clock=lambda: NOW),
+            tmp_path,
+            binding_signing_key=SIGNING_KEY,
+            clock=lambda: NOW,
+        )
+        bound = await service.bind_request(
+            user_id=owner.id,
+            request=_request(),
+            intent_id="ai-research-task-replay-revocation-001",
+        )
+        workspace_id, unit_id = await _attach_research_unit(
+            db=db,
+            service=service,
+            user=owner,
+            bound=bound,
+        )
+        resolve_kwargs = {
+            "user_id": owner.id,
+            "binding_id": str(bound.data_config["market_data_binding_id"]),
+            "binding_hash": str(bound.data_config["market_data_binding_hash"]),
+            "signature": str(bound.data_config["market_data_binding_signature"]),
+            "workspace_id": workspace_id,
+            "unit_id": unit_id,
+            "intent_id": str(bound.data_config["market_data_binding_intent_id"]),
+        }
+        replay_requested_revocation = False
+        revocation_committed = False
+
+        async def request_revocation(_request: MarketDataQueryRequest) -> None:
+            nonlocal replay_requested_revocation
+            replay_requested_revocation = True
+
+        query_service.on_execute = request_revocation
+        request_count_before_resolve = len(query_service.requests)
+        original_end_snapshot = service._end_runtime_read_snapshot
+
+        async def end_snapshot_then_commit_revocation() -> None:
+            nonlocal revocation_committed
+            await original_end_snapshot()
+            if not replay_requested_revocation or revocation_committed:
+                return
+            async with async_session_maker() as revoker_db:
+                revoker = MarketDataResearchBindingService(
+                    revoker_db,
+                    _LocalOnlyQueryService(),
+                    _ContractResolver(),
+                    MarketDataAccessAuthorizer(revoker_db, clock=lambda: NOW),
+                    tmp_path,
+                    binding_signing_key=SIGNING_KEY,
+                    clock=lambda: NOW,
+                )
+                await revoker.revoke_runtime_binding(
+                    binding_id=resolve_kwargs["binding_id"],
+                    reason_code="OPERATOR_REVOKED_DURING_REPLAY",
+                    actor_user_id=owner.id,
+                )
+            revocation_committed = True
+
+        monkeypatch.setattr(
+            service,
+            "_end_runtime_read_snapshot",
+            end_snapshot_then_commit_revocation,
+        )
+        with pytest.raises(MarketDataResearchBindingError) as revoked:
+            await service.resolve_runtime_binding(**resolve_kwargs)
+
+    assert replay_requested_revocation
+    assert revocation_committed
+    assert revoked.value.code == "MARKET_DATA_BINDING_REVOKED"
+    # The refreshed consumer check rejects before a second strict replay can
+    # expose the artifact. The first new request is the long replay hook.
+    assert len(query_service.requests) == request_count_before_resolve + 1
 
 
 @pytest.mark.asyncio
@@ -503,6 +914,13 @@ async def test_binding_model_is_append_only_and_runtime_rejects_direct_model_tam
         binding_id = str(bound.data_config["market_data_binding_id"])
         binding_hash = str(bound.data_config["market_data_binding_hash"])
         signature = str(bound.data_config["market_data_binding_signature"])
+        intent_id = str(bound.data_config["market_data_binding_intent_id"])
+        workspace_id, unit_id = await _attach_research_unit(
+            db=db,
+            service=service,
+            user=user,
+            bound=bound,
+        )
         binding = await db.get(MdResearchDataBinding, binding_id)
         assert binding is not None
         binding.status = "INVALID"
@@ -533,6 +951,9 @@ async def test_binding_model_is_append_only_and_runtime_rejects_direct_model_tam
                 binding_id=binding_id,
                 binding_hash=binding_hash,
                 signature=signature,
+                workspace_id=workspace_id,
+                unit_id=unit_id,
+                intent_id=intent_id,
             )
     assert tampered_record.value.code == "MARKET_DATA_BINDING_MANIFEST_INVALID"
 
