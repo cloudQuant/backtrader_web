@@ -1,3 +1,5 @@
+> 2026-09-09 Git 候选冻结：实现候选 `3ebe7717f6f901932591f59e6f1bb8244827b493` 已作为 `fec74728ad4469ae6481b134323a6dd7d1401d32` 合并到 `dev` 并推送。仓库 provenance / implementation-candidate seal 为 `PASS`；这只替代此前“工作树未提交”的 Git 身份阻断，不改变真实 Provider、独立 Evaluator、对象存储/IAM、跨进程竞争、三数据库在线升级、Node 20、T2/T3 与生产隔离等 `NO-GO` 边界。完整收据见 [2026-09-09 Git 候选冻结收据](CANDIDATE_FREEZE_20260909.md)。
+
 # 迭代 196 实施与验收状态
 
 > 2026-09-08 当前本地候选：审批权威、human-only run-scoped grant、历史决定严格重放、不可变拒绝围栏、48 项公开错误目录、审批工作台安全投影与当前唯一 migration head `20260908_ai_research_approval_authority` 已完成本地合同终审。冻结后端 Python 来源和只读 Backtrader 快照下，固定 6 worker 功能通道为 6,131 passed、123 skipped、0 failure/error，串行性能通道为 18 passed、6 skipped；两通道互斥覆盖 6,278 cases，其中 6,149 passed、129 skipped。前端固定 6 worker 为 154 files、1,556/1,556 passed，typecheck、strict catalog verifier、build 与 scoped lint/node check 通过，但 Node 25.1.0 超出 `>=20 <25`，只记 `LOCAL_PASS_UNSUPPORTED_RUNTIME`。全仓 `ruff format --check` 仍有 16 文件待格式化，不能称为全静态绿。完整命令、哈希、失败历史和限制见 [2026-09-08 回归记录](REGRESSION_6_WORKERS_20260908.md)。工作树仍有大量未提交变更，Backtrader `1.3.0` 不满足声明的 `>=1.9.78.123`，真实三数据库 online、跨进程竞争、对象存储/IAM、queue/Evaluator/Provider、authenticated current UI、T2/T3 未闭合，因此整体及生产启用仍为 `NO-GO`。
