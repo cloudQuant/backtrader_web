@@ -34,6 +34,16 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+_MARKET_DATA_BINDING_TRADING_UNSUPPORTED = "MARKET_DATA_BINDING_TRADING_UNSUPPORTED"
+
+
+def _requires_research_market_data_binding(unit: StrategyUnit) -> bool:
+    """Return whether a unit is restricted to the research backtest bridge."""
+    data_config = getattr(unit, "data_config", None)
+    return workspace_unit_runtime._market_data_binding_required(
+        data_config if isinstance(data_config, dict) else None
+    )
+
 
 async def _initialize_paper_runtime_snapshots(
     user_id: str,
@@ -163,12 +173,6 @@ class WorkspaceRunOpsMixin:
         unit_ids: list[str],
     ) -> None:
         """Start a queued trading batch without holding the initiating request open."""
-        # The first manager access loads broker plugins and restores persisted
-        # runtime state. Do that synchronous setup in a worker thread before
-        # the first unit starts, so the ASGI event loop remains available for
-        # health checks and status polling.
-        await asyncio.to_thread(get_live_trading_manager)
-
         async with async_session_maker() as session:
             ws = await self._load_workspace(session, workspace_id, user_id, load_units=False)
             if ws is None:
@@ -184,6 +188,32 @@ class WorkspaceRunOpsMixin:
             units = list(result.scalars().all())
             if not units:
                 return
+
+            launchable_units: list[StrategyUnit] = []
+            for unit in units:
+                if _requires_research_market_data_binding(unit):
+                    # A sealed historical research artifact is never a
+                    # paper/live market-data authorization.  This guard also
+                    # covers a stale queued row reached after a multi-unit
+                    # request has returned.
+                    unit.run_status = "failed"
+                    unit.trading_snapshot = self.trading_service.default_snapshot(
+                        unit=unit,
+                        instance_status="error",
+                        error=_MARKET_DATA_BINDING_TRADING_UNSUPPORTED,
+                    )
+                    await session.commit()
+                    continue
+                launchable_units.append(unit)
+            units = launchable_units
+            if not units:
+                return
+
+            # The first manager access loads broker plugins and restores
+            # persisted runtime state.  Defer it until bound research units
+            # have been rejected, then keep the synchronous setup off the
+            # ASGI event loop before a permitted unit starts.
+            await asyncio.to_thread(get_live_trading_manager)
 
             for unit in units:
                 try:
@@ -241,6 +271,32 @@ class WorkspaceRunOpsMixin:
                 return []
 
             if _normalize_workspace_type(getattr(ws, "workspace_type", None)) == "trading":
+                bound_units = [unit for unit in units if _requires_research_market_data_binding(unit)]
+                if bound_units:
+                    bound_unit_ids = {id(unit) for unit in bound_units}
+                    for unit in bound_units:
+                        # The research binding owns one immutable historical
+                        # CSV, so it cannot be implicitly repurposed for
+                        # paper or live data transport.
+                        unit.run_status = "failed"
+                        unit.trading_snapshot = self.trading_service.default_snapshot(
+                            unit=unit,
+                            instance_status="error",
+                            error=_MARKET_DATA_BINDING_TRADING_UNSUPPORTED,
+                        )
+                        results.append(
+                            {
+                                "unit_id": unit.id,
+                                "task_id": None,
+                                "status": "failed",
+                                "error": _MARKET_DATA_BINDING_TRADING_UNSUPPORTED,
+                            }
+                        )
+                    await session.commit()
+                    if len(bound_units) == len(units):
+                        return results
+                    units = [unit for unit in units if id(unit) not in bound_unit_ids]
+
                 # A large trading workspace used to start every process inside
                 # this request.  Launching dozens of units serially exceeded
                 # the frontend timeout even though the starts were valid.
@@ -308,7 +364,34 @@ class WorkspaceRunOpsMixin:
             async def _submit_single(unit: StrategyUnit) -> dict[str, Any]:
                 try:
                     workspace_settings = _workspace_settings_dict(ws)
-                    workspace_unit_runtime.sync_unit_runtime(unit, workspace_settings)
+                    # A bound research unit is revalidated immediately before
+                    # its runtime files are written.  This prevents a stale or
+                    # edited unit config from selecting a generic workspace
+                    # CSV path, and it happens before any backtest task or
+                    # subprocess can be created.
+                    market_data_binding = None
+                    if _requires_research_market_data_binding(unit):
+                        # A parallel batch cannot share the outer workspace
+                        # session with concurrent binding queries.  Give each
+                        # revalidation its own short-lived read session before
+                        # it writes runtime files or submits a backtest task.
+                        async with async_session_maker() as binding_session:
+                            market_data_binding = (
+                                await workspace_unit_runtime.resolve_required_market_data_binding(
+                                    unit,
+                                    user_id,
+                                    db=binding_session,
+                                )
+                            )
+                        if market_data_binding is None:
+                            raise workspace_unit_runtime.MarketDataBindingRuntimeError(
+                                "MARKET_DATA_BINDING_RUNTIME_REVALIDATION_FAILED"
+                            )
+                    workspace_unit_runtime.sync_unit_runtime(
+                        unit,
+                        workspace_settings,
+                        market_data_binding=market_data_binding,
+                    )
                     bt_request = self._build_backtest_request(unit)
                     response = None
                     deadline = time.monotonic() + 1800
