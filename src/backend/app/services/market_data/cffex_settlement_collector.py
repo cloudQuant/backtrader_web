@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
-import importlib
 import json
 import math
 import re
@@ -27,7 +26,8 @@ from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
 from types import MappingProxyType
-from typing import Any, Protocol
+from typing import Protocol
+from urllib.parse import urlsplit
 
 from app.services.market_data.access import MarketDataSourceAuthorization
 from app.services.market_data.fetch_lease import (
@@ -55,6 +55,14 @@ CFFEX_SETTLEMENT_REQUIRED_FIELDS = frozenset({"settle", "previous_settle", "open
 CFFEX_SETTLEMENT_DATASET_CODE = "market.settlement"
 CFFEX_SETTLEMENT_FAMILY_ID = "futures.settlement"
 CFFEX_SETTLEMENT_MARKET = "CFFEX"
+CFFEX_SETTLEMENT_SOURCE_POLICY_ID = "market-cffex-settlement-batch-v1"
+CFFEX_SETTLEMENT_ADJUSTMENT = "unadjusted"
+CFFEX_SETTLEMENT_PRICE_BASIS = "settle"
+CFFEX_SETTLEMENT_CURRENCY = "CNY"
+CFFEX_SETTLEMENT_UNIT = "contract"
+CFFEX_SETTLEMENT_TRANSPORT_EVIDENCE_VERSION = "cffex-settlement-transport-evidence-v1"
+CFFEX_SETTLEMENT_TRANSPORT_CERTIFICATE_POLICY = "pinned-peer-certificate-sha256-v1"
+CFFEX_SETTLEMENT_DEFAULT_SOURCE_DESCRIPTOR_ID = "cffex-settlement-default-v1"
 _MAX_SOURCE_ROWS = 50_000
 _MAX_SOURCE_PAYLOAD_BYTES = 10 * 1024 * 1024
 _MAX_NESTING_DEPTH = 32
@@ -85,15 +93,45 @@ class CffexSettlementCollectorPartialPublishError(CffexSettlementCollectorError)
         self.persisted_fetches = tuple(persisted_fetches)
 
 
+class CffexSettlementCollectorFetchLeaseReleaseError(CffexSettlementCollectorError):
+    """Expose durable receipts when the post-publication feed lease cannot release.
+
+    A release failure does not undo the individually published canonical
+    receipts.  The caller therefore needs the same exact receipt prefix it
+    would receive from a later Store failure before it decides whether to
+    reconcile, retry, or wait for the lease to expire.
+    """
+
+    def __init__(self, persisted_fetches: Sequence[PersistedProviderFetch]) -> None:
+        super().__init__("CFFEX_SETTLEMENT_FETCH_LEASE_RELEASE_FAILED")
+        self.persisted_fetches = tuple(persisted_fetches)
+
+
+class CffexSettlementCollectorPartialPublishCancelledError(asyncio.CancelledError):
+    """Preserve task cancellation while exposing its already durable prefix.
+
+    The collector cannot roll back a prior canonical series publication when a
+    scheduler cancels a later target.  Raising a ``CancelledError`` subclass
+    keeps cancellation handling intact while giving the scheduler the exact
+    receipts it must reconcile before it retries the frozen date.
+    """
+
+    code = "CFFEX_SETTLEMENT_BATCH_PARTIALLY_PUBLISHED_CANCELLED"
+
+    def __init__(self, persisted_fetches: Sequence[PersistedProviderFetch]) -> None:
+        super().__init__(self.code)
+        self.persisted_fetches = tuple(persisted_fetches)
+
+
 @dataclass(frozen=True, slots=True)
 class CffexSettlementSourceBatch:
     """One source-owned, market-wide response for a single CFFEX trading date.
 
     ``raw_payload`` is an immutable evidence envelope.  It must carry the
     explicit CFFEX collector request, the exact CFFEX-specific source route,
-    and all returned rows under ``response_rows``; callers never supply a
-    separate normalized row list that could diverge from the durable source
-    receipt.
+    versioned HTTPS/certificate transport evidence, and all returned rows
+    under ``response_rows``; callers never supply a separate normalized row
+    list that could diverge from the durable source receipt.
     """
 
     provider_id: str
@@ -123,57 +161,101 @@ class CffexSettlementSourceBatch:
 
 
 class CffexSettlementSource(Protocol):
-    """A source seam that performs exactly one all-market request per date."""
+    """An authenticated source seam for one all-market request per date."""
 
     async def fetch_batch(self, *, trading_date: date) -> CffexSettlementSourceBatch:
         """Return the raw CFFEX settlement response for one explicit trading date."""
 
 
-class AkShareCffexSettlementSource:
-    """Explicit opt-in source for AkShare's CFFEX-specific daily endpoint.
+@dataclass(frozen=True, slots=True)
+class CffexSettlementSourceDescriptor:
+    """One reviewed source identity that binds transport evidence before I/O."""
 
-    The SDK is imported only when a caller explicitly invokes
-    :meth:`fetch_batch`.  This class has no database dependency and no retry or
-    fallback behaviour: a missing/failed source remains a typed failure for the
-    operator rather than silently using another venue, date, or legacy table.
+    descriptor_id: str
+    provider_id: str
+    source_revision: str
+    endpoint: str
+    origin: str
+    certificate_policy: str
+    peer_certificate_sha256: str
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "descriptor_id",
+            _require_text(self.descriptor_id, field_name="source descriptor ID", maximum=128),
+        )
+        object.__setattr__(
+            self,
+            "provider_id",
+            _require_text(self.provider_id, field_name="source descriptor provider", maximum=255),
+        )
+        object.__setattr__(
+            self,
+            "source_revision",
+            _require_text(
+                self.source_revision,
+                field_name="source descriptor revision",
+                maximum=128,
+            ),
+        )
+        object.__setattr__(
+            self,
+            "endpoint",
+            _require_text(self.endpoint, field_name="source descriptor endpoint", maximum=255),
+        )
+        object.__setattr__(self, "origin", _require_https_origin(self.origin))
+        if self.certificate_policy != CFFEX_SETTLEMENT_TRANSPORT_CERTIFICATE_POLICY:
+            raise CffexSettlementCollectorError("CFFEX_SETTLEMENT_SOURCE_DESCRIPTOR_INVALID")
+        object.__setattr__(
+            self,
+            "peer_certificate_sha256",
+            _require_lower_sha256(
+                self.peer_certificate_sha256,
+                code="CFFEX_SETTLEMENT_SOURCE_DESCRIPTOR_INVALID",
+            ),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class CffexSettlementSourceRegistration:
+    """A static reviewed descriptor coupled to a construction-only source factory."""
+
+    descriptor: CffexSettlementSourceDescriptor
+    source_factory: Callable[[], CffexSettlementSource]
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.descriptor, CffexSettlementSourceDescriptor):
+            raise TypeError("descriptor must be a CffexSettlementSourceDescriptor")
+        if not callable(self.source_factory):
+            raise TypeError("source_factory must be callable")
+
+
+# This candidate intentionally has no registered online source. A future
+# accepted change must add one reviewed descriptor and its construction-only
+# factory together; callers cannot supply a descriptor or source instance.
+CFFEX_SETTLEMENT_REVIEWED_SOURCE_REGISTRY: Mapping[
+    str, CffexSettlementSourceRegistration
+] = MappingProxyType({})
+
+
+class AkShareCffexSettlementSource:
+    """Hard-disabled placeholder for AkShare's currently unauthenticated route.
+
+    The installed AkShare CFFEX endpoint uses HTTP in the reviewed environment.
+    A source receipt hash can prove the bytes retained by this service, but it
+    cannot authenticate bytes acquired over that transport.  This candidate
+    therefore refuses before importing AkShare or resolving its endpoint. A
+    future HTTPS/certificate-reviewed adapter must implement
+    :class:`CffexSettlementSource` in its own accepted change.
     """
 
     provider_id = "akshare"
     source_revision = "akshare.futures_hist_daily_cffex:v1"
 
     async def fetch_batch(self, *, trading_date: date) -> CffexSettlementSourceBatch:
-        target_date = _require_trading_date(trading_date)
-        date_token = target_date.strftime("%Y%m%d")
-        try:
-            source_callable = await asyncio.to_thread(_resolve_akshare_callable)
-            response = await asyncio.to_thread(
-                source_callable,
-                date=date_token,
-            )
-            rows = await asyncio.to_thread(_coerce_response_rows, response)
-        except CffexSettlementCollectorError:
-            raise
-        except Exception as exc:
-            raise CffexSettlementCollectorError("CFFEX_SETTLEMENT_SOURCE_UNAVAILABLE") from exc
-
-        return CffexSettlementSourceBatch(
-            provider_id=self.provider_id,
-            source_revision=self.source_revision,
-            retrieved_at=datetime.now(UTC),
-            raw_payload={
-                "collector_request": {
-                    "market": CFFEX_SETTLEMENT_MARKET,
-                    "trading_date": target_date.isoformat(),
-                },
-                "source_route": {
-                    "endpoint": CFFEX_SETTLEMENT_PROVIDER_ENDPOINT,
-                    "call_kwargs": {
-                        "date": date_token,
-                    },
-                },
-                "response_rows": rows,
-            },
-        )
+        _require_trading_date(trading_date)
+        raise CffexSettlementCollectorError("CFFEX_SETTLEMENT_SOURCE_TRANSPORT_UNAPPROVED")
 
 
 @dataclass(frozen=True, slots=True)
@@ -205,6 +287,8 @@ class CffexSettlementCollectionReport:
     source_revision: str
     source_retrieved_at: datetime
     local_received_at: datetime
+    source_descriptor_id: str
+    source_descriptor_sha256: str
     feed_lease_key_sha256: str
     source_batch_sha256: str
     source_row_count: int
@@ -221,6 +305,8 @@ class _PreparedCollection:
     targets_by_symbol: Mapping[str, CffexSettlementCollectionTarget]
     source_registry_id: str
     source_authorization_descriptor_hash: str
+    source_descriptor: CffexSettlementSourceDescriptor
+    source_descriptor_sha256: str
     feed_lease_key_sha256: str
 
 
@@ -258,15 +344,17 @@ class CffexSettlementCollector:
         self,
         *,
         store: MarketDataStore,
-        source: CffexSettlementSource,
+        source_descriptor_id: str = CFFEX_SETTLEMENT_DEFAULT_SOURCE_DESCRIPTOR_ID,
         clock: Callable[[], datetime] | None = None,
     ) -> None:
         if not isinstance(store, MarketDataStore):
             raise TypeError("store must be a MarketDataStore")
-        if not callable(getattr(source, "fetch_batch", None)):
-            raise TypeError("source must implement fetch_batch")
         self._store = store
-        self._source = source
+        self._source_descriptor_id = _require_text(
+            source_descriptor_id,
+            field_name="source_descriptor_id",
+            maximum=128,
+        )
         self._clock = clock or _utc_now
 
     async def collect(
@@ -291,13 +379,29 @@ class CffexSettlementCollector:
         durable prefix for reconciliation; this candidate makes no atomic
         multi-contract publication claim.
         """
-        plan = _prepare_collection(trading_date=trading_date, targets=targets)
+        registration = _reviewed_source_registration(self._source_descriptor_id)
+        plan = _prepare_collection(
+            trading_date=trading_date,
+            targets=targets,
+            source_descriptor=registration.descriptor,
+        )
 
-        # Validate the registered provider before it sees an external request,
-        # then end any read-only control-plane transaction.  The lease manager
-        # owns its short CAS transaction and the store owns fact/publication
-        # transactions; none spans source I/O.
-        await self._store.ensure_provider_active(plan.source_registry_id)
+        # Revalidate every frozen grant before it sees an external request,
+        # then end any read-only control-plane transaction. Persistence repeats
+        # this check after source I/O, closing the authorization-change race.
+        # The lease manager owns its short CAS transaction and the store owns
+        # fact/publication transactions; none spans source I/O.
+        authorization_checked_at = _as_utc(
+            self._clock(),
+            field_name="source authorization check timestamp",
+        )
+        for target in plan.targets_by_symbol.values():
+            await self._store.ensure_source_authorization_before_provider_io(
+                target.context,
+                target.source_authorization,
+                provider_id=plan.source_registry_id,
+                checked_at=authorization_checked_at,
+            )
         await self._store.close_transaction_before_provider_io()
         lease_manager = self._store.fetch_lease_manager()
         try:
@@ -307,10 +411,12 @@ class CffexSettlementCollector:
         if lease is None:
             raise CffexSettlementCollectorError("CFFEX_SETTLEMENT_FETCH_LEASE_BUSY")
 
+        persisted_fetches: list[PersistedProviderFetch] = []
         primary_failure: BaseException | None = None
         try:
+            source = _build_reviewed_source(registration)
             try:
-                batch = await self._source.fetch_batch(trading_date=plan.trading_date)
+                batch = await source.fetch_batch(trading_date=plan.trading_date)
             except CffexSettlementCollectorError:
                 raise
             except Exception as exc:
@@ -319,13 +425,20 @@ class CffexSettlementCollector:
                 raise CffexSettlementCollectorError("CFFEX_SETTLEMENT_SOURCE_BATCH_INVALID")
             if batch.provider_id != plan.source_registry_id:
                 raise CffexSettlementCollectorError("CFFEX_SETTLEMENT_SOURCE_PROVIDER_MISMATCH")
+            if batch.provider_id != plan.source_descriptor.provider_id:
+                raise CffexSettlementCollectorError("CFFEX_SETTLEMENT_SOURCE_DESCRIPTOR_MISMATCH")
+            if batch.source_revision != plan.source_descriptor.source_revision:
+                raise CffexSettlementCollectorError("CFFEX_SETTLEMENT_SOURCE_DESCRIPTOR_MISMATCH")
 
-            normalized = _normalize_batch(batch=batch, plan=plan)
+            normalized = _normalize_batch(
+                batch=batch,
+                plan=plan,
+                source_descriptor=plan.source_descriptor,
+            )
             local_received_at = _as_utc(self._clock(), field_name="local receipt timestamp")
             if batch.retrieved_at > local_received_at:
                 raise CffexSettlementCollectorError("CFFEX_SETTLEMENT_SOURCE_RETRIEVED_AT_FUTURE")
 
-            persisted_fetches: list[PersistedProviderFetch] = []
             try:
                 for symbol in sorted(plan.targets_by_symbol):
                     target = plan.targets_by_symbol[symbol]
@@ -336,8 +449,13 @@ class CffexSettlementCollector:
                         target=target,
                         row=normalized_row,
                     )
-                    persisted_fetches.append(
-                        await self._store.persist_provider_result(
+                    # A cancellation must not land after the Store has made a
+                    # receipt durable but before this collector learns its
+                    # exact ID. Keep the Store operation in its own task and
+                    # complete that critical section before re-raising an
+                    # interrupt outcome with the durable prefix.
+                    persistence_task = asyncio.create_task(
+                        self._store.persist_provider_result(
                             target.context,
                             result,
                             received_at=local_received_at,
@@ -345,6 +463,24 @@ class CffexSettlementCollector:
                             fetch_lease=lease,
                         )
                     )
+                    try:
+                        persisted = await asyncio.shield(persistence_task)
+                    except asyncio.CancelledError as cancellation:
+                        try:
+                            persisted = await _await_persistence_after_cancellation(
+                                persistence_task
+                            )
+                        except BaseException as persistence_error:
+                            # A failed Store task has no returned receipt to
+                            # append. Preserve the original cancellation and
+                            # let recovery inspect Store's published/hidden
+                            # boundary rather than fabricating a prefix.
+                            raise cancellation from persistence_error
+                        persisted_fetches.append(persisted)
+                        raise CffexSettlementCollectorPartialPublishCancelledError(
+                            persisted_fetches
+                        ) from cancellation
+                    persisted_fetches.append(persisted)
             except Exception as exc:
                 if persisted_fetches:
                     raise CffexSettlementCollectorPartialPublishError(persisted_fetches) from exc
@@ -356,6 +492,8 @@ class CffexSettlementCollector:
                 source_revision=batch.source_revision,
                 source_retrieved_at=batch.retrieved_at,
                 local_received_at=local_received_at,
+                source_descriptor_id=plan.source_descriptor.descriptor_id,
+                source_descriptor_sha256=plan.source_descriptor_sha256,
                 feed_lease_key_sha256=plan.feed_lease_key_sha256,
                 source_batch_sha256=normalized.source_batch_sha256,
                 source_row_count=normalized.source_row_count,
@@ -367,20 +505,67 @@ class CffexSettlementCollector:
             primary_failure = exc
             raise
         finally:
-            release_error: CffexSettlementCollectorError | None = None
+            release_error: CffexSettlementCollectorFetchLeaseReleaseError | None = None
             try:
-                released = await lease_manager.release(lease)
+                release_task = asyncio.create_task(lease_manager.release(lease))
+                try:
+                    released = await asyncio.shield(release_task)
+                except asyncio.CancelledError as cancellation:
+                    try:
+                        released = await _await_lease_release_after_cancellation(release_task)
+                    except BaseException as release_failure:
+                        if persisted_fetches:
+                            raise CffexSettlementCollectorPartialPublishCancelledError(
+                                persisted_fetches
+                            ) from release_failure
+                        raise cancellation from release_failure
+                    if not released:
+                        release_error = CffexSettlementCollectorFetchLeaseReleaseError(
+                            persisted_fetches
+                        )
+                        if persisted_fetches:
+                            raise CffexSettlementCollectorPartialPublishCancelledError(
+                                persisted_fetches
+                            ) from release_error
+                        raise cancellation from release_error
+                    if primary_failure is None and persisted_fetches:
+                        raise CffexSettlementCollectorPartialPublishCancelledError(
+                            persisted_fetches
+                        ) from cancellation
+                    if primary_failure is None:
+                        raise
                 if not released:
-                    release_error = CffexSettlementCollectorError(
-                        "CFFEX_SETTLEMENT_FETCH_LEASE_RELEASE_FAILED"
+                    release_error = CffexSettlementCollectorFetchLeaseReleaseError(
+                        persisted_fetches
                     )
-            except MarketDataFetchLeaseError as exc:
-                release_error = CffexSettlementCollectorError(
-                    "CFFEX_SETTLEMENT_FETCH_LEASE_RELEASE_FAILED"
+            except Exception as exc:
+                release_error = CffexSettlementCollectorFetchLeaseReleaseError(
+                    persisted_fetches
                 )
                 release_error.__cause__ = exc
             if primary_failure is None and release_error is not None:
                 raise release_error
+
+
+def _reviewed_source_registration(source_descriptor_id: str) -> CffexSettlementSourceRegistration:
+    """Resolve only a source identity compiled into the reviewed registry."""
+    registration = CFFEX_SETTLEMENT_REVIEWED_SOURCE_REGISTRY.get(source_descriptor_id)
+    if not isinstance(registration, CffexSettlementSourceRegistration):
+        raise CffexSettlementCollectorError("CFFEX_SETTLEMENT_SOURCE_DESCRIPTOR_UNAPPROVED")
+    if registration.descriptor.descriptor_id != source_descriptor_id:
+        raise CffexSettlementCollectorError("CFFEX_SETTLEMENT_SOURCE_DESCRIPTOR_UNAPPROVED")
+    return registration
+
+
+def _build_reviewed_source(registration: CffexSettlementSourceRegistration) -> CffexSettlementSource:
+    """Construct the static reviewed adapter only after the collection lease exists."""
+    try:
+        source = registration.source_factory()
+    except Exception as exc:
+        raise CffexSettlementCollectorError("CFFEX_SETTLEMENT_SOURCE_FACTORY_FAILED") from exc
+    if not callable(getattr(source, "fetch_batch", None)):
+        raise CffexSettlementCollectorError("CFFEX_SETTLEMENT_SOURCE_FACTORY_INVALID")
+    return source
 
 
 def cffex_settlement_feed_lease_key(
@@ -388,20 +573,26 @@ def cffex_settlement_feed_lease_key(
     trading_date: date,
     provider_id: str,
     source_authorization_descriptor_hash: str,
+    source_descriptor_sha256: str,
     targets: Sequence[CffexSettlementCollectionTarget],
 ) -> str:
     """Return the feed-level lease identity for one frozen market-wide batch.
 
     A per-symbol query lease would permit one network request per contract.
     This key instead binds the explicit trade date, approved source decision,
-    and complete frozen identity/query map, so independent workers contend for
-    the same all-market request without sharing a stale authorization plan.
+    reviewed source descriptor, and complete frozen identity/query map, so
+    independent workers contend for the same all-market request without
+    sharing a stale authorization or source-transport plan.
     """
     target_date = _require_trading_date(trading_date)
     normalized_provider_id = _require_text(provider_id, field_name="provider_id", maximum=255)
     descriptor_hash = _require_sha256(
         source_authorization_descriptor_hash,
         field_name="source_authorization_descriptor_hash",
+    )
+    reviewed_source_descriptor_hash = _require_lower_sha256(
+        source_descriptor_sha256,
+        code="CFFEX_SETTLEMENT_SOURCE_DESCRIPTOR_INVALID",
     )
     target_payload: list[dict[str, str]] = []
     for target in targets:
@@ -422,6 +613,7 @@ def cffex_settlement_feed_lease_key(
         "provider_id": normalized_provider_id,
         "trading_date": target_date.isoformat(),
         "source_authorization_descriptor_hash": descriptor_hash,
+        "source_descriptor_sha256": reviewed_source_descriptor_hash,
         "targets": sorted(
             target_payload,
             key=lambda item: (
@@ -438,6 +630,7 @@ def _prepare_collection(
     *,
     trading_date: date,
     targets: Sequence[CffexSettlementCollectionTarget],
+    source_descriptor: CffexSettlementSourceDescriptor,
 ) -> _PreparedCollection:
     target_date = _require_trading_date(trading_date)
     if not isinstance(targets, Sequence) or isinstance(targets, (str, bytes, bytearray)):
@@ -486,11 +679,15 @@ def _prepare_collection(
     if len(source_ids) != 1 or len(authorization_hashes) != 1:
         raise CffexSettlementCollectorError("CFFEX_SETTLEMENT_TARGET_AUTHORIZATION_AMBIGUOUS")
     source_registry_id = next(iter(source_ids))
+    if source_registry_id != source_descriptor.provider_id:
+        raise CffexSettlementCollectorError("CFFEX_SETTLEMENT_SOURCE_DESCRIPTOR_MISMATCH")
     authorization_hash = next(iter(authorization_hashes))
+    reviewed_source_descriptor_hash = _source_descriptor_sha256(source_descriptor)
     feed_key = cffex_settlement_feed_lease_key(
         trading_date=target_date,
         provider_id=source_registry_id,
         source_authorization_descriptor_hash=authorization_hash,
+        source_descriptor_sha256=reviewed_source_descriptor_hash,
         targets=frozen_targets,
     )
     return _PreparedCollection(
@@ -498,6 +695,8 @@ def _prepare_collection(
         targets_by_symbol=MappingProxyType(dict(by_symbol)),
         source_registry_id=source_registry_id,
         source_authorization_descriptor_hash=authorization_hash,
+        source_descriptor=source_descriptor,
+        source_descriptor_sha256=reviewed_source_descriptor_hash,
         feed_lease_key_sha256=feed_key,
     )
 
@@ -523,6 +722,11 @@ def _assert_target_context(
         or query.start != expected_start
         or query.end != expected_end
         or query.family_id != CFFEX_SETTLEMENT_FAMILY_ID
+        or query.adjustment != CFFEX_SETTLEMENT_ADJUSTMENT
+        or query.price_basis != CFFEX_SETTLEMENT_PRICE_BASIS
+        or query.currency != CFFEX_SETTLEMENT_CURRENCY
+        or query.unit != CFFEX_SETTLEMENT_UNIT
+        or query.source_policy_id != CFFEX_SETTLEMENT_SOURCE_POLICY_ID
     ):
         raise CffexSettlementCollectorError("CFFEX_SETTLEMENT_TARGET_CONTRACT_INVALID")
     _require_cffex_symbol(identity.identity.display_symbol)
@@ -554,14 +758,22 @@ def _assert_target_authorization(
 
 
 def _normalize_batch(
-    *, batch: CffexSettlementSourceBatch, plan: _PreparedCollection
+    *,
+    batch: CffexSettlementSourceBatch,
+    plan: _PreparedCollection,
+    source_descriptor: CffexSettlementSourceDescriptor,
 ) -> _NormalizedBatch:
     """Validate one raw envelope in full before opening a fact-publication path."""
     safe_payload = _json_safe(batch.raw_payload)
     if not isinstance(safe_payload, Mapping):  # Defensive; _json_safe preserves mappings.
         raise CffexSettlementCollectorError("CFFEX_SETTLEMENT_SOURCE_PAYLOAD_INVALID")
     payload = MappingProxyType(dict(safe_payload))
-    _assert_source_request(payload=payload, trading_date=plan.trading_date)
+    _assert_no_sensitive_payload_keys(payload)
+    _assert_source_request(
+        payload=payload,
+        trading_date=plan.trading_date,
+        source_descriptor=source_descriptor,
+    )
     rows_value = payload.get("response_rows")
     if not isinstance(rows_value, list):
         raise CffexSettlementCollectorError("CFFEX_SETTLEMENT_SOURCE_RESPONSE_INVALID")
@@ -616,8 +828,22 @@ def _normalize_batch(
     )
 
 
-def _assert_source_request(*, payload: Mapping[str, object], trading_date: date) -> None:
+def _assert_source_request(
+    *,
+    payload: Mapping[str, object],
+    trading_date: date,
+    source_descriptor: CffexSettlementSourceDescriptor,
+) -> None:
     """Bind raw evidence to one exact CFFEX route and date before any row."""
+    if "transport_evidence" not in payload:
+        raise CffexSettlementCollectorError("CFFEX_SETTLEMENT_SOURCE_TRANSPORT_EVIDENCE_INVALID")
+    if set(payload) != {
+        "collector_request",
+        "source_route",
+        "transport_evidence",
+        "response_rows",
+    }:
+        raise CffexSettlementCollectorError("CFFEX_SETTLEMENT_SOURCE_REQUEST_INVALID")
     request = payload.get("collector_request")
     if not isinstance(request, Mapping):
         raise CffexSettlementCollectorError("CFFEX_SETTLEMENT_SOURCE_REQUEST_INVALID")
@@ -630,13 +856,143 @@ def _assert_source_request(*, payload: Mapping[str, object], trading_date: date)
     source_route = payload.get("source_route")
     if not isinstance(source_route, Mapping):
         raise CffexSettlementCollectorError("CFFEX_SETTLEMENT_SOURCE_REQUEST_INVALID")
-    if set(source_route) != {"endpoint", "call_kwargs"}:
+    if set(source_route) != {"endpoint", "origin", "call_kwargs"}:
         raise CffexSettlementCollectorError("CFFEX_SETTLEMENT_SOURCE_REQUEST_INVALID")
-    if source_route.get("endpoint") != CFFEX_SETTLEMENT_PROVIDER_ENDPOINT:
+    if source_route.get("endpoint") != source_descriptor.endpoint:
         raise CffexSettlementCollectorError("CFFEX_SETTLEMENT_SOURCE_REQUEST_INVALID")
+    source_origin = _require_https_origin(source_route.get("origin"))
+    if source_origin != source_descriptor.origin:
+        raise CffexSettlementCollectorError("CFFEX_SETTLEMENT_SOURCE_DESCRIPTOR_MISMATCH")
     expected_date_token = trading_date.strftime("%Y%m%d")
     if source_route.get("call_kwargs") != {"date": expected_date_token}:
         raise CffexSettlementCollectorError("CFFEX_SETTLEMENT_SOURCE_REQUEST_INVALID")
+    _assert_transport_evidence(
+        payload.get("transport_evidence"),
+        source_origin=source_origin,
+        source_descriptor=source_descriptor,
+    )
+
+
+def _assert_transport_evidence(
+    value: object,
+    *,
+    source_origin: str,
+    source_descriptor: CffexSettlementSourceDescriptor,
+) -> None:
+    """Require minimal, redacted TLS evidence bound to the exact route origin."""
+    if not isinstance(value, Mapping):
+        raise CffexSettlementCollectorError("CFFEX_SETTLEMENT_SOURCE_TRANSPORT_EVIDENCE_INVALID")
+    if set(value) != {
+        "contract_version",
+        "scheme",
+        "origin",
+        "tls_verified",
+        "certificate_policy",
+        "peer_certificate_sha256",
+    }:
+        raise CffexSettlementCollectorError("CFFEX_SETTLEMENT_SOURCE_TRANSPORT_EVIDENCE_INVALID")
+    if value.get("contract_version") != CFFEX_SETTLEMENT_TRANSPORT_EVIDENCE_VERSION:
+        raise CffexSettlementCollectorError("CFFEX_SETTLEMENT_SOURCE_TRANSPORT_EVIDENCE_INVALID")
+    if value.get("scheme") != "https":
+        raise CffexSettlementCollectorError("CFFEX_SETTLEMENT_SOURCE_TRANSPORT_EVIDENCE_INVALID")
+    if value.get("tls_verified") is not True:
+        raise CffexSettlementCollectorError("CFFEX_SETTLEMENT_SOURCE_TRANSPORT_EVIDENCE_INVALID")
+    if _require_https_origin(value.get("origin")) != source_origin:
+        raise CffexSettlementCollectorError("CFFEX_SETTLEMENT_SOURCE_TRANSPORT_EVIDENCE_INVALID")
+    if value.get("certificate_policy") != source_descriptor.certificate_policy:
+        raise CffexSettlementCollectorError("CFFEX_SETTLEMENT_SOURCE_TRANSPORT_EVIDENCE_INVALID")
+    if _require_lower_sha256(
+        value.get("peer_certificate_sha256"),
+        code="CFFEX_SETTLEMENT_SOURCE_TRANSPORT_EVIDENCE_INVALID",
+    ) != source_descriptor.peer_certificate_sha256:
+        raise CffexSettlementCollectorError("CFFEX_SETTLEMENT_SOURCE_TRANSPORT_EVIDENCE_INVALID")
+
+
+def _require_https_origin(value: object) -> str:
+    """Return one canonical HTTPS origin that carries no credentials or path."""
+    if not isinstance(value, str) or not value or value != value.strip() or len(value) > 255:
+        raise CffexSettlementCollectorError("CFFEX_SETTLEMENT_SOURCE_TRANSPORT_EVIDENCE_INVALID")
+    try:
+        parsed = urlsplit(value)
+        port = parsed.port
+    except ValueError as exc:
+        raise CffexSettlementCollectorError(
+            "CFFEX_SETTLEMENT_SOURCE_TRANSPORT_EVIDENCE_INVALID"
+        ) from exc
+    if (
+        parsed.scheme != "https"
+        or not parsed.hostname
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.path
+        or parsed.query
+        or parsed.fragment
+        or port == 0
+        or value != f"https://{parsed.netloc}"
+    ):
+        raise CffexSettlementCollectorError("CFFEX_SETTLEMENT_SOURCE_TRANSPORT_EVIDENCE_INVALID")
+    return value
+
+
+def _assert_no_sensitive_payload_keys(value: object) -> None:
+    """Reject credential-shaped keys anywhere in a durable raw source envelope."""
+    if isinstance(value, Mapping):
+        for key, item in value.items():
+            if not isinstance(key, str) or _is_sensitive_source_key(key):
+                raise CffexSettlementCollectorError(
+                    "CFFEX_SETTLEMENT_SOURCE_SENSITIVE_PAYLOAD_REJECTED"
+                )
+            _assert_no_sensitive_payload_keys(item)
+        return
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+        for item in value:
+            _assert_no_sensitive_payload_keys(item)
+
+
+def _is_sensitive_source_key(key: str) -> bool:
+    """Recognize common credential-bearing mapping keys without retaining values."""
+    compact = re.sub(r"[^a-z0-9]", "", key.lower())
+    return any(
+        marker in compact
+        for marker in (
+            "authorization",
+            "token",
+            "secret",
+            "password",
+            "credential",
+            "cookie",
+            "apikey",
+            "privatekey",
+            "bearer",
+            "headers",
+            "accesskey",
+        )
+    )
+
+
+def _source_descriptor_sha256(descriptor: CffexSettlementSourceDescriptor) -> str:
+    """Return the exact reviewed source transport identity carried by lease and receipt."""
+    payload = {
+        "descriptor_id": descriptor.descriptor_id,
+        "provider_id": descriptor.provider_id,
+        "source_revision": descriptor.source_revision,
+        "endpoint": descriptor.endpoint,
+        "origin": descriptor.origin,
+        "certificate_policy": descriptor.certificate_policy,
+        "peer_certificate_sha256": descriptor.peer_certificate_sha256,
+    }
+    return hashlib.sha256(_canonical_json(payload)).hexdigest()
+
+
+def _require_lower_sha256(value: object, *, code: str) -> str:
+    """Require a non-secret canonical digest without reflecting an invalid value."""
+    if (
+        not isinstance(value, str)
+        or len(value) != 64
+        or any(character not in "0123456789abcdef" for character in value)
+    ):
+        raise CffexSettlementCollectorError(code)
+    return value
 
 
 def _assert_row_market_and_date(*, row: Mapping[str, object], trading_date: date) -> None:
@@ -748,7 +1104,7 @@ def _provider_result_for_target(
         # remains deliberately unconfigured; a provider receipt must not
         # invent a public family binding the caller did not resolve.
         family_id=context.query.family_id,
-        provider_endpoint=CFFEX_SETTLEMENT_PROVIDER_ENDPOINT,
+        provider_endpoint=plan.source_descriptor.endpoint,
     )
     raw_payload = {
         "collector": {
@@ -756,6 +1112,8 @@ def _provider_result_for_target(
             "collection_mode": "scheduled_market_batch",
             "trading_date": plan.trading_date.isoformat(),
             "source_batch_sha256": batch.source_batch_sha256,
+            "source_descriptor_id": plan.source_descriptor.descriptor_id,
+            "source_descriptor_sha256": plan.source_descriptor_sha256,
             "feed_lease_key_sha256": plan.feed_lease_key_sha256,
             "frozen_provider_symbol": row.symbol,
             "frozen_canonical_id": context.query.canonical_id,
@@ -939,59 +1297,53 @@ def _json_safe(value: object, *, depth: int = 0) -> object:
     raise CffexSettlementCollectorError("CFFEX_SETTLEMENT_SOURCE_PAYLOAD_INVALID")
 
 
-def _resolve_akshare_callable() -> Callable[..., Any]:
-    try:
-        akshare = importlib.import_module("akshare")
-    except ImportError as exc:
-        raise CffexSettlementCollectorError("CFFEX_SETTLEMENT_SOURCE_UNAVAILABLE") from exc
-    source_callable = getattr(akshare, "futures_hist_daily_cffex", None)
-    if not callable(source_callable):
-        raise CffexSettlementCollectorError("CFFEX_SETTLEMENT_SOURCE_UNAVAILABLE")
-    return source_callable
-
-
-def _coerce_response_rows(response: object) -> list[dict[str, object]]:
-    """Convert a bounded DataFrame-like source response to exact record mappings."""
-    if response is None:
-        return []
-    try:
-        length = len(response)  # type: ignore[arg-type]
-    except TypeError:
-        length = None
-    if length is not None and length > _MAX_SOURCE_ROWS:
-        raise CffexSettlementCollectorError("CFFEX_SETTLEMENT_SOURCE_RESPONSE_TOO_LARGE")
-    to_dict = getattr(response, "to_dict", None)
-    if callable(to_dict):
-        try:
-            rows = to_dict(orient="records")
-        except (TypeError, ValueError) as exc:
-            raise CffexSettlementCollectorError("CFFEX_SETTLEMENT_SOURCE_RESPONSE_INVALID") from exc
-    else:
-        rows = response
-    if not isinstance(rows, Sequence) or isinstance(rows, (str, bytes, bytearray)):
-        raise CffexSettlementCollectorError("CFFEX_SETTLEMENT_SOURCE_RESPONSE_INVALID")
-    if len(rows) > _MAX_SOURCE_ROWS:
-        raise CffexSettlementCollectorError("CFFEX_SETTLEMENT_SOURCE_RESPONSE_TOO_LARGE")
-    normalized: list[dict[str, object]] = []
-    for row in rows:
-        if not isinstance(row, Mapping):
-            raise CffexSettlementCollectorError("CFFEX_SETTLEMENT_SOURCE_RESPONSE_INVALID")
-        normalized.append(dict(row))
-    return normalized
-
-
 def _utc_now() -> datetime:
     return datetime.now(UTC)
 
 
+async def _await_persistence_after_cancellation(
+    persistence_task: asyncio.Task[PersistedProviderFetch],
+) -> PersistedProviderFetch:
+    """Finish one shielded Store critical section despite repeated cancels.
+
+    The caller re-raises cancellation immediately after this task returns, but
+    cannot let an interrupt split Store publication from the collector's
+    in-memory durable-prefix record. A second cancellation therefore waits for
+    the same task instead of creating an unobserved commit/return gap.
+    """
+    while True:
+        try:
+            return await asyncio.shield(persistence_task)
+        except asyncio.CancelledError:
+            if persistence_task.done():
+                return persistence_task.result()
+
+
+async def _await_lease_release_after_cancellation(release_task: asyncio.Task[bool]) -> bool:
+    """Finish one release task before reporting a cancellation after durable publication."""
+    while True:
+        try:
+            return await asyncio.shield(release_task)
+        except asyncio.CancelledError:
+            if release_task.done():
+                return release_task.result()
+
+
 __all__ = [
     "AkShareCffexSettlementSource",
+    "CFFEX_SETTLEMENT_ADJUSTMENT",
     "CFFEX_SETTLEMENT_COLLECTOR_VERSION",
+    "CFFEX_SETTLEMENT_CURRENCY",
+    "CFFEX_SETTLEMENT_PRICE_BASIS",
     "CFFEX_SETTLEMENT_REQUIRED_FIELDS",
+    "CFFEX_SETTLEMENT_SOURCE_POLICY_ID",
+    "CFFEX_SETTLEMENT_UNIT",
     "CffexSettlementCollectionReport",
     "CffexSettlementCollectionTarget",
     "CffexSettlementCollector",
     "CffexSettlementCollectorError",
+    "CffexSettlementCollectorFetchLeaseReleaseError",
+    "CffexSettlementCollectorPartialPublishCancelledError",
     "CffexSettlementCollectorPartialPublishError",
     "CffexSettlementSource",
     "CffexSettlementSourceBatch",

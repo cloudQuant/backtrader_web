@@ -44,6 +44,8 @@
 | AO-10 | B1 单记录产品的逻辑目录、精确 family contract、来源路由与控制面选择 | `bootstrap.py`、`dataset_contracts.py`、`legacy_contract.py`、`akshare_provider.py`、`queries.py`、`test_dataset_contracts.py`、`test_akshare_provider.py`、`test_query_service.py`、`DataPage.test.ts`；`stock.liquidity`、`fund.liquidity`、`fx.range` 为候选代码开通，其余八个 B1 family 仍不提供事实读取 |
 | AO-11 | 严格研究数据绑定、服务器侧 consumer scope、当前授权重放、撤销、trusted runtime 路径和文件读取完整性 | `md_research_data_bindings`、`md_research_data_binding_scopes`、`md_research_data_binding_consumers`、`md_research_data_binding_revocations`、`research_binding.py`、`workspace_unit_runtime.py`、`backtest/service.py`、`backtest_enhanced.py`、`test_research_binding.py`、`test_strategy_runtime_support.py`、`test_backtest_service.py` |
 
+| AO-12 | 默认关闭的 CFFEX 日结内部批采集候选、全量回执验证、授权/lease 绑定与部分发布报告 | `cffex_settlement_collector.py`、`collect_iteration197_cffex_settlement.py`、`test_cffex_settlement_collector.py`；不注册公开 `futures.settlement` route |
+
 ### 2.2 不可由本次离线自动化证明的事项
 
 - 实际 AkShare、OpenBB 扩展及各上游数据源在某日可用、返回的数据质量、频率限制、账户权限或商业许可。
@@ -54,6 +56,8 @@
 - 日历导入锁只串行化同一 `calendar_code` 的 calendar manifest 导入；它不是 observation/source snapshot 的多进程 writer lease，也不能证明并发写入的 ownership、fencing、接管或零重复网络调用。
 - OpenBB 运行器在独立 service account/container 中的文件系统、挂载和凭据隔离；环境变量白名单与受控 `cwd` 不能证明该边界。
 - fork `24d06a7657ab9e19d07b5ba4f801394a440287a1` / `openbb-yfinance 1.6.3.post1` 的完整动态扩展导入闭包、不可变镜像、AGPL-3.0-only 许可证审查和最小出网审计；静态构件清单或离线 fork 测试都不能证明这些事项。
+- CFFEX 的经 HTTPS/证书验证来源、transport evidence、来源许可/限流、审批 scheduler 身份、真实 calendar/identity/source registry、跨合约部分发布/取消后的生产对账与 MySQL/PostgreSQL 恢复。当前 AkShare HTTP route 已硬禁用；默认 CLI 与离线 source seam 都不构成这些证据。
+
 - 每个连接的 MySQL/PostgreSQL UTC session time zone、真实跨连接 PIT 行为和恢复后的时间比较。MySQL `DATETIME` 不保存时区，SQLite 时间行为不能替代。
 
 这些事项必须在第 7 至第 10 节完成，不能用 mock、fixture、SQLite 或历史日志替代。
@@ -128,10 +132,12 @@ npm run lint
 | E-197-05 | 真实 OpenBB 隔离运行器探测 | runner 环境、协议、上游许可与写回 | `BLOCKED` | 第 8.2 节的隔离进程、镜像/动态导入闭包、许可证/出网审计、协议日志摘要、原始载荷 hash、回执和本地复读证据；当前 permit matrix 为空。fork `24d06a7657ab9e19d07b5ba4f801394a440287a1` / `openbb-yfinance 1.6.3.post1` 只是 `1d` daily end-bound 构件候选，正常请求在动态扩展导入前拒绝，不能记为成功验证。 |
 | E-197-06 | `/data/market`、`/investment/strategies` 端到端回归 | 页面灰度、授权、回退防护、196 工件绑定 | `NOT_RUN` | 保存浏览器/API/数据库三方一致证据；196 冻结和桥接不等于浏览器或真实数据通过。 |
 | E-197-07 | MySQL/PostgreSQL UTC session、PIT 与 exact-identity collation 演练 | 时区、跨连接写入/读取、迁移、恢复及 `RB0`/`rb0` 精确身份 | `NOT_RUN` | 每个新连接的会话时区输出、边界时间写入/读取、迁移和恢复记录，以及 authority/projection/lookup 的 MySQL `utf8mb4_bin`、PostgreSQL `C` 实际列审计和 case-distinct lookup 回归。 |
-| E-197-08 | 多 worker/多进程同缺口及事实写入并发 | 跨进程 writer lease/fencing、故障接管和零重复外部访问 | `NOT_RUN` | L-197-10 已在 disposable PostgreSQL 以两个 OS 进程和确定性 provider 证明一个精确缺口只有一次调用，且 follower 从本地重读；仍需真实 AkShare/OpenBB、应用 HTTP worker、故障接管与崩溃恢复证据。当前 AkShare thread timeout 不能杀死底层同步调用，故超时后的零重复 I/O 为 `NO-GO`，直至可终止 runner 或租约 heartbeat 设计通过验收。calendar import lock 不适用于 observation 写入。 |
+| E-197-08 | 多 worker/多进程同缺口及事实写入并发 | 跨进程 writer lease/fencing、故障接管和零重复外部访问 | `NOT_RUN` | L-197-10 已在 disposable PostgreSQL 以两个 OS 进程和确定性 provider 证明一个精确缺口只有一次调用，且 follower 从本地重读；仍需真实 AkShare/OpenBB、应用 HTTP worker、故障接管与崩溃恢复证据。普通 AkShare provider 的同步 thread timeout 不能杀死底层调用，故超时后的零重复 I/O 为 `NO-GO`，直至可终止 runner 或租约 heartbeat 设计通过验收；CFFEX HTTP source 当前已硬禁用。calendar import lock 不适用于 observation 写入。 |
 | E-197-09 | OpenBB 操作系统级隔离 | service account/container、挂载、凭据与工作目录 | `NOT_RUN` | runner 账户/容器配置、挂载清单、权限审计和一次实际小窗口回填。 |
 | E-197-10 | 策略页 `research_cache_fill` 灰度 | 显式用户动作、后端写入开关、研究用途授权、receipt 与 196 工件隔离 | `NOT_RUN` | 前端显式预检、后端开关与已批准研究用途 source registry、浏览器/API/数据库三方证据。 |
 | E-197-11 | 严格 research binding 安全回归 | AO-11：scope/consumer、fresh-snapshot 授权重放、撤销、trusted runtime、运行时文件读取 | `NOT_RUN`（正式候选） | 绑定、复制 token、撤销 `data:read`、来源拒绝、证据漂移、撤销 receipt、workspace 改为 trading、排队重试/子进程前撤销、客户端 `runtime_dir`、路径替换/符号链接的回归均通过；不得以此替代真实 provider 或浏览器运行。 |
+| E-197-12 | CFFEX 日结内部采集候选 | AO-12：默认不联网 CLI、明文 transport 硬拒绝、语义/当前 registry 预检查、全批验证、部分发布与取消边界 | `NOT_RUN`（正式候选） | 在已批准 scheduler、真实 CFFEX identity/calendar/source registry、HTTPS/certificate transport evidence 和可恢复验收库上保留匿名化 source receipt、lease、每 target publication、quarantine、部分发布对账和 `local_only` 复读证据。 |
+
 
 `E-197-01`、`E-197-02`、`E-197-03` 与 `E-197-11` 的状态仅表示正式候选；本地工作树回归单列于下节。`E-197-04` 已有一次真实子用例失败，不能以其它离线通过记录覆盖为 `NOT_RUN` 或 `PASS`。本地命令退出码、冻结收据和已合并的 Alembic 图均不能升级为真实环境或发布签收。
 
@@ -154,6 +160,7 @@ npm run lint
 | L-197-11 | 2026-09-09，代码候选提交 `bea8835d`：焦点离线命令 `/Users/yunjinqi/opt/anaconda3/bin/conda run --no-capture-output -n base python -m pytest -q tests/market_data_platform/test_akshare_live_acceptance_harness.py`、目标 Ruff/`compileall`，以及显式实时命令 `/Users/yunjinqi/opt/anaconda3/bin/conda run --no-capture-output -n base python scripts/accept_iteration197_akshare_stock_liquidity.py --live --trading-date 2024-09-02`。 | 焦点回归 `PASS`：8 passed；Ruff/`compileall` 通过。实时子用例 `FAIL`（退出码 1）：`stock.liquidity` / `akshare-stock-liquidity-primary-v1` / `reference_series` / `1d` 发起 1 次 provider 调用，安全计数为 `result_count=1`、`response_row_count=0`、`normalized_observation_count=0`；临时库内 persisted fetch/receipt 为 1，观测、passing、failed 均为 0，coverage 为 `incomplete`，无 warning；临时数据库删除成功，未输出原始载荷或凭据。 | 这证明本次适配器看到的响应行数为零，且没有出现字段、身份、时间窗验证或持久化拒绝；它不证明请求日期或上游语义本身正确。没有形成可用 observation revision、完整覆盖或独立 `local_only` 复读证据。因此 E-197-04 为 `FAIL`（该子用例），其它 AkShare 路线、真实许可和成功写回验收仍未执行。 |
 | L-197-12 | 2026-09-09，196/197 集成候选工作树：`pytest -q tests/market_data_platform/test_research_binding.py tests/test_strategy_runtime_support.py tests/test_workspace_service.py`、目标 Ruff、`alembic heads`、一次性 SQLite `upgrade head`，以及 scope manifest `--validate`。 | `PASS`：72 passed、1 warning；Ruff 通过；唯一 head 为 `20260909_market_data_research_binding_consumers`；隔离 SQLite 已升级并确认 `bindings`、`scopes`、`consumers`、`revocations` 四张表；scope manifest 返回 `SCOPE_MANIFEST_VALID`。 | 证明本候选的 strict binding、迁移图和冻结范围输入在本地可复核；不替代 MySQL/PostgreSQL、真实 provider、浏览器或部署验收。 |
 | L-197-13 | 2026-09-09，196/197 集成候选源提交 `974b7237`：`pytest -q tests/market_data_platform/test_research_binding.py tests/market_data_platform/test_research_binding_migrations.py tests/test_ai_strategy_research_service.py tests/test_strategy_runtime_support.py tests/test_workspace_service.py tests/test_workspace_reconciliation.py tests/test_backtest_service.py tests/test_backtest_enhanced.py tests/test_task_lifecycle_contract.py`；`pytest -q tests/market_data_platform tests/test_config.py`；工作区/Copilot 公开入口回归；目标 Ruff；`alembic heads`、新 SQLite `upgrade head` 与 scope manifest `--validate`。 | `PASS`（仅本地）：严格绑定候选 398 passed、29 warnings（395.25s）；工作区/Copilot 36 passed、1 warning；中台/配置 556 passed、88 warnings（163.62s）；Ruff 通过；唯一 head 为 `20260909_market_data_research_binding_consumers`；新 SQLite 已确认 `bindings`、`scopes`、`consumers`、`revocations` 四张表；scope manifest 返回 `SCOPE_MANIFEST_VALID`。 | 证明当前集成候选的本地代码、迁移图和 strict binding 回归可复核。当前检出没有 `vue-tsc`/`vite` 可执行文件，前端 typecheck/build 为 `NOT_RUN`；真实 MySQL/PostgreSQL、真实 provider、浏览器和部署验收仍不因此变为通过。 |
+| L-197-14 | 2026-09-09，独立持续候选工作树：CFFEX 定向回归、OpenBB/Store/compatibility 焦点回归、完整 `pytest -q tests/market_data_platform tests/test_config.py`、目标 Ruff/`py_compile`/`git diff --check`、`alembic heads`、OpenBB `--self-check`、CFFEX 默认和 `--live` CLI，以及新建 backend wheel 内容审计。 | `PASS`（仅本地回归与默认拒绝）：CFFEX 36 passed、焦点 195 passed/1 warning（51.27s）、完整 612 passed/88 warnings（183.01s）；Ruff、`py_compile`、diff 检查通过，唯一 head 为 `20260909_market_data_research_binding_consumers`。OpenBB 自检稳定为 `blocked`、空 permit matrix 和 `OPENBB_YFINANCE_RUNTIME_ARTIFACT_UNATTESTED`；CFFEX 默认 CLI 返回 `NOT_RUN`，`--live` 返回 `BLOCKED`，均声明 `network_called=false`、`database_written=false`。新 wheel 包含 CFFEX collector 与两份 OpenBB runtime manifest。 | 这证明当前提交前候选的离线拒绝、取消/lease durable-prefix 契约和打包内容可复核，不证明真实 OpenBB/CFFEX 传输、证书链、scheduler、生产数据库、跨进程恢复、浏览器或部署可用；相应正式项保持 `NOT_RUN` / `NO-GO`。 |
 
 `L-197-01` 包含 identity projection、observation PIT、pending publication 恢复、来源回执、同一 provider 的一次性 request ID 唯一性和 calendar 同源授权、SQLite 来源治理升级/降级保护、MySQL `DATETIME(6)` DDL/fsp=0 拒绝、相邻 calendar segment/import lock，以及 OpenBB 预规范化原始封套和进程组回收的离线断言。本地可观察语义如下；T0/T1/T2 仅描述 SQLite fixture 内的逻辑可见性，不表示真实多连接数据库已验收：
 
@@ -189,8 +196,12 @@ npm run lint
 | AC-197-022 | 自动输入预检和用户明确策略预检分别执行；后者尝试手工构造错误 mode/consistency/cutoff/cursor、关闭后端开关、display-only source、research-only source、成功 receipt 与不完整响应。 | 自动预检只能 `local_only + research + strict` 且不触网。显式补齐只能 `local_first + research_cache_fill + display`，无 cutoff/cursor；后端开关关闭时以 `MARKET_DATA_RESEARCH_CACHE_FILL_DISABLED` 拒绝，display-only source 不可借用。成功时只保存带该 purpose 的中台 receipt/revision 并本地复读，页面不得把它改写为迭代 196 precheck 通过、研究/回测/审批工件或 PIT 证据。 | `test_query_contract.py`、`test_query_api.py`、`test_access_authorization.py`、`test_store.py`、`StrategyPage.test.ts`；真实 E-197-10 | `BLOCKED` |
 | AC-197-023 | 对 11 个 B1 单记录 family 读取 bundle；分别执行 `stock.liquidity`、`fund.liquidity`、`fx.range` 的精确 contract/route 离线检查，执行 `stock.liquidity` 的 provider→store→local reread 共享 calendar-grid 链路，并尝试用 DTO、静态卡片、dataset code 或 source policy 交叉升级其它 family。 | 六个逻辑 dataset 保留独立 schema/字段/资产范围并共用不可变 revision binding；DTO/registry/路由逐轴核对精确 family shape。三个候选 B1 的 `adjustment`、`price_basis`、`currency`、`unit` 都是必传的精确值：FX 的 `null` 轴必须保留在 JSON 中，省略或变更任一轴在 provider I/O 前稳定拒绝。只有上述三个 B1 family 可在候选代码中由用户显式选择：两个流动性 family 使用各自的 `reference_series` AkShare route，FX range 使用完整 OHLC route。其余八个 B1 family 仍为 `unconfigured`，不能产生 provider 调用或事实读取；B2 多记录 family 仍稳定拒绝。真实来源、日历、写回和每个 family 的 `provider → store → local_only` 证据完成前，三个候选开通项也不得标为正式可用。 | `test_bootstrap.py`、`test_dataset_contracts.py`、`test_legacy_contract.py`、`test_akshare_provider.py`、`test_query_service.py`、`marketData.test.ts`、`DataPage.test.ts`；未来逐项 B1 端到端验收 | `NOT_RUN` |
 | AC-197-024 | 对已绑定 research unit 依次尝试复制 token 到另一 unit、修改 workspace 为 trading、撤销 `data:read`、拒绝/变更当前 source evidence、在 fresh replay 后禁用 sealed source registry、在长 replay 间提交撤销 receipt、篡改 unit binding 字段、客户端传入 `runtime_dir`、排队重试或子进程启动前撤销、同一 unit 的两个合法 OOS 请求并发运行、停止发生在 preflight/task promotion 边界、延迟 poller 回写，以及替换 CSV 路径或插入 symlink。 | 浏览器 create/batch 在写 unit 前以 `MARKET_DATA_BINDING_CONSUMER_CREATE_FORBIDDEN` 拒绝；仅私有 AI 编排可建立 exact `(binding,user,intent,workspace,unit)` consumer。每次任务创建、并发槽重试和子进程启动前都必须在 fresh session 重读 unit、重放当前 strict `local_only + backtest + PIT` 查询并逐条比较 sealed evidence；最终 current-read fence 锁定 sealed snapshots 与 registry 并重新授权。严格绑定 unit 必须先由数据库 CAS 取得唯一租约，竞争请求不读绑定、不写 runtime、不创建第二 task；task 仅在租约原子提升为 task ID 后调度，取消/轮询/终态写入只能 CAS 当前 owner，未知/超时观察不得释放运行权。任何 scope/consumer、权限、来源、撤销、身份、窗口、HMAC、artifact hash、租约或 fd-path-chain 失败均不创建或执行 runtime/backtest，并使被拒绝的 bound runtime 不可执行；若共享确定性目录仍可能属于新 lease，失败路径不得删除或覆写它，以避免 ABA。公共 API/通用 service 以 `BACKTEST_RUNTIME_DIR_CLIENT_FORBIDDEN` 拒绝客户端目录。读取 CSV 使用同一已验证 `O_NOFOLLOW` 文件描述符，路径替换不能改变 pandas 读取的 inode。 | `test_research_binding.py`、`test_strategy_runtime_support.py`、`test_workspace_service.py`、`test_backtest_service.py`、`test_backtest_enhanced.py`；最终候选本地记录 | `NOT_RUN`（正式候选） |
+| AC-197-025 | 调用默认 AkShare CFFEX source、使用 authenticated source seam 返回 `symbol,date,settle,pre_settle,open_interest` rows、可选 `MARKET` 的非 CFFEX 行、重复/缺字段/缺 target、错误 `family_id`、五个语义/策略轴、错误 authorization purpose、当前 registry 禁用、第二个 target 普通失败，以及已 durable publish 后尚未返回时的 Store/lease-release cancellation（包括 release failure），以及最终 release 返回失败。 | 默认 CLI 为 `NOT_RUN` 且 `--live` 为 `BLOCKED`，两者均零网络/零数据库写入。默认 `AkShareCffexSettlementSource` 在 import/endpoint/network 前以 `CFFEX_SETTLEMENT_SOURCE_TRANSPORT_UNAPPROVED` 拒绝，当前没有可调用线上 CFFEX source。authenticated seam 的无 MARKET 行可由冻结 CFFEX request/route 映射，显式非 CFFEX 行和任何全批校验失败在写入前拒绝。错误 family、语义、purpose 或当前 registry 在 provider I/O 前拒绝。全 target 成功后才返回成功报告；普通后来失败返回 `CFFEX_SETTLEMENT_BATCH_PARTIALLY_PUBLISHED` 与已返回 prefix；最终 lease release 失败时不返回成功报告，而以 `CFFEX_SETTLEMENT_FETCH_LEASE_RELEASE_FAILED` 携带完整 durable prefix；cancel 先完成当前 shielded Store 或 lease-release task，只要已有 durable prefix 就以仍属 cancellation 的 `CFFEX_SETTLEMENT_BATCH_PARTIALLY_PUBLISHED_CANCELLED` 携带精确返回 prefix，Store task 失败则保持原取消，release task 失败则作为该取消错误的 cause。绝不宣称跨合约原子性、进程崩溃恢复或生产 scheduler。 | `test_cffex_settlement_collector.py`；第 8.3 节的真实 scheduler 演练 | `NOT_RUN` |
+
 
 ## 6. 数据中台专项验收
+
+`AC-197-025` 的 authenticated seam 补充约束：生产 registry 当前为空，collector 只由静态 descriptor ID 解析 construction-only factory，不能接受 caller source 或自建 descriptor。未来 descriptor 必须固定 provider/revision/endpoint、无 credentials/path/query 的 HTTPS origin、`pinned-peer-certificate-sha256-v1` 与小写 pin digest，并使 canonical descriptor digest 进入 lease/receipt。raw envelope 顶层只能含 collector request、source route、`cffex-settlement-transport-evidence-v1` 与 response rows；route/evidence 必须逐项匹配已解析 descriptor，evidence 只允许版本、`https` scheme、origin、`tls_verified=true`、certificate policy 与 peer-certificate SHA-256。未登记 descriptor、HTTP、未验证 TLS、错误 revision/policy/digest、origin 不一致或证据额外字段均在 Store 写入前拒绝。response rows 的任意嵌套 mapping/list 出现 authorization/token/secret/password/credential/cookie/access/API/private key/bearer/headers 等 credential-shaped key 时也必须以 `CFFEX_SETTLEMENT_SOURCE_SENSITIVE_PAYLOAD_REJECTED` 拒绝，Store 计数为零，且稳定错误不回显 key/value。以上离线 gate 只固定可审计形状与本地拒绝，不能替代 TLS、adapter、证书链或 egress 的真实验收。
 
 ### 6.1 本地优先与可追溯性
 
@@ -278,7 +289,7 @@ npm run lint
 
 当前静态 permit matrix 为**空**，`MARKET_DATA_OPENBB_ALLOWED_MARKETS` 不会生成 route、legacy contract 或 provider fallback。fork `24d06a7657ab9e19d07b5ba4f801394a440287a1` 的 `openbb-yfinance 1.6.3.post1` 仅是待封装构件候选：它把 daily route 的 OpenBB 包含式 `end_date` 转为 yfinance 的排他 `end=end_date + 1 UTC calendar day`，并使用 `period=None`。候选只定义 `1d`、UTC 日对齐、最长 3650 天的父半开窗口；它不批准 `1w`、`1mo`、分钟、非日对齐或超长窗口。构件清单的版本/包内哈希检查只能证明期望构件一致性，不能证明可导入、可联网、可使用或获许可。
 
-在完整隔离动态扩展导入闭包、不可变运行镜像、AGPL-3.0-only 许可证书面审查和最小出网审计完成前，任何正常 OpenBB 请求必须在**动态扩展导入前**拒绝。本轮不得执行真实 OpenBB/yfinance 网络调用或把 `--self-check` 称为来源验收；只可运行无网络自检，其输出不得含密钥、环境变量值、绝对包路径或文件哈希。当前构件清单的 `candidate` 状态、未封装环境或与清单不匹配环境都应返回 `OPENBB_YFINANCE_RUNTIME_ARTIFACT_UNATTESTED`；不得把清单数据改写为启用状态，未来必须由新的执行认证代码和独立验收解除该拒绝。该机器码不能被解释为已安装或已通过运行审计。
+在完整隔离动态扩展导入闭包、不可变运行镜像、AGPL-3.0-only 许可证书面审查和最小出网审计完成前，任何正常 OpenBB 请求必须在**动态扩展导入前**拒绝。本轮不得执行真实 OpenBB/yfinance 网络调用或把 `--self-check` 称为来源验收；只可运行无网络自检，其输出不得含密钥、环境变量值、绝对包路径或文件哈希。当前构件清单的 `candidate` 状态、未封装环境或与清单不匹配环境都应返回 `OPENBB_YFINANCE_RUNTIME_ARTIFACT_UNATTESTED`；不得把清单数据改写为启用状态，未来必须由新的执行认证代码和独立验收解除该拒绝。backend wheel 只打包两个 manifest，不把源码 `scripts/openbb_market_data_runner.py` 作为可执行 runner 交付，且 provider 会拒绝 checkout 内脚本；因此没有 OCI image 或独立 runner package 的 digest、绝对 executable 与 checkout 外 HOME/workdir 证据时，配置 runner 也是 `NO-GO`。该机器码不能被解释为已安装或已通过运行审计。
 
 解除该阻断必须在独立变更中同时完成并留下可复核证据：
 
@@ -292,6 +303,17 @@ npm run lint
 8. 仅在上述前置条件全部通过后，以独立变更逐轴添加一个精确 permit。static permit、source-policy route、provider DTO 和 runner mirror 的 route ID、family、provider、asset、market、kind、frequency、四个语义轴及 endpoint 必须逐项相同；故意替换 sibling family 或 endpoint 必须在导入 OpenBB 前拒绝，runner 仅按 `(asset_type, endpoint)` 的静态映射调用。
 
 当前状态：`BLOCKED` / `NO-GO`。本次记录只确认了 fork 候选及其日终转换意图，没有安装、镜像、动态导入、许可证、出网或真实网络证据。permit matrix 仍为空，因此没有可执行的 OpenBB route，也没有 OpenBB 持久化或 `local_only` 回读的成功证据。临时 fake runner、离线 fork 参数测试和 `--self-check` 不等同于本机 OpenBB、`openbb-docs`、`agents-for-openbb` checkout 或 GitHub 社区仓库中的任一扩展已安装、可用、获授权或可安全部署。
+
+
+### 8.3 CFFEX 日结内部采集器验证
+
+未来 authenticated source 必须先从静态 reviewed registry 的 descriptor ID 构造；当前 registry 为空。descriptor 固定 provider/revision/endpoint、HTTPS origin、`pinned-peer-certificate-sha256-v1` 与 pin digest，batch evidence 只与 descriptor 比较，不能自报批准 origin。route 与 evidence 必须绑定同一无 credentials/path/query 的 HTTPS origin，evidence 只含版本、scheme、origin、TLS verified boolean、certificate policy 与 peer-certificate SHA-256；response rows 的任意嵌套 mapping/list 也不得含 credential-shaped key。此离线 shape 检查不能代替真实 adapter、证书链、访问条款或 egress 验收。
+
+本轮新增的 `CffexSettlementCollector` 是内部、默认关闭的候选，不改变 `futures.settlement` 在页面/API 中的 `unconfigured` 状态。`scripts/collect_iteration197_cffex_settlement.py` 不带参数只返回 `NOT_RUN`，`--live` 也只返回 `BLOCKED`，两者均不导入 AkShare、不连接数据库、不发起网络请求；未来 scheduler 必须在独立变更中提供审核过的 target map、授权 descriptor、calendar、registry 与运行身份。
+
+离线回归只证明下列契约：当前 AkShare CFFEX source 在 import/endpoint/network 前以 `CFFEX_SETTLEMENT_SOURCE_TRANSPORT_UNAPPROVED` 硬拒绝，故不会调用本机明文 HTTP route；冻结的 collector request/source route 可供未来 authenticated seam 证明 CFFEX，故该 seam 的无 `MARKET` 列 `symbol,date,settle,pre_settle,open_interest` 行可映射；显式非 CFFEX 市场、重复行、日期/字段/target 不一致均在事实写入前拒绝；错误 family、`unadjusted/settle/CNY/contract/source-policy` 轴、source-authorization purpose 或当前 registry 禁用不会触发 provider I/O。全批验证后，当前存储仍按 contract 逐一持久化和发布。普通后续 target 失败时，`CFFEX_SETTLEMENT_BATCH_PARTIALLY_PUBLISHED` 会带已返回 prefix；最终 lease release 失败时会以 `CFFEX_SETTLEMENT_FETCH_LEASE_RELEASE_FAILED` 携带完整 durable prefix；cancellation 会等同一 shielded Store 或 lease-release task 返回，只要已有 durable prefix 就以专用 cancellation 错误携带它，release 失败作为 cause，Store 失败时不伪造 prefix。它不是原子批发布、进程崩溃恢复或自动恢复的证据。
+
+真实验收须在可销毁、已授权的验收库中完成：审核 AkShare 或替代来源的访问条款、HTTPS/证书验证和限流；导入精确 CFFEX contract identity 与日历；验证 source registry、purpose、lease、全量 receipt digest、transport evidence、quarantine 和每个 publication；强制制造第二 target 写入/发布失败和已 durable publish 但尚未返回的 cancellation，并记录 prefix 的幂等对账或重试；随后用 `local_only` 对每个已发布 target 复读。完成 MySQL/PostgreSQL、调度身份、持久 collection journal 与崩溃恢复演练前，当前状态为 `NOT_RUN` / `NO-GO`，不得启用公开 route 或将结果用作 strict research/PIT 证据。
 
 
 ## 9. 迭代 196 整合闸门
@@ -367,7 +389,7 @@ npm run lint
 
 - [ ] 候选提交无未解释的工作树改动，且第 4 节全量 `pytest` 为 `PASS`。
 - [ ] 静态检查为 `PASS`，或有经过批准、可追踪的例外。
-- [ ] 所有 AC-197-001 至 AC-197-024 均有对应证据；开发回归、候选验收和真实验证的边界清楚可查。
+- [ ] 所有已定义的 AC-197 条目（当前至 AC-197-025）均有对应证据；开发回归、候选验收和真实验证的边界清楚可查。
 - [ ] 七类资产和当前页面已支持数据类型都有经过验证的本地命中/受控补齐，或稳定的明确不支持/未配置状态。
 - [ ] 真实 AkShare/OpenBB 验证、数据许可、来源策略登记、OpenBB 原始载荷 hash、完整动态扩展导入闭包、不可变镜像、AGPL-3.0-only 许可证与独立 service account/container/出网审计完成，或未启用对应在线路由。
 - [ ] 每个已启用频率都有审核后的显式 calendar grid、连续 calendar segment 和导入锁证据；MySQL/PostgreSQL 候选迁移、每连接 UTC/PIT A/B publication 与恢复演练、`utf8mb4_bin`/`C` 精确身份列审计和单 head 检查完成。

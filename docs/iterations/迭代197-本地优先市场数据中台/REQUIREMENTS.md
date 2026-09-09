@@ -125,6 +125,19 @@ AI 研究链路只能把服务端签发的 `market_data_asset_type` 当作客户
 
 当前 OpenBB 没有活动 source-policy route、permit 或在线开关。fork `24d06a7657ab9e19d07b5ba4f801394a440287a1` 产出的 `openbb-yfinance 1.6.3.post1` 仅作为构件候选：它在 daily route 同时具有开始日和 OpenBB 包含式结束日时，把该结束日加一天作为传给 yfinance 的排他 `end`，并固定 `period=None`。候选只允许 UTC 日对齐、最长 3650 天的 `1d` 半开窗口；静态构件清单只能固定预期发行版、版本和包内文件哈希，不能生成 route、permit、数据许可或真实网络证据。清单的 `candidate` 状态不是可编辑为启用状态的数据开关：即使全部包文件匹配，正常请求也必须在动态 OpenBB 扩展导入前保持拒绝，直到隔离导入闭包、不可变镜像、AGPL-3.0-only 许可证审查和最小出网策略都完成，并由新的执行认证代码与独立验收共同接受。
 
+
+### FR-05B CFFEX 日结批采集候选
+
+`futures.settlement` 继续是公开 v2 API 的 `unconfigured` family，不能因存在采集器而由页面、`local_first`、`refresh`、普通 shell 命令或任意 source policy 触发。`scripts/collect_iteration197_cffex_settlement.py` 不带参数时只能输出 `NOT_RUN`，`--live` 也只能输出 `BLOCKED`；未来经批准的调度器必须直接调用内部 `CffexSettlementCollector`，并在调用前提供同一交易日的精确 CFFEX 合约映射及冻结的 `MarketDataSourceAuthorization`。
+
+候选只接受 `futures.settlement + market.settlement + reference_series + 1d`、字段集恰为 `settle`、`previous_settle`、`open_interest` 的 CFFEX 合约日窗，且语义必须精确为 `unadjusted + settle + CNY + contract + market-cffex-settlement-batch-v1`。每个 target 的 asset、venue、family、半开 UTC 日窗和 source authorization 的 asset、market、`ALLOW` 决定及 `purpose` 必须在任何 provider I/O 前一致；活动 provider 以及当前 registry/descriptor 也必须在调用前复核，并在网络返回后写入 receipt 前再次复核。原始回执的顶层字段只能为固定 CFFEX collector request、精确 source route、`cffex-settlement-transport-evidence-v1` 和全量 response rows。source route 必须含 `endpoint`、无 query/credentials/path 的 HTTPS `origin` 与日期参数；transport evidence 必须只含其版本、`https` scheme、相同 origin、`tls_verified=true`、certificate policy 和小写 SHA-256 peer certificate digest，任何缺失、额外或不一致字段都在事实写入前拒绝。该结构仅保留 adapter 的可审计声明，不能替代对 HTTPS/certificate adapter、证书链和出网策略的独立验收。无 `MARKET` 列的 `symbol,date,settle,pre_settle,open_interest` 行只能由该冻结 CFFEX request/route 证明，若行显式给出市场则必须精确为 CFFEX。
+
+当前环境的 AkShare `futures_hist_daily_cffex` 实现使用明文 HTTP。`AkShareCffexSettlementSource` 因此必须在导入 AkShare、解析 endpoint 或发起网络调用前以 `CFFEX_SETTLEMENT_SOURCE_TRANSPORT_UNAPPROVED` 拒绝；不得以 config、普通 shell 或 source policy 绕过。未来启用必须新增经审计的 HTTPS/证书验证 adapter 或隔离 runner，并把 transport evidence 写入 receipt；在此之前没有可调用的 CFFEX 在线 source。
+
+当前 reviewed CFFEX source registry 显式为空。collector 只按静态 registry 的 descriptor ID 构造 source，调用方不能注入 source 实例或自建 descriptor；未来独立变更必须在同一审核变更中登记 factory 和 descriptor，逐项固定 provider ID、source revision、endpoint、canonical HTTPS origin、`pinned-peer-certificate-sha256-v1` policy 与小写 pinned peer-certificate digest。descriptor 的 canonical SHA-256 必须进入 feed lease 与每条 receipt，任何未登记 ID、provider/revision/endpoint/origin/policy/digest 不一致都在 provider I/O 或 Store 写入前拒绝。`response_rows` 及其任意嵌套 mapping/list 不得包含 authorization、token、secret、password、credential、cookie、access/API/private key、bearer 或 headers 等 credential-shaped key；检测到即以稳定码拒绝，既不写 Store，也不得在异常、日志或 receipt 回显 key/value。
+
+采集器在写入任何事实前验证整份批次：日期、合约格式、重复行、三个必要指标及所有已冻结 target 均不可缺失。未知但结构正确的 CFFEX 合约只能留在原始批次封套和 quarantine 列表，不能写入 canonical series。当前 `MarketDataStore.persist_provider_result` 一次只持久化和发布一个 series；因此全量输入验证并不提供跨合约原子发布。普通后续 target 持久化失败时，采集器必须抛出 `CFFEX_SETTLEMENT_BATCH_PARTIALLY_PUBLISHED` 并携带已返回的已发布 prefix。若所有 target 已 durable 但最终 feed lease 无法释放，collector 不得返回成功报告，必须以 `CFFEX_SETTLEMENT_FETCH_LEASE_RELEASE_FAILED` 和精确 durable prefix 拒绝，以便 scheduler 对账。若 cancellation 命中正在执行的 Store 持久化或 feed-lease release task，collector 必须先等待该同一 task 完成；任一 task 已持久化/释放但尚未将结果交给 collector 时，都必须以 `CFFEX_SETTLEMENT_BATCH_PARTIALLY_PUBLISHED_CANCELLED` 的 `CancelledError` 子类报告其精确返回 prefix；即使 release task 自身失败，也不得隐去已 durable 的 prefix。若 Store task 自身失败，保持原始 cancellation，不得伪造 prefix。未来 scheduler 仍须以独立可恢复账本处理进程崩溃、未知 Store 结果和跨进程恢复。真实来源、许可、日历、调度身份、生产数据库和恢复演练完成前，该候选保持 `NOT_RUN` / `NO-GO`。
+
 ### FR-05A 当前读取授权与许可证快照
 
 每个 v2 查询先从当前认证用户构造 principal、tenant scope 和 entitlement revision。没有 `data:read` 的用户必须在任何市场数据控制面或事实读取前失败关闭；系统不得把旧 cursor、旧回执或“已登录”本身当作读取授权。

@@ -15,6 +15,9 @@
 
 > 当前候选仍处于实现与离线验证阶段，不能视为发布验收通过。OpenBB runtime permit matrix 仍为空；fork `24d06a7657ab9e19d07b5ba4f801394a440287a1` 的 `openbb-yfinance 1.6.3.post1` 只是一份待封装的运行构件候选，不安装到主应用，也不注册 route 或 permit。该候选仅定义 UTC 日对齐、最长 3650 天的 `1d` 窗口，并把 OpenBB 的包含式日终转换为 yfinance 的排他 `end`；在完成隔离动态扩展导入闭包、镜像、AGPL-3.0-only 许可证和出网审计前，任何正常请求仍在导入前拒绝。没有执行 OpenBB/yfinance 真实网络调用。跨 MySQL/PostgreSQL 的 PIT 验证、OpenBB 的操作系统级隔离、真实 provider 回执和浏览器灰度仍保留为 `NOT_RUN` 或 `BLOCKED`，具体证据边界见 [验收文档](ACCEPTANCE.md)。
 
+
+`futures.settlement` 仍是公开 API 中的 `unconfigured` family。新增的 CFFEX 日结采集器只是默认不联网的内部候选：它冻结精确合约、UTC 日窗、`unadjusted/settle/CNY/contract` 语义、来源策略和当前 registry/source authorization，再验证整份回执。reviewed source registry 当前为空，collector 只能从静态 descriptor ID 构造 source；未来 descriptor 必须固定 provider/revision/endpoint、HTTPS origin、certificate policy 与 pin digest，并把其 digest 带入 lease/receipt。当前环境的 AkShare `futures_hist_daily_cffex` 实现使用明文 HTTP，因此 `AkShareCffexSettlementSource` 会在导入 AkShare 或解析 endpoint 前以 `CFFEX_SETTLEMENT_SOURCE_TRANSPORT_UNAPPROVED` 硬拒绝；未来只能由经 HTTPS/证书审计的独立 source 接入。回执的嵌套 rows 含 credential-shaped key 时会在 Store 前拒绝且不回显。现有存储原语按合约顺序发布，因此普通后续失败会明确返回 `CFFEX_SETTLEMENT_BATCH_PARTIALLY_PUBLISHED` 及已发布前缀；若所有 target 已 durable 但最终 feed lease 无法释放，采集器会以 `CFFEX_SETTLEMENT_FETCH_LEASE_RELEASE_FAILED` 和精确前缀拒绝成功报告；取消时正在持久化或释放 feed lease 的 task 会先完成同一临界区，再以 `CancelledError` 子类报告已返回的精确前缀，即使 release task 自身失败也不会隐去已 durable 的合约。真实传输、调度、日历、取消恢复账本和生产数据库验收仍为 `NOT_RUN`。
+
 ## 迭代边界
 
 迭代 196 已按冻结收据 `3ebe7717f6f901932591f59e6f1bb8244827b493` 固化为集成基线，且其候选已通过 `fec74728ad4469ae6481b134323a6dd7d1401d32` 并入 `dev`。197 的独立数据中台链已由显式 Alembic merge revision `20260909_ai_research_market_data_merge` 接入，后续的 `20260909_market_data_research_bindings` 和 `20260909_market_data_research_binding_consumers` 只在该合并 head 上追加。策略页桥接仍默认关闭；只有服务端重新解析合同、当前权限和严格本地 PIT 视图，生成并在任务创建与子进程启动前复核不可变 CSV 绑定后才可进入回测。真实 MySQL/PostgreSQL、提供方和页面灰度验收仍是单独闸门。

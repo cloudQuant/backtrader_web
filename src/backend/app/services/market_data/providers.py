@@ -486,6 +486,39 @@ class MarketDataProvider(Protocol):
         """Fetch an exact bounded request without writing storage directly."""
 
 
+def _paths_overlap(left: Path, right: Path) -> bool:
+    """Return whether either resolved path can contain the other one."""
+    return left == right or left.is_relative_to(right) or right.is_relative_to(left)
+
+
+def _runner_path_overlaps_application_checkout(path: Path) -> bool:
+    """Reject a runner path that is in, or can contain, the application checkout.
+
+    A bare equality check lets a runner use a subdirectory of the web checkout,
+    where OpenBB extensions could read application code, configuration, or a
+    repository-local secret.  When this source is in a Git checkout, protect
+    the checkout root in both directions.  Packaged deployments may lack Git
+    metadata, so retain the conservative current-workdir descendant check.
+    """
+    try:
+        source_path = Path(__file__).resolve(strict=True)
+        # The fixed module layout gives a conservative package boundary even
+        # for installed wheels, which deliberately have no ``.git`` marker.
+        application_package_root = source_path.parents[2]
+        if _paths_overlap(path, application_package_root):
+            return True
+        checkout_root = next(
+            (parent for parent in source_path.parents if (parent / ".git").exists()),
+            None,
+        )
+        if checkout_root is not None:
+            return _paths_overlap(path, checkout_root)
+        current_workdir = Path.cwd().resolve(strict=True)
+    except (OSError, RuntimeError, ValueError):
+        return True
+    return _paths_overlap(path, current_workdir)
+
+
 def _is_safe_openbb_runner_file(value: object, *, executable: bool) -> bool:
     """Accept one existing absolute runner binary or script file only."""
     if not isinstance(value, str) or not value or "\x00" in value:
@@ -498,6 +531,8 @@ def _is_safe_openbb_runner_file(value: object, *, executable: bool) -> bool:
     except (OSError, RuntimeError):
         return False
     if not resolved.is_file():
+        return False
+    if _runner_path_overlaps_application_checkout(resolved):
         return False
     return not executable or os.access(resolved, os.X_OK)
 
@@ -859,11 +894,14 @@ def _dedicated_runner_directory(
         raise OpenBBProviderError(error_code)
     try:
         resolved = candidate.resolve(strict=True)
-        current_workdir = Path.cwd().resolve(strict=True)
         temporary_root = Path(tempfile.gettempdir()).resolve(strict=True)
     except (OSError, RuntimeError, ValueError) as exc:
         raise OpenBBProviderError(error_code) from exc
-    if not resolved.is_dir() or resolved in {current_workdir, temporary_root}:
+    if (
+        not resolved.is_dir()
+        or resolved == temporary_root
+        or _runner_path_overlaps_application_checkout(resolved)
+    ):
         raise OpenBBProviderError(error_code)
     inherited_home = source.get("HOME", "").strip()
     if inherited_home:

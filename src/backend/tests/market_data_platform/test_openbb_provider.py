@@ -521,6 +521,68 @@ def test_openbb_runner_workdir_rejects_the_web_process_worktree(
     assert rejected.value.code == "OPENBB_RUNNER_WORKDIR_INVALID"
 
 
+@pytest.mark.parametrize("environment_key", ("OPENBB_RUNNER_HOME", "OPENBB_RUNNER_WORKDIR"))
+def test_openbb_runner_directories_reject_checkout_ancestors_and_descendants(
+    monkeypatch: pytest.MonkeyPatch,
+    environment_key: str,
+) -> None:
+    """A nested application directory cannot masquerade as a dedicated runner root."""
+    checkout_root = next(
+        parent for parent in Path(__file__).resolve().parents if (parent / ".git").exists()
+    )
+    nested_checkout_directory = checkout_root / "src" / "backend" / "app"
+    expected_code = (
+        "OPENBB_RUNNER_HOME_INVALID"
+        if environment_key == "OPENBB_RUNNER_HOME"
+        else "OPENBB_RUNNER_WORKDIR_INVALID"
+    )
+    resolver = (
+        _openbb_runner_environment
+        if environment_key == "OPENBB_RUNNER_HOME"
+        else _openbb_runner_workdir
+    )
+
+    for unsafe_directory in (checkout_root.parent, nested_checkout_directory):
+        monkeypatch.setenv(environment_key, str(unsafe_directory))
+        with pytest.raises(OpenBBProviderError) as rejected:
+            resolver()
+        assert rejected.value.code == expected_code
+
+
+def test_openbb_subprocess_provider_rejects_a_runner_script_inside_the_checkout() -> None:
+    """A command cannot execute a script selected from the web application checkout."""
+    checkout_root = next(
+        parent for parent in Path(__file__).resolve().parents if (parent / ".git").exists()
+    )
+    runner_script = checkout_root / "src" / "backend" / "scripts" / "openbb_market_data_runner.py"
+
+    with pytest.raises(ValueError, match="explicit absolute executable"):
+        OpenBBSubprocessProvider(command=(sys.executable, str(runner_script)))
+
+
+def test_openbb_runner_directory_rejects_a_no_git_parent_of_the_application_cwd(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A packaged deployment cannot use a parent directory that contains its app cwd."""
+    import app.services.market_data.providers as providers
+
+    synthetic_module = tmp_path / "wheel" / "app" / "services" / "market_data" / "providers.py"
+    synthetic_module.parent.mkdir(parents=True)
+    synthetic_module.write_text("# package fixture\n", encoding="utf-8")
+    monkeypatch.setattr(providers, "__file__", str(synthetic_module))
+    for unsafe_directory in (
+        synthetic_module.parents[2],
+        Path.cwd().resolve().parent,
+    ):
+        monkeypatch.setenv("OPENBB_RUNNER_WORKDIR", str(unsafe_directory))
+
+        with pytest.raises(OpenBBProviderError) as rejected:
+            _openbb_runner_workdir()
+
+        assert rejected.value.code == "OPENBB_RUNNER_WORKDIR_INVALID"
+
+
 def test_openbb_runner_home_rejects_the_inherited_web_home(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
