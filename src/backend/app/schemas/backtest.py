@@ -27,7 +27,13 @@ class BacktestRequest(BaseModel):
     """Backtest request schema."""
 
     strategy_id: str = Field(..., description="Strategy ID")
-    runtime_dir: str | None = Field(None, description="Optional unit runtime directory")
+    # Kept only to reject legacy client payloads explicitly.  A runtime
+    # directory is an execution capability, not a client parameter:
+    # WorkspaceService installs it through BacktestService's server-only path.
+    runtime_dir: str | None = Field(
+        None,
+        description="Deprecated server-managed workspace runtime directory; client input is forbidden",
+    )
     symbol: str = Field(..., description="Stock symbol")
     start_date: datetime = Field(..., description="Start date")
     end_date: datetime = Field(..., description="End date")
@@ -48,6 +54,11 @@ class BacktestRequest(BaseModel):
     @model_validator(mode="after")
     def enforce_production_data_precheck(self) -> BacktestRequest:
         """Keep the production precheck server-side even when the client omits it."""
+        if self.runtime_dir is not None:
+            raise ValueError(
+                "BACKTEST_RUNTIME_DIR_CLIENT_FORBIDDEN: "
+                "runtime_dir is managed by the workspace execution service"
+            )
         if production_security_mode(get_settings()):
             object.__setattr__(self, "require_data_precheck", True)
         return self

@@ -22,6 +22,7 @@ from app.utils.logger import get_logger
 _CANCEL_CLEANUP_TIMEOUT_SECONDS = 1.0
 _DEFAULT_MAX_TERMINAL_TASKS_PER_USER = 50
 _TERMINAL_TASK_STATUSES = {"completed", "failed", "cancelled"}
+_MARKET_DATA_BINDING_KEY_PREFIX = "market_data_binding_"
 _SENSITIVE_REQUEST_KEYS = (
     "api_key",
     "apikey",
@@ -206,8 +207,17 @@ class AIStrategyResearchTaskManager:
         request: AIStrategyResearchRunRequest,
         *,
         service: Any | None = None,
+        request_preparer: Callable[[str, AIStrategyResearchRunRequest], Any] | None = None,
     ) -> AIStrategyResearchTaskResponse:
+        """Create a task after an optional server-owned request preparation step.
+
+        ``request_preparer`` receives the generated task id before any runtime
+        details or persisted snapshot exist.  Iteration 197 uses this boundary
+        to bind a strict local-only market-data artifact to the exact task; a
+        failure therefore leaves no runnable task or stale snapshot behind.
+        """
         task_id = str(uuid.uuid4())
+        request = await _prepare_research_task_request(task_id, request, request_preparer)
         runtime_updates = _research_request_runtime_task_updates(request)
         runtime_updates.update(
             await _service_continuation_task_updates(
@@ -341,12 +351,18 @@ class AIStrategyResearchTaskManager:
         *,
         overrides: dict[str, Any] | None = None,
         service: Any | None = None,
+        request_preparer: Callable[[str, AIStrategyResearchRunRequest], Any] | None = None,
     ) -> AIStrategyResearchTaskResponse | None:
         source_task = await self.get_task(user_id, task_id)
         if source_task is None:
             return None
         request = _continuation_request_from_task(source_task, overrides or {})
-        return await self.submit(user_id, request, service=service)
+        return await self.submit(
+            user_id,
+            request,
+            service=service,
+            request_preparer=request_preparer,
+        )
 
     async def _run_task(
         self,
@@ -599,13 +615,37 @@ def get_ai_strategy_research_task_manager() -> AIStrategyResearchTaskManager:
     return _manager
 
 
+async def _prepare_research_task_request(
+    task_id: str,
+    request: AIStrategyResearchRunRequest,
+    request_preparer: Callable[[str, AIStrategyResearchRunRequest], Any] | None,
+) -> AIStrategyResearchRunRequest:
+    """Run a server-only request preparer before task state is observable.
+
+    A preparer must return a full request model.  Requiring a replacement
+    instead of allowing an in-place mutation makes the exact prepared request
+    the one that is snapshotted and dispatched to the background runner.
+    """
+    if request_preparer is None:
+        return request
+    prepared = request_preparer(task_id, request)
+    if inspect.isawaitable(prepared):
+        prepared = await prepared
+    if not isinstance(prepared, AIStrategyResearchRunRequest):
+        raise ValueError("AI_RESEARCH_REQUEST_PREPARATION_INVALID")
+    return prepared
+
+
 def _continuation_request_from_task(
     task: AIStrategyResearchTaskResponse,
     overrides: dict[str, Any],
 ) -> AIStrategyResearchRunRequest:
     snapshot = task.request_snapshot if isinstance(task.request_snapshot, dict) else {}
     cleaned = _omit_sensitive_request_values(dict(snapshot))
-    payload = dict(cleaned) if isinstance(cleaned, dict) else {}
+    had_market_data_binding = _contains_market_data_binding_values(cleaned)
+    payload = _strip_market_data_binding_values(cleaned)
+    if not isinstance(payload, dict):
+        payload = {}
     # Saved task snapshots only contain redacted gateway credentials, so they
     # cannot be safely reused. Fresh overrides may still provide a gateway_config.
     payload.pop("gateway_config", None)
@@ -623,7 +663,7 @@ def _continuation_request_from_task(
         payload["seed_strategy_id"] = task.best_strategy_id
     payload_data_config = payload.get("data_config")
     data_config = dict(payload_data_config) if isinstance(payload_data_config, dict) else {}
-    if task.asset_specs and "asset_specs" not in data_config:
+    if task.asset_specs and "asset_specs" not in data_config and not had_market_data_binding:
         data_config["asset_specs"] = dict(task.asset_specs)
         payload["data_config"] = data_config
     if task.backtest_environment:
@@ -658,6 +698,40 @@ def _continuation_request_from_task(
     if not request.continue_from_run_id and not request.seed_strategy_id:
         raise ValueError("AI research task has no run or strategy snapshot to continue")
     return request
+
+
+def _strip_market_data_binding_values(value: Any) -> Any:
+    """Remove prior server-issued bindings before continuation overrides apply.
+
+    A binding is scoped to one task intent and may encode a point-in-time
+    cutoff.  Retaining it in a recovered snapshot would let a continuation
+    reuse data authorized for an earlier task.  The API's fresh preparer will
+    issue a replacement when the Iteration 197 bridge is enabled.
+    """
+    if isinstance(value, dict):
+        return {
+            key: _strip_market_data_binding_values(item)
+            for key, item in value.items()
+            if not str(key).casefold().startswith(_MARKET_DATA_BINDING_KEY_PREFIX)
+        }
+    if isinstance(value, list):
+        return [_strip_market_data_binding_values(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_strip_market_data_binding_values(item) for item in value)
+    return value
+
+
+def _contains_market_data_binding_values(value: Any) -> bool:
+    """Return whether a recovered snapshot carries any task-scoped binding."""
+    if isinstance(value, dict):
+        return any(
+            str(key).casefold().startswith(_MARKET_DATA_BINDING_KEY_PREFIX)
+            or _contains_market_data_binding_values(item)
+            for key, item in value.items()
+        )
+    if isinstance(value, (list, tuple)):
+        return any(_contains_market_data_binding_values(item) for item in value)
+    return False
 
 
 def _task_continuation_run_id(task: AIStrategyResearchTaskResponse) -> str:

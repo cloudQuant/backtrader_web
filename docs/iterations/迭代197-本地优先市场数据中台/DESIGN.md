@@ -1,6 +1,6 @@
 # 迭代 197 设计文档
 
-> 实现快照：本文记录 `codex/iteration-197-data-platform` 中已出现的 197 源码契约；它不把未冻结工作树、离线替身或局部测试解释为发布验收。真实 OpenBB 网络、MySQL/PostgreSQL、跨进程写入和 196 整合仍以验收文档中的 `NOT_RUN` / `BLOCKED` 为准。
+> 实现快照：本文记录已接入迭代 196 冻结基线的 197 集成候选源码契约；它不把离线替身或局部测试解释为发布验收。真实 OpenBB 网络、MySQL/PostgreSQL、跨进程写入、真实 provider 数据和页面灰度仍以验收文档中的 `NOT_RUN` / `BLOCKED` 为准。
 
 ## 1. 架构概览
 
@@ -217,17 +217,27 @@ lease key 对 canonical identity、dataset、metadata version、asset/market、�
 
 行情页只在浏览器 v2 总开关开启时尝试只读 contract，解析精确已导入 identity 与活动 dataset 后才请求 v2。默认选择仍是 `<asset_type>.realtime`；仅当 bundle 已签发、用户明确选择本资产的 `ready + calendar_grid` 单记录 family，且该 family 的 data kind 是 `bars` 或 `reference_series` 时，contract 请求才携带该 family ID。页面再逐轴验证 contract 和响应的 family、dataset、kind、频率、必需字段与 source policy。`reference_series` 以声明字段表显示，绝不借用 `close`、K 线或 legacy price；`bars`（包括用户选择的 `fx.range`）才可复用 K 线显示。`MARKET_DATA_QUERY_V2_DISABLED` 等已定义 fallback 错误才回到 legacy lookup；一旦 bundle 已签发，`DATA_FAMILY_UNCONFIGURED`、contract/response binding 不匹配或执行失败必须失败关闭，不能用旧数据伪装为 v2 事实。遗留 lookup 若附带 contract，还必须由服务端同时回显本次精确 `symbol` 和该 contract 的 canonical ID；客户端逐字符比较这两个值及 family/版本，绝不做大小写折叠。任何缺失、错配或陈旧的附带 contract 都显式失败，不能作为 v2 bootstrap，也不能把先前标的的缓存结果显示为当前标的的本地证据。总开关关闭时不得探测 contract、bundle 或事实接口。v2 响应的 pagination helper 会持续请求至 `next_cursor=null`，不以 500 条或固定页数截断；它验证每页 `query_id` 与 `knowledge_cutoff` 不变，并对重复 cursor 或 revision fail closed。策略页 sidecar 仍只接受 realtime bars；它不会自动把流动性或 FX range 作为 Iteration 196 的严格 research/backtest 输入。当前前端回归不是浏览器灰度或 196 策略页整合证据。
 
+### 6.1 策略研究的严格本地数据绑定
+
+`MARKET_DATA_RESEARCH_BACKTEST_BRIDGE_ENABLED` 默认关闭，且只有 v2 查询开关、至少 32 bytes 的独立签名 key 和绝对受控工件根目录同时满足时才可打开。前端只可提交 `data_config.market_data_asset_type`；客户端提供的 provider、canonical ID、CSV 目录、URL、回执、工件或旧 binding 字段均被拒绝。
+
+启用时，`/ai-research/run` 在创建任何 workspace 前绑定，`/ai-research/tasks` 在生成 task ID 后、写入 request snapshot 或派发后台任务前绑定。服务端按资产意图重新解析 `<asset>.realtime` contract、当前 `data:read` 权限和 source registry，构造唯一允许的 `local_only + backtest + strict + knowledge_cutoff` 查询。它要求完整覆盖、无 fetch、无分页和完整有限的 OHLC；不完整本地数据绝不触发 AkShare/OpenBB。
+
+查询结果被确定性排序并写为 `datetime,open,high,low,close,volume,openinterest` CSV，路径固定为受控根下的 `bindings/<binding_hash>/data.csv`。`md_research_data_bindings` 以不可变行记录 owner、intent、canonical identity、主数据版本、dataset/family/频率、source policy、query fingerprint、PIT/visibility 锚点、逐观测 revision/source snapshot 证据、manifest hash 与 CSV 字节 hash。`md_research_data_binding_scopes` 将一个 binding 首次锁定到一个 research workspace，`md_research_data_binding_consumers` 追加记录可运行的精确 `(binding,user,intent,workspace,unit)`，`md_research_data_binding_revocations` 提供不可变的紧急撤销收据。客户端和策略单元只能携带 binding ID、hash、HMAC、intent 与服务器规范化后的资产意图；浏览器没有写入 scope/consumer/revocation 的 API。
+
+`run_units` 不再把 `runtime_dir` 放入公共 `BacktestRequest`。它在任何 preflight 前用数据库 compare-and-swap 为严格绑定 unit 取得唯一运行租约；竞争者只能得到 `already_running`，不会触发绑定读取、目录写入或 task 调度。它只调用 `BacktestService.run_workspace_unit_backtest`，并传递进程内的 private preflight capability 与私有 lease promoter。该 capability 每次均以独立数据库会话重读当前 unit，并复核 owner、research workspace、exact consumer/intent、撤销收据、manifest、签名、symbol、timeframe 和窗口；按 sealed contract 重放当前 `local_only + backtest + strict` PIT 查询，以当前 `data:read`、source policy 和 source registry/license 重新裁决并逐条比较 revision/source snapshot 证据。最终短事务锁定 sealed source snapshot 和对应 registry，以当前 principal、资产、市场、用途和许可证再次裁决后才生成 runtime。服务在持久任务创建前、队列后的执行预备阶段和紧贴子进程启动前都调用 preflight；并发槽满后的每一次重试也会重新调用。task 创建后、调度前，私有 promoter 必须以相同租约原子写入真实 task ID；失去租约的 task 不调度。取消、失败、状态查询和后台轮询只按租约/task ID CAS 结束当前运行，观察超时或未知状态不会释放仍可能运行的单元。权限、路由、许可或事实变化均失败关闭；未创建任务的排队失败、preflight 失败或超时会使 bound unit runtime 不可执行。若确定性目录仍可能属于存活的新 lease，失败路径不得删除或覆写它，以避免旧请求清理新 owner 的目录。公开 `/backtests/run` 对任何客户端 `runtime_dir` 以稳定码拒绝，通用 service 调用也不能接收该能力。
+
+只有成功 preflight 才会写入 runtime `config.yaml`。生成的 `run.py` 在 `pandas.read_csv` 前以完整 `O_NOFOLLOW` 路径链打开单一文件描述符、在该 descriptor 上复核 size/SHA-256，并将同一 descriptor 交给 pandas；路径替换或符号链接不能令读取转向另一 inode。它忽略 `directory_path`、`BACKTRADER_DATA_DIR`、provider 及任何模糊文件搜索。日期型窗口统一为 UTC 半开区间；OOS 只可缩小原绑定窗口，不能改变标的或频率。续跑会剥离旧 binding 后以新 task intent 重新绑定。带研究 binding 的纸面/交易运行不允许回退到通用数据路径，必须由未来独立的交易数据契约接管。
+
 ## 7. 迁移与运维
 
 ### 7.1 迭代 196/197 迁移整合
 
-当前 197 链由 `20260908_market_data_catalog` 经来源治理、`20260909_market_data_fetch_leases`、`20260909_market_data_exact_identity_collation` 继续到当前独立链 head `20260909_market_data_constraint_name_portability`；其根链仍从 `20260811_asset_research_task_leases` 分叉。196 的 `20260904_ai_research_protocol_v2` 也从该 revision 分叉，并继续到 `20260908_ai_research_approval_authority`。因此两个候选同时进入一个版本图时，天然出现两个 head。独立 197 工作树中的单链检查不能替代联合检查。
-
-196 冻结后，只能选择以下一种受审查路径：把 197 重基到 196 的冻结 head，或在集成分支创建带两个 `down_revision` 的 Alembic merge revision。不得任选一个 head、`stamp` 掉另一个分支或直接对生产库运行独立链。候选发布必须先在空数据库执行 `alembic heads`（恰一个 head）和 `alembic upgrade head`，再在可恢复的 MySQL/PostgreSQL 副本做同样演练；详情和证据格式见 [验收文档](ACCEPTANCE.md#7-数据库迁移与灾备验收)。
+196 的冻结候选已作为集成基线。`20260909_ai_research_market_data_merge` 使用两个 `down_revision` 显式合并 196 研究审批链与 197 数据中台链；`20260909_market_data_research_bindings` 创建 binding receipt，`20260909_market_data_research_binding_consumers` 继续创建 scope、consumer 和 revocation receipt。不得任选一个历史 head、`stamp` 掉另一个分支或直接对生产库运行旧独立链。候选发布仍须在空数据库执行 `alembic heads`（恰一个 head）和 `alembic upgrade head`，再在可恢复的 MySQL/PostgreSQL 副本做同样演练；详情和证据格式见 [验收文档](ACCEPTANCE.md#7-数据库迁移与灾备验收)。
 
 ### 7.2 发布前操作顺序
 
-1. 冻结 196 的研究/回测工件契约，建立 196/197 集成候选并完成单 head 迁移修订；记录候选 SHA、`git status --short`、`alembic heads` 和备份标识。
+1. 复核 196 冻结基线、建立 196/197 集成候选并完成单 head 迁移修订；记录候选 SHA、`git status --short`、`alembic heads` 和备份标识。
 2. 在空库和经批准的可恢复副本执行 `alembic upgrade head`；审计 `dg_*`/`md_*` 的列、索引、外键、检查约束、时间字段与遗留 AkShare 表的行数/校验和。MySQL 执行 exact-identity DDL 前必须停止 writer 并设置 `MARKET_DATA_EXACT_IDENTITY_MAINTENANCE_FENCE=confirmed`；任何执行 portability revision 的 MySQL upgrade 都必须先 drain writer 并设置 `MARKET_DATA_CONSTRAINT_NAME_PORTABILITY_MAINTENANCE_FENCE=confirmed`，即使检查结果看来无需变更也不能跳过，避免检查与 DDL 间的 TOCTOU。两个 revision 的有界 `GET_LOCK` 只串行化迁移运行，不能替代停止 writer。审计四个身份字段实际为 `utf8mb4_bin`，PostgreSQL 为 `C`，再验证每个应用连接的 UTC session time zone 与跨连接 PIT 读取。
 3. 在维护窗口依次运行 `bootstrap_market_data_platform.py` 的 dry-run 和 `--apply`，注册逻辑数据集、唯一主存储和活动 provider；未注册或已停用的 provider 在网络请求前即被拒绝。
 4. 对审核过的主数据 manifest 运行 `import_market_data_master_data.py` 的 dry-run 和 `--apply`，再对既有权威身份使用 `backfill_market_data_lookup_keys.py` 的受限批次 dry-run/`--apply`。导入器不创建猜测 identity。

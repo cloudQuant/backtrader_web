@@ -6,7 +6,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 
 from app.schemas.workspace import (
     ReportCreateRequest,
@@ -323,6 +323,12 @@ class StrategyDraftWorkspaceAddResponse(BaseModel):
 
 class StrategyCopilotBacktestRequest(StrategyDraftWorkspaceAddRequest):
     """Add AI draft to workspace and trigger backtest."""
+
+    # This is an in-process capability installed only by the trusted AI
+    # research orchestrator.  It is deliberately a Pydantic private attribute
+    # rather than a request field, so HTTP clients cannot ask the generic
+    # copilot/workspace flows to attach a sealed market-data binding.
+    _market_data_binding_attacher: Any = PrivateAttr(default=None)
 
     parallel: bool = Field(default=False, description="Run in parallel / 是否并行运行")
     report_config: ReportCreateRequest | None = Field(

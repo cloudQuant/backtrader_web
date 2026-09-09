@@ -151,6 +151,16 @@ class TestEnhancedBacktestRun:
         )
         assert resp.status_code == 422
 
+    async def test_run_backtest_rejects_client_runtime_dir(
+        self, client: AsyncClient, auth_headers: dict
+    ):
+        payload = {**VALID_BACKTEST_REQUEST, "runtime_dir": "/tmp/client-selected-runtime"}
+
+        resp = await client.post("/api/v1/backtests/run", headers=auth_headers, json=payload)
+
+        assert resp.status_code == 422
+        assert resp.json()["details"]["code"] == "BACKTEST_RUNTIME_DIR_CLIENT_FORBIDDEN"
+
 
 @pytest.mark.asyncio
 class TestEnhancedBacktestGetResult:

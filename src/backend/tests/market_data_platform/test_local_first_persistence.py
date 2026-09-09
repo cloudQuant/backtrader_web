@@ -51,7 +51,10 @@ UTC: Final = timezone.utc
 CANONICAL_ID: Final = "instrument:stock:CN-SSE:600000"
 WINDOW_START: Final = datetime(2026, 9, 1, tzinfo=UTC)
 WINDOW_END: Final = datetime(2026, 9, 3, tzinfo=UTC)
-RECEIPT_AT: Final = datetime.now(UTC) + timedelta(minutes=1)
+# Identity publication deliberately samples a post-commit real clock.  The
+# local-first test query must therefore use a visibility cutoff safely after
+# setup, even when the entire market-data suite takes longer than a minute.
+RECEIPT_AT: Final = datetime.now(UTC) + timedelta(days=1)
 
 
 class _RecordingProvider:

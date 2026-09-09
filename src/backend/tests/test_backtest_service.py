@@ -4,12 +4,14 @@ Backtest service tests aligned with the current task-manager + task-runner desig
 
 from __future__ import annotations
 
+import asyncio
 import tempfile
 from datetime import datetime
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from pydantic import ValidationError
 
 from app.models.backtest import BacktestResultModel, BacktestTask
 from app.schemas.backtest import BacktestRequest, BacktestResponse, BacktestResult, TaskStatus
@@ -45,6 +47,10 @@ class TestBacktestServiceHelpers:
         assert svc._has_custom_params(make_request(initial_cash=200000)) is True
         assert svc._has_custom_params(make_request(commission=0.002)) is True
         assert svc._has_custom_params(make_request(params={"period": 20})) is True
+
+    def test_request_rejects_client_runtime_dir(self):
+        with pytest.raises(ValidationError, match="BACKTEST_RUNTIME_DIR_CLIENT_FORBIDDEN"):
+            make_request(runtime_dir="/tmp/client-selected-runtime")
 
     def test_strip_asserts(self, tmp_path: Path):
         run_py = tmp_path / "run.py"
@@ -202,6 +208,415 @@ class TestRunBacktest:
 
         with pytest.raises(ValueError, match="limit reached"):
             await svc.run_backtest("user1", make_request())
+
+    async def test_run_backtest_rejects_runtime_dir_even_when_validation_is_bypassed(self):
+        task_manager = MagicMock(spec=BacktestExecutionManager)
+        task_manager.create_task = AsyncMock()
+        svc = BacktestService(
+            task_manager=task_manager, task_runner=MagicMock(spec=BacktestExecutionRunner)
+        )
+        request = BacktestRequest.model_construct(runtime_dir="/tmp/client-selected-runtime")
+
+        with pytest.raises(ValueError, match="BACKTEST_RUNTIME_DIR_CLIENT_FORBIDDEN"):
+            await svc.run_backtest("user1", request)
+
+        task_manager.create_task.assert_not_awaited()
+
+    async def test_workspace_submission_uses_server_preflight_and_does_not_serialize_runtime_dir(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        from app.services import workspace_unit_runtime
+
+        monkeypatch.setattr(workspace_unit_runtime, "_WORKSPACE_UNITS_ROOT", tmp_path / "units")
+        runtime_dir = workspace_unit_runtime.unit_dir("ws-1", "unit-1")
+        runtime_dir.mkdir(parents=True)
+        (runtime_dir / "run.py").write_text("print('workspace')", encoding="utf-8")
+        preflight_calls: list[str] = []
+
+        async def runtime_preflight() -> Path:
+            preflight_calls.append("called")
+            return runtime_dir
+
+        task_manager = MagicMock(spec=BacktestExecutionManager)
+        task_manager.create_task = AsyncMock(
+            return_value=BacktestTask(
+                id="task123",
+                user_id="user1",
+                strategy_id="test_strategy",
+                symbol="000001.SZ",
+                status=TaskStatus.PENDING,
+            )
+        )
+        task_runner = MagicMock(spec=BacktestExecutionRunner)
+        svc = BacktestService(task_manager=task_manager, task_runner=task_runner)
+
+        response = await svc.run_workspace_unit_backtest(
+            "user1",
+            make_request(),
+            workspace_id="ws-1",
+            unit_id="unit-1",
+            runtime_preflight=runtime_preflight,
+        )
+
+        assert response.task_id == "task123"
+        assert preflight_calls == ["called"]
+        submitted_request = task_manager.create_task.await_args.args[1]
+        assert submitted_request.runtime_dir is None
+        scheduled_execution = task_runner.schedule.call_args.args[1]
+        scheduled_execution.close()
+
+    async def test_workspace_submission_keeps_rejected_runtime_unreachable_without_preflight(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        from app.services import workspace_unit_runtime
+
+        monkeypatch.setattr(workspace_unit_runtime, "_WORKSPACE_UNITS_ROOT", tmp_path / "units")
+        runtime_dir = workspace_unit_runtime.unit_dir("ws-1", "unit-1")
+        runtime_dir.mkdir(parents=True)
+        (runtime_dir / "run.py").write_text("print('stale')", encoding="utf-8")
+
+        async def runtime_preflight() -> Path:
+            raise ValueError("MARKET_DATA_BINDING_RUNTIME_REVOKED")
+
+        task_manager = MagicMock(spec=BacktestExecutionManager)
+        task_manager.create_task = AsyncMock()
+        svc = BacktestService(
+            task_manager=task_manager, task_runner=MagicMock(spec=BacktestExecutionRunner)
+        )
+
+        with pytest.raises(ValueError, match="MARKET_DATA_BINDING_RUNTIME_REVOKED"):
+            await svc.run_workspace_unit_backtest(
+                "user1",
+                make_request(),
+                workspace_id="ws-1",
+                unit_id="unit-1",
+                runtime_preflight=runtime_preflight,
+            )
+
+        # The generic API cannot name this directory and every workspace
+        # execution replays the private preflight before spawning.  Retaining
+        # it avoids an old rejected request deleting a newer fenced runtime.
+        assert runtime_dir.exists()
+        assert (runtime_dir / "run.py").is_file()
+        task_manager.create_task.assert_not_awaited()
+
+    async def test_workspace_claim_promotion_blocks_schedule_after_queued_stop(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """A revoked unit lease cancels its persisted task before any runner schedule."""
+        from app.services import workspace_unit_runtime
+
+        monkeypatch.setattr(workspace_unit_runtime, "_WORKSPACE_UNITS_ROOT", tmp_path / "units")
+        runtime_dir = workspace_unit_runtime.unit_dir("ws-1", "unit-1")
+        runtime_dir.mkdir(parents=True)
+        (runtime_dir / "run.py").write_text("print('workspace')", encoding="utf-8")
+
+        async def runtime_preflight() -> Path:
+            return runtime_dir
+
+        claim_promoter = AsyncMock(return_value=False)
+        task_manager = MagicMock(spec=BacktestExecutionManager)
+        task_manager.create_task = AsyncMock(
+            return_value=BacktestTask(
+                id="task123",
+                user_id="user1",
+                strategy_id="test_strategy",
+                symbol="000001.SZ",
+                status=TaskStatus.PENDING,
+            )
+        )
+        task_manager.update_task_status = AsyncMock()
+        task_runner = MagicMock(spec=BacktestExecutionRunner)
+        svc = BacktestService(task_manager=task_manager, task_runner=task_runner)
+
+        with pytest.raises(ValueError, match="WORKSPACE_UNIT_RUN_CLAIM_LOST"):
+            await svc.run_workspace_unit_backtest(
+                "user1",
+                make_request(),
+                workspace_id="ws-1",
+                unit_id="unit-1",
+                runtime_preflight=runtime_preflight,
+                claim_promoter=claim_promoter,
+            )
+
+        claim_promoter.assert_awaited_once_with("task123")
+        task_manager.update_task_status.assert_awaited_once()
+        assert task_manager.update_task_status.await_args.args == ("task123", TaskStatus.CANCELLED)
+        assert (
+            task_manager.update_task_status.await_args.kwargs["error_message"]
+            == "Workspace unit run claim was revoked before scheduling"
+        )
+        task_runner.schedule.assert_not_called()
+
+    async def test_workspace_promoter_cancellation_marks_persisted_task_before_reraising(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Cancellation after create_task cannot leak a PENDING workspace task."""
+        from app.services import workspace_unit_runtime
+
+        monkeypatch.setattr(workspace_unit_runtime, "_WORKSPACE_UNITS_ROOT", tmp_path / "units")
+        runtime_dir = workspace_unit_runtime.unit_dir("ws-1", "unit-1")
+        runtime_dir.mkdir(parents=True)
+        (runtime_dir / "run.py").write_text("print('workspace')", encoding="utf-8")
+
+        async def runtime_preflight() -> Path:
+            return runtime_dir
+
+        async def cancelled_promoter(_task_id: str) -> bool:
+            raise asyncio.CancelledError
+
+        task_manager = MagicMock(spec=BacktestExecutionManager)
+        task_manager.create_task = AsyncMock(
+            return_value=BacktestTask(
+                id="task123",
+                user_id="user1",
+                strategy_id="test_strategy",
+                symbol="000001.SZ",
+                status=TaskStatus.PENDING,
+            )
+        )
+        task_manager.update_task_status = AsyncMock()
+        task_runner = MagicMock(spec=BacktestExecutionRunner)
+        svc = BacktestService(task_manager=task_manager, task_runner=task_runner)
+
+        with pytest.raises(asyncio.CancelledError):
+            await svc.run_workspace_unit_backtest(
+                "user1",
+                make_request(),
+                workspace_id="ws-1",
+                unit_id="unit-1",
+                runtime_preflight=runtime_preflight,
+                claim_promoter=cancelled_promoter,
+            )
+
+        assert task_manager.update_task_status.await_args.args == ("task123", TaskStatus.CANCELLED)
+        assert (
+            task_manager.update_task_status.await_args.kwargs["error_message"]
+            == "Workspace unit run claim promotion was cancelled"
+        )
+        task_runner.schedule.assert_not_called()
+
+    async def test_commit_then_cancel_marks_known_task_cancelled_before_lease_finalizer(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A create commit followed by cancellation cannot leak an unknown PENDING task."""
+        from app.db.database import async_session_maker
+        from app.models.user import User
+        from app.services import workspace_unit_runtime
+
+        user_id = "commit-then-cancel-user"
+        async with async_session_maker() as session:
+            session.add(
+                User(
+                    id=user_id,
+                    username="commit_then_cancel_user",
+                    email="commit_then_cancel_user@example.com",
+                    hashed_password="hash",
+                )
+            )
+            await session.commit()
+
+        task_manager = BacktestExecutionManager()
+        create_task = task_manager.create_task
+        persisted_task_ids: list[str] = []
+
+        async def commit_then_cancel(
+            submitted_user_id: str,
+            request: BacktestRequest,
+            *,
+            task_id: str | None = None,
+        ) -> BacktestTask:
+            task = await create_task(submitted_user_id, request, task_id=task_id)
+            persisted_task_ids.append(str(task.id))
+            raise asyncio.CancelledError
+
+        task_manager.create_task = commit_then_cancel  # type: ignore[method-assign]
+        task_runner = MagicMock(spec=BacktestExecutionRunner)
+        finalizer = AsyncMock()
+        svc = BacktestService(task_manager=task_manager, task_runner=task_runner)
+        monkeypatch.setattr(workspace_unit_runtime, "_WORKSPACE_UNITS_ROOT", tmp_path / "units")
+        runtime_dir = workspace_unit_runtime.unit_dir(
+            "commit-then-cancel-workspace",
+            "commit-then-cancel-unit",
+        )
+        runtime_dir.mkdir(parents=True)
+        (runtime_dir / "run.py").write_text("print('workspace')", encoding="utf-8")
+
+        async def runtime_preflight() -> Path:
+            return runtime_dir
+
+        with pytest.raises(asyncio.CancelledError):
+            await svc.run_workspace_unit_backtest(
+                user_id,
+                make_request(),
+                workspace_id="commit-then-cancel-workspace",
+                unit_id="commit-then-cancel-unit",
+                runtime_preflight=runtime_preflight,
+                claim_finalizer=finalizer,
+            )
+
+        assert len(persisted_task_ids) == 1
+        persisted = await task_manager.get_task(persisted_task_ids[0], user_id=user_id)
+        assert persisted is not None
+        assert persisted.status == TaskStatus.CANCELLED
+        # No lease was promoted, so only run_ops' exact lease cleanup may
+        # release its caller-owned token.
+        finalizer.assert_not_awaited()
+        task_runner.schedule.assert_not_called()
+
+    async def test_execution_start_claim_is_single_winner_and_never_revives_cancelled_task(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The scheduled coroutine claims PENDING->RUNNING with a DB CAS."""
+        import app.services.backtest.service as service_module
+        from app.db.database import async_session_maker
+        from app.models.user import User
+
+        monkeypatch.setattr(service_module, "async_session_maker", async_session_maker)
+        async with async_session_maker() as session:
+            session.add_all(
+                [
+                    User(
+                        id="execution-claim-user",
+                        username="execution_claim_user",
+                        email="execution_claim_user@example.com",
+                        hashed_password="hash",
+                    ),
+                    BacktestTask(
+                        id="execution-claim-task",
+                        user_id="execution-claim-user",
+                        strategy_id="strategy",
+                        symbol="000001.SZ",
+                        status=TaskStatus.PENDING,
+                    ),
+                    BacktestTask(
+                        id="execution-cancelled-task",
+                        user_id="execution-claim-user",
+                        strategy_id="strategy",
+                        symbol="000001.SZ",
+                        status=TaskStatus.CANCELLED,
+                    ),
+                ]
+            )
+            await session.commit()
+
+        winners = await asyncio.gather(
+            BacktestService._claim_task_execution_start("execution-claim-task"),
+            BacktestService._claim_task_execution_start("execution-claim-task"),
+        )
+        assert sorted(winners) == [False, True]
+        assert not await BacktestService._claim_task_execution_start("execution-cancelled-task")
+
+        async with async_session_maker() as session:
+            running = await session.get(BacktestTask, "execution-claim-task")
+            cancelled = await session.get(BacktestTask, "execution-cancelled-task")
+            assert running is not None and running.status == TaskStatus.RUNNING
+            assert cancelled is not None and cancelled.status == TaskStatus.CANCELLED
+
+    async def test_workspace_schedule_failure_cancels_promoted_task(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """A task promoted before runner failure cannot remain a live workspace run."""
+        from app.services import workspace_unit_runtime
+
+        monkeypatch.setattr(workspace_unit_runtime, "_WORKSPACE_UNITS_ROOT", tmp_path / "units")
+        runtime_dir = workspace_unit_runtime.unit_dir("ws-1", "unit-1")
+        runtime_dir.mkdir(parents=True)
+        (runtime_dir / "run.py").write_text("print('workspace')", encoding="utf-8")
+
+        async def runtime_preflight() -> Path:
+            return runtime_dir
+
+        task_manager = MagicMock(spec=BacktestExecutionManager)
+        task_manager.create_task = AsyncMock(
+            return_value=BacktestTask(
+                id="task123",
+                user_id="user1",
+                strategy_id="test_strategy",
+                symbol="000001.SZ",
+                status=TaskStatus.PENDING,
+            )
+        )
+        task_manager.update_task_status = AsyncMock()
+        task_runner = MagicMock(spec=BacktestExecutionRunner)
+        task_runner.schedule.side_effect = RuntimeError("runner unavailable")
+        svc = BacktestService(task_manager=task_manager, task_runner=task_runner)
+
+        with pytest.raises(RuntimeError, match="runner unavailable"):
+            await svc.run_workspace_unit_backtest(
+                "user1",
+                make_request(),
+                workspace_id="ws-1",
+                unit_id="unit-1",
+                runtime_preflight=runtime_preflight,
+                claim_promoter=AsyncMock(return_value=True),
+            )
+
+        assert task_manager.update_task_status.await_args.args == ("task123", TaskStatus.CANCELLED)
+        assert (
+            task_manager.update_task_status.await_args.kwargs["error_message"]
+            == "Workspace unit task could not be scheduled"
+        )
+
+    async def test_workspace_execution_rechecks_preflight_before_subprocess(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        from app.services import workspace_unit_runtime
+
+        monkeypatch.setattr(workspace_unit_runtime, "_WORKSPACE_UNITS_ROOT", tmp_path / "units")
+        runtime_dir = workspace_unit_runtime.unit_dir("ws-1", "unit-1")
+        runtime_dir.mkdir(parents=True)
+        (runtime_dir / "run.py").write_text("print('workspace')", encoding="utf-8")
+        preflight_attempts = 0
+
+        async def runtime_preflight() -> Path:
+            nonlocal preflight_attempts
+            preflight_attempts += 1
+            if preflight_attempts == 3:
+                raise ValueError("MARKET_DATA_BINDING_RUNTIME_REVOKED")
+            return runtime_dir
+
+        task_manager = MagicMock(spec=BacktestExecutionManager)
+        task_manager.create_task = AsyncMock(
+            return_value=BacktestTask(
+                id="task123",
+                user_id="user1",
+                strategy_id="test_strategy",
+                symbol="000001.SZ",
+                status=TaskStatus.PENDING,
+            )
+        )
+        task_manager.update_task_status = AsyncMock()
+        task_runner = MagicMock(spec=BacktestExecutionRunner)
+        svc = BacktestService(task_manager=task_manager, task_runner=task_runner)
+        svc._notify_progress = AsyncMock()
+        svc._run_strategy_subprocess = AsyncMock()
+        svc._claim_task_execution_start = AsyncMock(return_value=True)
+
+        await svc.run_workspace_unit_backtest(
+            "user1",
+            make_request(),
+            workspace_id="ws-1",
+            unit_id="unit-1",
+            runtime_preflight=runtime_preflight,
+        )
+
+        scheduled_execution = task_runner.schedule.call_args.args[1]
+        strategy_dir = tmp_path / "strategy"
+        with patch("app.services.strategy.core.get_strategy_dir", return_value=strategy_dir):
+            await scheduled_execution
+
+        assert preflight_attempts == 3
+        svc._run_strategy_subprocess.assert_not_awaited()
+        assert runtime_dir.exists()
+        assert task_manager.update_task_status.await_args_list[-1].args == (
+            "task123",
+            TaskStatus.FAILED,
+        )
+        assert (
+            task_manager.update_task_status.await_args_list[-1].kwargs["error_message"]
+            == "MARKET_DATA_BINDING_RUNTIME_REVOKED"
+        )
 
 
 @pytest.mark.asyncio
@@ -372,6 +787,7 @@ class TestCancelTask:
         task_runner = MagicMock(spec=BacktestExecutionRunner)
         task_runner.cancel_local_execution.return_value = False
         task_manager = MagicMock(spec=BacktestExecutionManager)
+        task_manager.cancel_pending_task = AsyncMock(return_value=True)
         task_manager.update_task_status = AsyncMock()
         svc = BacktestService(task_manager=task_manager, task_runner=task_runner)
 
@@ -380,11 +796,11 @@ class TestCancelTask:
             result = await svc.cancel_task("task123", "user1")
 
         assert result is True
-        task_manager.update_task_status.assert_awaited_once_with(
+        task_manager.cancel_pending_task.assert_awaited_once_with(
             "task123",
-            TaskStatus.CANCELLED,
-            error_message="User cancelled task",
+            "user1",
         )
+        task_manager.update_task_status.assert_not_awaited()
 
     async def test_cancel_task_cancels_local_running_execution(self):
         task_runner = MagicMock(spec=BacktestExecutionRunner)
@@ -398,7 +814,82 @@ class TestCancelTask:
             result = await svc.cancel_task("task123", "user1")
 
         assert result is True
-        task_manager.update_task_status.assert_awaited_once()
+        task_manager.cancel_pending_task.assert_not_awaited()
+        task_manager.update_task_status.assert_not_awaited()
+
+    async def test_pending_cancel_loser_rereads_running_task_and_signals_real_handle(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """PENDING cancel cannot overwrite a competing PENDING->RUNNING claim."""
+        import app.services.backtest.service as service_module
+        from app.db.database import async_session_maker
+        from app.models.user import User
+
+        user_id = "pending-cancel-race-user"
+        task_id = "pending-cancel-race-task"
+        async with async_session_maker() as session:
+            session.add_all(
+                [
+                    User(
+                        id=user_id,
+                        username="pending_cancel_race_user",
+                        email="pending_cancel_race_user@example.com",
+                        hashed_password="hash",
+                    ),
+                    BacktestTask(
+                        id=task_id,
+                        user_id=user_id,
+                        strategy_id="strategy",
+                        symbol="000001.SZ",
+                        status=TaskStatus.PENDING,
+                    ),
+                ]
+            )
+            await session.commit()
+
+        monkeypatch.setattr(service_module, "async_session_maker", async_session_maker)
+        task_manager = BacktestExecutionManager()
+        original_cancel_pending = task_manager.cancel_pending_task
+        pending_cas_entered = asyncio.Event()
+        allow_pending_cas = asyncio.Event()
+
+        async def delayed_pending_cancel(
+            current_task_id: str,
+            current_user_id: str,
+            *,
+            error_message: str = "User cancelled task",
+        ) -> bool:
+            assert current_task_id == task_id
+            assert current_user_id == user_id
+            pending_cas_entered.set()
+            await allow_pending_cas.wait()
+            return await original_cancel_pending(
+                current_task_id,
+                current_user_id,
+                error_message=error_message,
+            )
+
+        task_manager.cancel_pending_task = delayed_pending_cancel  # type: ignore[method-assign]
+        task_runner = MagicMock(spec=BacktestExecutionRunner)
+        task_runner.cancel_local_execution.return_value = True
+        svc = BacktestService(task_manager=task_manager, task_runner=task_runner)
+
+        cancel_request = asyncio.create_task(svc.cancel_task(task_id, user_id))
+        await asyncio.wait_for(pending_cas_entered.wait(), timeout=2)
+
+        # The execution process wins PENDING->RUNNING while cancellation is
+        # paused between its stale read and conditional write.
+        assert await svc._claim_task_execution_start(task_id)
+        allow_pending_cas.set()
+        assert await cancel_request is True
+
+        task_runner.cancel_local_execution.assert_called_once_with(task_id)
+        async with async_session_maker() as session:
+            persisted = await session.get(BacktestTask, task_id)
+            assert persisted is not None
+            # The service signalled the local runner; it did not falsely write
+            # CANCELLED over a task that had already claimed RUNNING.
+            assert persisted.status == TaskStatus.RUNNING
 
 
 @pytest.mark.asyncio

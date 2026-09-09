@@ -23,6 +23,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.asset_research import AssetDataSourceRegistry
+from app.models.market_data_platform import (
+    SOURCE_AUTHORIZATION_STATE_VERIFIED,
+    MdSourceSnapshot,
+)
 from app.models.permission import ROLE_PERMISSIONS, Permission, Role, user_roles
 from app.models.user import User
 from app.services.market_data.source_policy import (
@@ -506,6 +510,92 @@ class MarketDataAccessAuthorizer:
         if current.descriptor_hash != expected_authorization.descriptor_hash:
             raise MarketDataAuthorizationError("MARKET_DATA_ACCESS_CHANGED_DURING_FETCH")
         return current
+
+    async def reauthorize_sealed_source_registries(
+        self,
+        *,
+        principal: MarketDataPrincipal,
+        source_snapshot_ids: Sequence[str],
+        asset_type: str,
+        market: str,
+        purpose: str,
+    ) -> None:
+        """Lock and reauthorize registries named by sealed local evidence.
+
+        A strict historical read already verifies the immutable source-snapshot
+        receipts before returning observations.  A consumer can still spend
+        enough time replaying those observations for the current source
+        registry to change.  This final fence intentionally resolves the
+        exact registry for every sealed snapshot, rather than reusing the
+        earlier policy-route grant, and keeps those registry rows locked until
+        the caller leaves its short authorization transaction.
+        """
+        if not isinstance(principal, MarketDataPrincipal):
+            raise TypeError("principal must be a MarketDataPrincipal")
+        if isinstance(source_snapshot_ids, (str, bytes)):
+            raise TypeError("source_snapshot_ids must be a sequence of source snapshot ids")
+        normalized_snapshot_ids = tuple(
+            sorted(
+                {
+                    _required_text(
+                        source_snapshot_id,
+                        field_name="source_snapshot_id",
+                        maximum=36,
+                    )
+                    for source_snapshot_id in source_snapshot_ids
+                }
+            )
+        )
+        if not normalized_snapshot_ids:
+            raise MarketDataAuthorizationError("SOURCE_AUTHORIZATION_EVIDENCE_MISSING")
+        normalized_asset_type = _required_lower(asset_type, field_name="asset_type", maximum=32)
+        normalized_market = _required_upper(market, field_name="market", maximum=128)
+        normalized_purpose = _required_lower(purpose, field_name="purpose", maximum=32)
+        if normalized_purpose not in _PURPOSE_ALLOWED_USES:
+            raise MarketDataAuthorizationError("MARKET_DATA_PURPOSE_UNSUPPORTED")
+
+        # The runtime caller obtains this principal from
+        # ``revalidate_principal_for_write`` in the same short transaction
+        # immediately before invoking this method. Keep the source rows locked
+        # under that already-current entitlement rather than introducing a
+        # stale request-scoped principal at the evidence boundary.
+        self.require_read_data(principal=principal)
+        snapshot_statement = (
+            select(MdSourceSnapshot)
+            .where(MdSourceSnapshot.id.in_(normalized_snapshot_ids))
+            .execution_options(populate_existing=True)
+            .with_for_update()
+        )
+        snapshots = list((await self._db.execute(snapshot_statement)).scalars())
+        snapshots_by_id = {snapshot.id: snapshot for snapshot in snapshots}
+        if set(snapshots_by_id) != set(normalized_snapshot_ids):
+            raise MarketDataAuthorizationError("SOURCE_AUTHORIZATION_EVIDENCE_MISSING")
+
+        source_registry_ids: set[str] = set()
+        for source_snapshot_id in normalized_snapshot_ids:
+            snapshot = snapshots_by_id[source_snapshot_id]
+            if snapshot.source_authorization_state != SOURCE_AUTHORIZATION_STATE_VERIFIED:
+                raise MarketDataAuthorizationError("SOURCE_AUTHORIZATION_EVIDENCE_UNVERIFIED")
+            source_registry_ids.add(
+                _required_text(
+                    snapshot.source_id,
+                    field_name="source_registry_id",
+                    maximum=255,
+                )
+            )
+
+        for source_registry_id in sorted(source_registry_ids):
+            registry = await self._load_registry(source_registry_id, lock_current=True)
+            if registry is None:
+                raise MarketDataAuthorizationError("SOURCE_REGISTRY_UNREGISTERED")
+            self._authorize_registry(
+                principal=principal,
+                registry=registry,
+                asset_type=normalized_asset_type,
+                market=normalized_market,
+                purpose=normalized_purpose,
+                at=_trusted_now(self._clock),
+            )
 
     async def authorize_local_source(
         self,

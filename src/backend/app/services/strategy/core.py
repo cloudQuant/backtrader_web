@@ -310,6 +310,12 @@ class StrategyService:
             **request.data_config,
         }
 
+        # Only the internal AI-research pipeline can install this private
+        # capability.  Public copilot/workspace requests carrying a binding
+        # payload are rejected by WorkspaceService before a unit is created.
+        binding_attacher = getattr(request, "_market_data_binding_attacher", None)
+        allow_server_bound_research_data = callable(binding_attacher)
+
         unit = await workspace_service.create_unit(
             workspace_id,
             user_id,
@@ -327,9 +333,18 @@ class StrategyService:
                 params=strategy_params,
                 optimization_config=request.optimization_config,
             ),
+            allow_server_bound_research_data=allow_server_bound_research_data,
         )
         if unit is None:
             return None
+        if binding_attacher is not None:
+            try:
+                await binding_attacher(workspace.id, str(unit["id"]))
+            except Exception:
+                # A bound unit without its durable server-side consumer
+                # receipt must never remain available for a later generic run.
+                await workspace_service.delete_unit(workspace.id, str(unit["id"]), user_id)
+                raise
 
         return StrategyDraftWorkspaceAddResponse(
             workspace_id=workspace.id,

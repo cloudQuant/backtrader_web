@@ -34,7 +34,9 @@ FETCH_LEASE_REVISION = "20260909_market_data_fetch_leases"
 EXACT_IDENTITY_COLLATION_REVISION = "20260909_market_data_exact_identity_collation"
 CONSTRAINT_NAME_PORTABILITY_REVISION = "20260909_market_data_constraint_name_portability"
 AI_RESEARCH_APPROVAL_REVISION = "20260908_ai_research_approval_authority"
-INTEGRATED_HEAD_REVISION = "20260909_ai_research_market_data_merge"
+MERGE_REVISION = "20260909_ai_research_market_data_merge"
+RESEARCH_BINDINGS_REVISION = "20260909_market_data_research_bindings"
+INTEGRATED_HEAD_REVISION = "20260909_market_data_research_binding_consumers"
 STORAGE_TABLES = {
     "md_instrument_lookup_keys",
     "md_data_series",
@@ -1221,7 +1223,7 @@ def test_observation_revision_is_linear_child_of_catalog_revision() -> None:
 
 
 def test_constraint_name_portability_revision_extends_the_integrated_storage_graph() -> None:
-    """The storage chain and 196 approval chain end at one no-DDL merge revision."""
+    """The merge remains intact before the strict binding consumer successor."""
     script = ScriptDirectory.from_config(_config("sqlite://"))
 
     shared_revision = script.get_revision(SHARED_DATASET_BINDINGS_REVISION)
@@ -1231,6 +1233,8 @@ def test_constraint_name_portability_revision_extends_the_integrated_storage_gra
     fetch_lease_revision = script.get_revision(FETCH_LEASE_REVISION)
     exact_identity_collation_revision = script.get_revision(EXACT_IDENTITY_COLLATION_REVISION)
     constraint_name_portability_revision = script.get_revision(CONSTRAINT_NAME_PORTABILITY_REVISION)
+    merge_revision = script.get_revision(MERGE_REVISION)
+    research_bindings_revision = script.get_revision(RESEARCH_BINDINGS_REVISION)
     integrated_head_revision = script.get_revision(INTEGRATED_HEAD_REVISION)
     assert shared_revision is not None
     assert shared_revision.down_revision == OBSERVATIONS_REVISION
@@ -1246,11 +1250,15 @@ def test_constraint_name_portability_revision_extends_the_integrated_storage_gra
     assert exact_identity_collation_revision.down_revision == FETCH_LEASE_REVISION
     assert constraint_name_portability_revision is not None
     assert constraint_name_portability_revision.down_revision == EXACT_IDENTITY_COLLATION_REVISION
-    assert integrated_head_revision is not None
-    assert integrated_head_revision.down_revision == (
+    assert merge_revision is not None
+    assert merge_revision.down_revision == (
         AI_RESEARCH_APPROVAL_REVISION,
         CONSTRAINT_NAME_PORTABILITY_REVISION,
     )
+    assert research_bindings_revision is not None
+    assert research_bindings_revision.down_revision == MERGE_REVISION
+    assert integrated_head_revision is not None
+    assert integrated_head_revision.down_revision == RESEARCH_BINDINGS_REVISION
     assert script.get_heads() == [INTEGRATED_HEAD_REVISION]
 
 

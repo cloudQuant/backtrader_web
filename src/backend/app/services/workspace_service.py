@@ -30,7 +30,6 @@ from app.schemas.workspace import (
     WorkspaceResponse,
     WorkspaceUpdate,
 )
-from app.services import workspace_unit_runtime
 from app.services.optimization.execution_manager import get_optimization_execution_manager
 from app.services.trading_workspace_service import TradingWorkspaceService
 from app.services.workspace.config import (
@@ -366,18 +365,40 @@ class WorkspaceService(WorkspaceRunOpsMixin):
     # ------------------------------------------------------------------
 
     async def create_unit(
-        self, workspace_id: str, user_id: str, data: StrategyUnitCreate
+        self,
+        workspace_id: str,
+        user_id: str,
+        data: StrategyUnitCreate,
+        *,
+        allow_server_bound_research_data: bool = False,
     ) -> dict[str, Any] | None:
         from app.services.workspace.units import create_unit as _impl
 
-        return await _impl(workspace_id, user_id, data, self.trading_service)
+        return await _impl(
+            workspace_id,
+            user_id,
+            data,
+            self.trading_service,
+            allow_server_bound_research_data=allow_server_bound_research_data,
+        )
 
     async def batch_create_units(
-        self, workspace_id: str, user_id: str, units_data: list[StrategyUnitCreate]
+        self,
+        workspace_id: str,
+        user_id: str,
+        units_data: list[StrategyUnitCreate],
+        *,
+        allow_server_bound_research_data: bool = False,
     ) -> list[dict[str, Any]] | None:
         from app.services.workspace.units import batch_create_units as _impl
 
-        return await _impl(workspace_id, user_id, units_data, self.trading_service)
+        return await _impl(
+            workspace_id,
+            user_id,
+            units_data,
+            self.trading_service,
+            allow_server_bound_research_data=allow_server_bound_research_data,
+        )
 
     async def list_units(self, workspace_id: str, user_id: str) -> list[dict[str, Any]] | None:
         from app.services.workspace.units import list_units as _impl
@@ -725,7 +746,6 @@ class WorkspaceService(WorkspaceRunOpsMixin):
 
         return BacktestRequest(
             strategy_id=unit.strategy_id or "",
-            runtime_dir=str(workspace_unit_runtime.unit_dir(unit.workspace_id, unit.id)),
             symbol=unit.symbol or data_cfg.get("symbol", ""),
             start_date=data_cfg.get("start_date", _default_unit_start_date_iso()),
             end_date=data_cfg.get("end_date", _default_unit_end_date_iso()),

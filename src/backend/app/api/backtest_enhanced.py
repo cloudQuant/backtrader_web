@@ -172,6 +172,18 @@ async def run_backtest(
     service: BacktestService = Depends(get_backtest_service),
 ) -> typing.Any:
     """Submit a backtest task (enhanced)."""
+    # ``runtime_dir`` used to let a caller select an arbitrary directory for
+    # subprocess execution.  The compatibility field remains in the request
+    # schema, but only WorkspaceService may provide a runtime through its
+    # server-only BacktestService path.
+    if "runtime_dir" in getattr(request, "model_fields_set", set()):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={
+                "code": "BACKTEST_RUNTIME_DIR_CLIENT_FORBIDDEN",
+                "message": "runtime_dir is managed by WorkspaceService",
+            },
+        )
     result = await service.run_backtest(current_user.sub, request)
 
     # Notify WebSocket clients (if connected)

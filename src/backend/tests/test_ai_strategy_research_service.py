@@ -3,7 +3,9 @@ from __future__ import annotations
 import asyncio
 import inspect
 import json
+import uuid
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -11,7 +13,11 @@ from httpx import AsyncClient
 from pydantic import ValidationError
 from sqlalchemy import select
 
-from app.api.strategy.base import get_ai_strategy_research_service, get_ai_strategy_research_tasks
+from app.api.strategy.base import (
+    get_ai_strategy_research_market_data_binding_service,
+    get_ai_strategy_research_service,
+    get_ai_strategy_research_tasks,
+)
 from app.db.database import async_session_maker
 from app.main import app
 from app.models.ai_research import AIStrategyResearchVersion, ResearchPipelineEvent
@@ -13014,3 +13020,315 @@ async def test_ai_strategy_research_live_trading_prepare_endpoint(
     assert payload["handoff"]["gateway_config"]["params"]["passphrase"] == "***"
     assert payload["handoff"]["gateway_config"]["params"]["broker_id"] == "9999"
     assert payload["next_actions"][0].startswith("已创建锁定的实盘交易单元")
+
+
+@pytest.mark.asyncio
+async def test_task_manager_prepares_market_data_binding_before_snapshot_and_dispatch():
+    """A task-owned binder must run before snapshotting or background dispatch."""
+    manager = AIStrategyResearchTaskManager()
+    service = FakeResearchAPIService()
+    prepared_task_ids: list[str] = []
+
+    async def prepare(task_id: str, request: AIStrategyResearchRunRequest):
+        prepared_task_ids.append(task_id)
+        assert request.data_config == {"market_data_asset_type": "stock"}
+        return request.model_copy(
+            update={
+                "data_config": {
+                    "market_data_asset_type": "stock",
+                    "market_data_binding_id": str(uuid.uuid4()),
+                    "market_data_binding_hash": "a" * 64,
+                    "market_data_binding_signature": "c2VydmVyLWlzc3VlZA." + "a" * 64,
+                    "market_data_binding_intent_id": task_id,
+                    "market_data_binding_required": True,
+                }
+            }
+        )
+
+    submitted = await manager.submit(
+        "user-1",
+        AIStrategyResearchRunRequest(
+            prompt="用本地市场数据生成策略",
+            symbol="000001.SZ",
+            data_config={"market_data_asset_type": "stock"},
+        ),
+        service=service,
+        request_preparer=prepare,
+    )
+
+    assert prepared_task_ids == [submitted.task_id]
+    assert submitted.request_snapshot["data_config"]["market_data_asset_type"] == "stock"
+    assert submitted.request_snapshot["data_config"]["market_data_binding_required"] is True
+    assert submitted.request_snapshot["data_config"]["market_data_binding_hash"] == "a" * 64
+
+    completed = None
+    for _ in range(20):
+        completed = await manager.get_task("user-1", submitted.task_id)
+        if completed is not None and completed.status == "completed":
+            break
+        await asyncio.sleep(0.01)
+    assert completed is not None
+    assert completed.status == "completed"
+    assert service.requests[0].data_config["market_data_binding_required"] is True
+
+
+@pytest.mark.asyncio
+async def test_task_manager_continuation_strips_old_binding_then_rebinds():
+    """A continuation must not inherit an earlier task's signed data artifact."""
+    manager = AIStrategyResearchTaskManager()
+    service = FakeResearchAPIService()
+    old_binding_id = str(uuid.uuid4())
+
+    async def initial_prepare(task_id: str, request: AIStrategyResearchRunRequest):
+        return request.model_copy(
+            update={
+                "data_config": {
+                    "market_data_asset_type": "stock",
+                    "market_data_binding_id": old_binding_id,
+                    "market_data_binding_hash": "b" * 64,
+                    "market_data_binding_signature": "b2xkLXNlcnZlci1pc3N1ZWQ." + "b" * 64,
+                    "market_data_binding_intent_id": task_id,
+                    "market_data_binding_required": True,
+                }
+            }
+        )
+
+    source = await manager.submit(
+        "user-1",
+        AIStrategyResearchRunRequest(
+            prompt="初始投研",
+            symbol="000001.SZ",
+            continue_from_run_id="source-run",
+            data_config={"market_data_asset_type": "stock"},
+        ),
+        service=service,
+        request_preparer=initial_prepare,
+    )
+
+    prepared_continuations: list[AIStrategyResearchRunRequest] = []
+    new_binding_id = str(uuid.uuid4())
+
+    async def continuation_prepare(task_id: str, request: AIStrategyResearchRunRequest):
+        prepared_continuations.append(request)
+        assert request.data_config == {"market_data_asset_type": "stock"}
+        assert not any(
+            key.startswith("market_data_binding_") for key in request.data_config
+        )
+        return request.model_copy(
+            update={
+                "data_config": {
+                    "market_data_asset_type": "stock",
+                    "market_data_binding_id": new_binding_id,
+                    "market_data_binding_hash": "c" * 64,
+                    "market_data_binding_signature": "bmV3LXNlcnZlci1pc3N1ZWQ." + "c" * 64,
+                    "market_data_binding_intent_id": task_id,
+                    "market_data_binding_required": True,
+                }
+            }
+        )
+
+    continued = await manager.continue_task(
+        "user-1",
+        source.task_id,
+        overrides={"prompt": "重新绑定后继续投研"},
+        service=service,
+        request_preparer=continuation_prepare,
+    )
+
+    assert continued is not None
+    assert len(prepared_continuations) == 1
+    assert continued.request_snapshot["data_config"]["market_data_binding_id"] == new_binding_id
+    assert continued.request_snapshot["data_config"]["market_data_binding_id"] != old_binding_id
+
+
+@pytest.mark.asyncio
+async def test_direct_research_service_fails_closed_without_structural_market_data_binding(
+    monkeypatch,
+):
+    """Service callers cannot bypass the enabled bridge by omitting a binding."""
+    import app.services.ai_strategy_research_service as research_service_module
+
+    monkeypatch.setattr(
+        research_service_module,
+        "get_settings",
+        lambda: SimpleNamespace(MARKET_DATA_RESEARCH_BACKTEST_BRIDGE_ENABLED=True),
+    )
+    service = AIStrategyResearchService()
+    pipeline_called = False
+
+    async def should_not_run(*args, **kwargs):
+        nonlocal pipeline_called
+        del args, kwargs
+        pipeline_called = True
+        raise AssertionError("the research pipeline must not start")
+
+    monkeypatch.setattr(service, "_run_pipeline", should_not_run)
+    request = AIStrategyResearchRunRequest(
+        prompt="无绑定直调应被拒绝",
+        symbol="000001.SZ",
+        data_config={"market_data_asset_type": "stock"},
+    )
+
+    with pytest.raises(ValueError, match="MARKET_DATA_BINDING_REQUIRED"):
+        await service.run("user-1", request)
+    malformed = request.model_copy(
+        update={
+            "data_config": {
+                    "market_data_binding_id": str(uuid.uuid4()),
+                    "market_data_binding_hash": "f" * 64,
+                    "market_data_binding_signature": "not-a-server-token",
+                    "market_data_binding_intent_id": "test-malformed-intent",
+                    "market_data_binding_required": True,
+            }
+        }
+    )
+    with pytest.raises(ValueError, match="MARKET_DATA_BINDING_INVALID"):
+        await service.run("user-1", malformed)
+    assert pipeline_called is False
+
+
+def test_market_data_binding_factory_is_inert_when_bridge_disabled(monkeypatch):
+    """Default legacy routes must not open a v2 database session just to check the gate."""
+    import app.api.strategy.base as strategy_api_module
+
+    monkeypatch.setattr(
+        strategy_api_module,
+        "get_settings",
+        lambda: SimpleNamespace(MARKET_DATA_RESEARCH_BACKTEST_BRIDGE_ENABLED=False),
+    )
+
+    def should_not_open_database():
+        raise AssertionError("disabled bridge must not open a market-data database session")
+
+    monkeypatch.setattr(strategy_api_module, "get_db", should_not_open_database)
+    assert get_ai_strategy_research_market_data_binding_service() is None
+
+
+@pytest.mark.asyncio
+async def test_ai_research_run_api_binds_server_request_and_rejects_client_data_config(
+    client: AsyncClient,
+    auth_headers: dict,
+):
+    """The synchronous endpoint delegates all bridge data-config authority to the server."""
+
+    class BindingFailure(Exception):
+        code = "MARKET_DATA_BINDING_CLIENT_DATA_CONFIG_FORBIDDEN"
+
+    class BindingService:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, str, AIStrategyResearchRunRequest]] = []
+
+        async def bind_request(self, *, user_id, request, intent_id):
+            self.calls.append((user_id, intent_id, request))
+            if request.data_config.get("directory_path"):
+                raise BindingFailure()
+            return request.model_copy(
+                update={
+                    "data_config": {
+                        "market_data_asset_type": "stock",
+                        "market_data_binding_id": str(uuid.uuid4()),
+                        "market_data_binding_hash": "d" * 64,
+                        "market_data_binding_signature": "c2VydmVyLWlzc3VlZA." + "d" * 64,
+                        "market_data_binding_intent_id": intent_id,
+                        "market_data_binding_required": True,
+                    }
+                }
+            )
+
+    binding_service = BindingService()
+    research_service = FakeResearchAPIService()
+    app.dependency_overrides[get_ai_strategy_research_service] = lambda: research_service
+    app.dependency_overrides[get_ai_strategy_research_market_data_binding_service] = (
+        lambda: binding_service
+    )
+    try:
+        response = await client.post(
+            "/api/v1/strategy/ai-research/run",
+            headers=auth_headers,
+            json={
+                "prompt": "服务器绑定本地数据",
+                "symbol": "000001.SZ",
+                "data_config": {"market_data_asset_type": "stock"},
+            },
+        )
+        rejected = await client.post(
+            "/api/v1/strategy/ai-research/run",
+            headers=auth_headers,
+            json={
+                "prompt": "不允许客户端路径",
+                "symbol": "000001.SZ",
+                "data_config": {
+                    "market_data_asset_type": "stock",
+                    "directory_path": "/client-controlled/path",
+                },
+            },
+        )
+    finally:
+        app.dependency_overrides.pop(get_ai_strategy_research_service, None)
+        app.dependency_overrides.pop(get_ai_strategy_research_market_data_binding_service, None)
+
+    assert response.status_code == 200, response.text
+    assert len(binding_service.calls) == 2
+    assert binding_service.calls[0][1]
+    assert research_service.requests[0].data_config["market_data_asset_type"] == "stock"
+    assert research_service.requests[0].data_config["market_data_binding_required"] is True
+    assert rejected.status_code == 400
+    assert rejected.json()["details"] == {
+        "code": "MARKET_DATA_BINDING_CLIENT_DATA_CONFIG_FORBIDDEN"
+    }
+
+
+@pytest.mark.asyncio
+async def test_ai_research_task_api_binds_after_task_id_before_snapshot(
+    client: AsyncClient,
+    auth_headers: dict,
+):
+    """The task route must give the binder the future task id, not a client id."""
+
+    class BindingService:
+        def __init__(self) -> None:
+            self.intent_ids: list[str] = []
+
+        async def bind_request(self, *, user_id, request, intent_id):
+            del user_id
+            self.intent_ids.append(intent_id)
+            return request.model_copy(
+                update={
+                    "data_config": {
+                        "market_data_asset_type": "stock",
+                        "market_data_binding_id": str(uuid.uuid4()),
+                        "market_data_binding_hash": "e" * 64,
+                        "market_data_binding_signature": "c2VydmVyLWlzc3VlZA." + "e" * 64,
+                        "market_data_binding_intent_id": intent_id,
+                        "market_data_binding_required": True,
+                    }
+                }
+            )
+
+    binding_service = BindingService()
+    task_manager = AIStrategyResearchTaskManager()
+    research_service = FakeResearchAPIService()
+    app.dependency_overrides[get_ai_strategy_research_service] = lambda: research_service
+    app.dependency_overrides[get_ai_strategy_research_tasks] = lambda: task_manager
+    app.dependency_overrides[get_ai_strategy_research_market_data_binding_service] = (
+        lambda: binding_service
+    )
+    try:
+        response = await client.post(
+            "/api/v1/strategy/ai-research/tasks",
+            headers=auth_headers,
+            json={
+                "prompt": "任务绑定本地数据",
+                "symbol": "000001.SZ",
+                "data_config": {"market_data_asset_type": "stock"},
+            },
+        )
+    finally:
+        app.dependency_overrides.pop(get_ai_strategy_research_service, None)
+        app.dependency_overrides.pop(get_ai_strategy_research_tasks, None)
+        app.dependency_overrides.pop(get_ai_strategy_research_market_data_binding_service, None)
+
+    assert response.status_code == 202, response.text
+    payload = response.json()
+    assert binding_service.intent_ids == [payload["task_id"]]
+    assert payload["request_snapshot"]["data_config"]["market_data_binding_required"] is True
