@@ -9,9 +9,12 @@ import {
 } from '@/utils/session'
 import i18n from '@/i18n'
 
-interface ApiRequestConfig<D = unknown> extends AxiosRequestConfig<D> {
+/** Per-request controls for localized or explicitly handled API fallbacks. */
+export interface ApiRequestConfig<D = unknown> extends AxiosRequestConfig<D> {
   /** The caller projects a closed, localized error code and owns user notification. */
   suppressErrorToast?: boolean
+  suppressErrorMessage?: boolean
+  skipRetry?: boolean
 }
 
 function tt(key: string): string {
@@ -199,7 +202,7 @@ api.interceptors.response.use(
     }
 
     // --- Retry Logic ---
-    if (config) {
+    if (config && !config.skipRetry) {
       const retryCount = config.__retryCount || 0
 
       if (
@@ -221,6 +224,10 @@ api.interceptors.response.use(
     // Skip ElMessage if this was a retrying request that just completed its final retry
     const isRetrying = config?.__isRetrying && (config.__retryCount || 0) < RETRY_CONFIG.maxRetries
     if (isRetrying) {
+      return Promise.reject(error)
+    }
+
+    if (config?.suppressErrorMessage) {
       return Promise.reject(error)
     }
 

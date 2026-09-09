@@ -5,7 +5,15 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useI18n } from 'vue-i18n'
 import { useStrategyStore } from '@/stores/strategy'
-import { marketDataApi } from '@/api/marketData'
+import {
+  createMarketDataQueryFromContract,
+  hasMarketDataQueryContract,
+  isMarketDataQueryV2FallbackError,
+  marketDataApi,
+  type MarketAssetType,
+  type MarketDataQueryContract,
+  type MarketDataQueryResponse,
+} from '@/api/marketData'
 import { strategyApi } from '@/api/strategy'
 import { stripStrategyMeta } from '@/constants/strategy'
 import type { ParamSpec, Strategy, StrategyTemplate } from '@/types'
@@ -40,11 +48,23 @@ import type {
 import type { DataPrecheckResponse } from '@/types/trust'
 import type { Workspace, StrategyUnit, TradingSnapshot, UnitStatusResponse } from '@/types/workspace'
 
+/**
+ * The Iteration 197 sidecar stays isolated from the Iteration 196 research
+ * contract until both rollout gates have been explicitly approved.
+ */
+function isAIResearchMarketDataPlatformBridgeEnabled(): boolean {
+  return (
+    import.meta.env.VITE_MARKET_DATA_QUERY_V2_ENABLED === 'true'
+    && import.meta.env.VITE_MARKET_DATA_STRATEGY_BRIDGE_ENABLED === 'true'
+  )
+}
+
 export function useStrategyPage() {
   const { t } = useI18n()
   const route = useRoute()
   const router = useRouter()
   const strategyStore = useStrategyStore()
+  const aiResearchMarketDataPlatformBridgeEnabled = isAIResearchMarketDataPlatformBridgeEnabled()
 
   // ---- State ----
   const isInvestmentStrategyResearchRoute = computed(() =>
@@ -171,6 +191,15 @@ export function useStrategyPage() {
   const aiResearchPrecheckLoading = ref(false)
   const aiResearchPrecheckResult = ref<DataPrecheckResponse | null>(null)
   const aiResearchPrecheckError = ref('')
+  const aiResearchMarketDataPlatformStatus = ref<AIResearchMarketDataPlatformStatus>({
+    path: 'legacy',
+    provider: null,
+    coverageStatus: null,
+    coverageRatio: null,
+    queryId: null,
+    detail: null,
+  })
+  const aiResearchMarketDataQueryContracts = new Map<string, MarketDataQueryContract>()
   const AI_RESEARCH_PRECHECK_DEBOUNCE_MS = 350
   let aiResearchPrecheckTimer: ReturnType<typeof setTimeout> | null = null
   let aiResearchPrecheckController: AbortController | null = null
@@ -269,6 +298,23 @@ export function useStrategyPage() {
 
   type AIResearchWorkflowMode = NonNullable<AIStrategyResearchRunRequest['workflow_mode']>
   type AIResearchPromptGenerationMode = 'default' | 'ai'
+
+  type AIResearchMarketDataPlatformStatus = {
+    path: (
+      | 'legacy'
+      | 'strict_local'
+      | 'local_first'
+      | 'provider_persisted'
+      | 'legacy_fallback'
+      | 'unsupported'
+      | 'error'
+    )
+    provider: string | null
+    coverageStatus: string | null
+    coverageRatio: number | null
+    queryId: string | null
+    detail: string | null
+  }
 
   const AI_RESEARCH_WORKFLOW_STEPS: NonNullable<AIStrategyResearchRunRequest['workflow_steps']> = [
     'ideation',
@@ -422,6 +468,37 @@ export function useStrategyPage() {
     const issueCount = (result.reasons?.length || 0) + (result.warnings?.length || 0)
     const label = result.passed ? '预检通过' : '预检未通过'
     return issueCount ? `${label} · ${issueCount} 项` : label
+  })
+
+  const aiResearchMarketDataPlatformTagType = computed<'success' | 'warning' | 'danger' | 'info'>(() => {
+    const path = aiResearchMarketDataPlatformStatus.value.path
+    if (path === 'strict_local' || path === 'local_first' || path === 'provider_persisted') return 'success'
+    if (path === 'error') return 'danger'
+    if (path === 'legacy_fallback' || path === 'unsupported') return 'warning'
+    return 'info'
+  })
+
+  const aiResearchMarketDataPlatformSummary = computed(() => {
+    const status = aiResearchMarketDataPlatformStatus.value
+    if (status.path === 'strict_local') {
+      const ratio = status.coverageRatio === null ? '-' : `${(status.coverageRatio * 100).toFixed(2)}%`
+      const provider = status.provider ? ` · ${status.provider}` : ''
+      return `数据中台严格本地预检${provider} · ${status.coverageStatus || 'unknown'} · ${ratio}`
+    }
+    if (status.path === 'provider_persisted') {
+      const ratio = status.coverageRatio === null ? '-' : `${(status.coverageRatio * 100).toFixed(2)}%`
+      const provider = status.provider ? ` · ${status.provider}` : ''
+      return `数据中台已补齐并持久化${provider} · ${status.coverageStatus || 'unknown'} · ${ratio}`
+    }
+    if (status.path === 'local_first') {
+      const ratio = status.coverageRatio === null ? '-' : `${(status.coverageRatio * 100).toFixed(2)}%`
+      const provider = status.provider ? ` · ${status.provider}` : ''
+      return `数据中台本地优先预检${provider} · ${status.coverageStatus || 'unknown'} · ${ratio}`
+    }
+    if (status.path === 'legacy_fallback') return '数据中台不可用，已保留原预检'
+    if (status.path === 'unsupported') return '当前标的尚无数据中台契约'
+    if (status.path === 'error') return '数据中台预检异常，原预检结果未改变'
+    return '原数据预检'
   })
 
   // ---- Computed ----
@@ -1149,12 +1226,208 @@ export function useStrategyPage() {
     return ''
   }
 
-  function aiResearchPrecheckAssetType() {
+  function aiResearchPrecheckAssetType(): MarketAssetType | undefined {
     const symbol = aiResearchForm.symbol.trim().toUpperCase()
     if (isAIResearchFuturesSymbol(symbol)) return 'futures'
     if (/(USDT|USDC|PERP|SWAP|BTC|ETH)/.test(symbol)) return 'crypto'
     if (/\.(SZ|SH|BJ)$/.test(symbol) || /^\d{6}$/.test(symbol)) return 'stock'
     return undefined
+  }
+
+  function aiResearchLegacyPeriod(): 'daily' | 'weekly' | 'monthly' | null {
+    if (aiResearchForm.timeframe === '1d') return 'daily'
+    if (aiResearchForm.timeframe === '1w') return 'weekly'
+    if (aiResearchForm.timeframe === '1mo') return 'monthly'
+    return null
+  }
+
+  function aiResearchQueryWindow(): { start: string; end: string } | null {
+    const start = parseResearchDate(aiResearchForm.start_date)
+    const endInclusive = parseResearchDate(aiResearchForm.end_date)
+    if (!start || !endInclusive || start > endInclusive) return null
+    endInclusive.setUTCDate(endInclusive.getUTCDate() + 1)
+    return { start: start.toISOString(), end: endInclusive.toISOString() }
+  }
+
+  function aiResearchQueryContractKey(
+    assetType: MarketAssetType,
+    symbol: string,
+    period: 'daily' | 'weekly' | 'monthly',
+  ): string {
+    // The server resolves exact imported symbols and deliberately does not
+    // case-fold identifiers. Preserve that boundary in the client cache so
+    // an earlier contract can never be reused for a different instrument.
+    return `${assetType}:${symbol.trim()}:${period}`
+  }
+
+  function setAIResearchMarketDataPlatformStatus(
+    status: Partial<AIResearchMarketDataPlatformStatus> & Pick<AIResearchMarketDataPlatformStatus, 'path'>,
+  ) {
+    aiResearchMarketDataPlatformStatus.value = {
+      provider: null,
+      coverageStatus: null,
+      coverageRatio: null,
+      queryId: null,
+      detail: null,
+      ...status,
+    }
+  }
+
+  function isAIResearchMarketDataContractCompatible(
+    contract: MarketDataQueryContract,
+    assetType: MarketAssetType,
+    period: 'daily' | 'weekly' | 'monthly',
+  ): boolean {
+    const expectedFrequency = period === 'daily' ? '1d' : period === 'weekly' ? '1w' : '1mo'
+    return contract.request.data_kind === 'bars'
+      && contract.request.frequency === expectedFrequency
+      && contract.request.family_id === `${assetType}.realtime`
+      && contract.request.family_contract_version === 'market-data-family-v1'
+  }
+
+  /**
+   * A strategy-research precheck may display strict-local evidence only when
+   * the response is bound to the exact server-issued contract.  This is a
+   * runtime check because an upgraded frontend can still receive a stale or
+   * mixed-deployment HTTP payload despite its TypeScript declaration.
+   */
+  function isAIResearchMarketDataResponseCompatible(
+    response: MarketDataQueryResponse,
+    contract: MarketDataQueryContract,
+    assetType: MarketAssetType,
+    period: 'daily' | 'weekly' | 'monthly',
+  ): boolean {
+    const expectedFrequency = period === 'daily' ? '1d' : period === 'weekly' ? '1w' : '1mo'
+    const request = contract.request
+    return typeof response.canonical_id === 'string'
+      && response.canonical_id === request.identity.canonical_id
+      && typeof response.dataset_code === 'string'
+      && response.dataset_code === request.dataset_code
+      && response.asset_type === assetType
+      && typeof response.instrument_metadata_version === 'string'
+      && response.instrument_metadata_version.trim().length > 0
+      && response.data_kind === request.data_kind
+      && response.frequency === expectedFrequency
+      && response.frequency === request.frequency
+      && response.source_policy_id === request.source_policy_id
+      && response.family_id === request.family_id
+      && response.family_contract_version === request.family_contract_version
+  }
+
+  async function resolveAIResearchMarketDataContract(
+    assetType: MarketAssetType,
+    symbol: string,
+    period: 'daily' | 'weekly' | 'monthly',
+  ): Promise<MarketDataQueryContract | null> {
+    const key = aiResearchQueryContractKey(assetType, symbol, period)
+    const cached = aiResearchMarketDataQueryContracts.get(key)
+    if (cached && isAIResearchMarketDataContractCompatible(cached, assetType, period)) return cached
+    if (cached) aiResearchMarketDataQueryContracts.delete(key)
+
+    const expectedFamilyId = `${assetType}.realtime`
+    const contract = await marketDataApi.getQueryContract({
+      asset_type: assetType,
+      symbol,
+      period,
+      family_id: expectedFamilyId,
+    })
+    if (!hasMarketDataQueryContract(contract)) return null
+    if (!isAIResearchMarketDataContractCompatible(contract, assetType, period)) {
+      return null
+    }
+    aiResearchMarketDataQueryContracts.set(key, contract)
+    return contract
+  }
+
+  async function runAIResearchMarketDataPlatformPrecheck(
+    assetType: MarketAssetType | undefined,
+    symbol: string,
+    controller: AbortController,
+    { warmCache = false }: { warmCache?: boolean } = {},
+  ): Promise<void> {
+    const period = aiResearchLegacyPeriod()
+    const window = aiResearchQueryWindow()
+    if (!assetType || !period || !window) {
+      setAIResearchMarketDataPlatformStatus({ path: 'unsupported', detail: 'TYPED_QUERY_CONTRACT_UNAVAILABLE' })
+      return
+    }
+    let contractIssued = false
+    try {
+      const contract = await resolveAIResearchMarketDataContract(assetType, symbol, period)
+      if (controller.signal.aborted) return
+      if (!contract) {
+        setAIResearchMarketDataPlatformStatus({ path: 'unsupported', detail: 'TYPED_QUERY_CONTRACT_UNAVAILABLE' })
+        return
+      }
+      contractIssued = true
+      // Scheduled input validation is deliberately strict-local so typing in
+      // the form never starts an external provider request. A user-triggered
+      // precheck may warm the reviewed local-first cache under the separately
+      // authorized ``research_cache_fill`` purpose. It only persists
+      // independently validated market facts and is not an Iteration 196
+      // research/backtest artifact or approval input. Iteration 196 research
+      // keeps its separate strict/PIT authorization and cannot inherit this
+      // current collection permission.
+      const executionOptions = warmCache
+        ? {
+            mode: 'local_first' as const,
+            purpose: 'research_cache_fill' as const,
+            consistency: 'display' as const,
+            page_size: 500,
+          }
+        : {
+            mode: 'local_only' as const,
+            purpose: 'research' as const,
+            consistency: 'strict' as const,
+            knowledge_cutoff: new Date().toISOString(),
+            page_size: 500,
+          }
+      const response: MarketDataQueryResponse = await marketDataApi.queryLocalFirst(
+        createMarketDataQueryFromContract(contract, {
+          ...window,
+          ...executionOptions,
+        }),
+        { signal: controller.signal, suppressErrorMessage: true },
+      )
+      if (controller.signal.aborted) return
+      if (!isAIResearchMarketDataResponseCompatible(response, contract, assetType, period)) {
+        setAIResearchMarketDataPlatformStatus({
+          path: 'error',
+          queryId: typeof response.query_id === 'string' ? response.query_id : null,
+          detail: 'MARKET_DATA_STRICT_LOCAL_RESPONSE_MISMATCH',
+        })
+        return
+      }
+      if (response.coverage.status !== 'complete') {
+        setAIResearchMarketDataPlatformStatus({
+          path: 'error',
+          coverageStatus: response.coverage.status,
+          coverageRatio: response.coverage.coverage_ratio,
+          queryId: response.query_id,
+          detail: 'MARKET_DATA_STRICT_LOCAL_INCOMPLETE',
+        })
+        return
+      }
+      const lastFetch = response.fetches[response.fetches.length - 1]
+      setAIResearchMarketDataPlatformStatus({
+        path: warmCache
+          ? response.fetches.length > 0
+            ? 'provider_persisted'
+            : 'local_first'
+          : 'strict_local',
+        provider: lastFetch?.provider_id || null,
+        coverageStatus: response.coverage.status,
+        coverageRatio: response.coverage.coverage_ratio,
+        queryId: response.query_id,
+      })
+    } catch (error) {
+      if (controller.signal.aborted) return
+      if (!contractIssued && isMarketDataQueryV2FallbackError(error)) {
+        setAIResearchMarketDataPlatformStatus({ path: 'legacy_fallback', detail: 'MARKET_DATA_QUERY_V2_UNAVAILABLE' })
+        return
+      }
+      setAIResearchMarketDataPlatformStatus({ path: 'error', detail: 'MARKET_DATA_QUERY_V2_PRECHECK_FAILED' })
+    }
   }
 
   async function runAIResearchDataPrecheck({ interactive = true }: { interactive?: boolean } = {}) {
@@ -1170,8 +1443,9 @@ export function useStrategyPage() {
     aiResearchPrecheckLoading.value = true
     aiResearchPrecheckError.value = ''
     try {
+      const assetType = aiResearchPrecheckAssetType()
       const result = await marketDataApi.runPrecheck({
-        asset_type: aiResearchPrecheckAssetType(),
+        asset_type: assetType,
         symbol,
         timeframe: aiResearchForm.timeframe,
         start_date: aiResearchForm.start_date || null,
@@ -1179,6 +1453,17 @@ export function useStrategyPage() {
       }, { signal: controller.signal })
       if (requestSequence !== aiResearchPrecheckSequence) return
       aiResearchPrecheckResult.value = result
+      // The Iteration 196 precheck remains authoritative. The Iteration 197
+      // sidecar cannot issue any v2 control-plane or fact request until its
+      // explicit frontend bridge gate is enabled after the 196 contract is
+      // frozen.
+      if (aiResearchMarketDataPlatformBridgeEnabled) {
+        void runAIResearchMarketDataPlatformPrecheck(assetType, symbol, controller, {
+          warmCache: interactive,
+        })
+      } else {
+        setAIResearchMarketDataPlatformStatus({ path: 'legacy' })
+      }
       if (interactive) {
         if (result.passed) {
           ElMessage.success(t('strategy.aiResearchPrecheckPassed'))
@@ -1208,6 +1493,7 @@ export function useStrategyPage() {
     aiResearchPrecheckController?.abort()
     aiResearchPrecheckController = null
     aiResearchPrecheckLoading.value = false
+    setAIResearchMarketDataPlatformStatus({ path: 'legacy' })
     if (!aiResearchForm.symbol.trim()) return
     aiResearchPrecheckTimer = setTimeout(() => {
       aiResearchPrecheckTimer = null
@@ -6414,6 +6700,8 @@ export function useStrategyPage() {
     aiResearchPrecheckLoading,
     aiResearchPrecheckResult,
     aiResearchPrecheckError,
+    aiResearchMarketDataPlatformStatus,
+    aiResearchMarketDataPlatformBridgeEnabled,
     AI_RESEARCH_STAGE_LABELS,
     AI_RESEARCH_RUN_STATUS_LABELS,
     AI_RESEARCH_PAPER_REVIEW_STATUS_LABELS,
@@ -6435,6 +6723,8 @@ export function useStrategyPage() {
     aiResearchHeroMetrics,
     aiResearchPrecheckTagType,
     aiResearchPrecheckSummary,
+    aiResearchMarketDataPlatformTagType,
+    aiResearchMarketDataPlatformSummary,
     strategies,
     templates,
     loading,
@@ -6511,6 +6801,12 @@ export function useStrategyPage() {
     parseResearchDate,
     requiredOutOfSampleValidationError,
     aiResearchPrecheckAssetType,
+    aiResearchLegacyPeriod,
+    aiResearchQueryWindow,
+    aiResearchQueryContractKey,
+    setAIResearchMarketDataPlatformStatus,
+    resolveAIResearchMarketDataContract,
+    runAIResearchMarketDataPlatformPrecheck,
     runAIResearchDataPrecheck,
     scheduleAIResearchDataPrecheck,
     aiResearchSymbolLabel,

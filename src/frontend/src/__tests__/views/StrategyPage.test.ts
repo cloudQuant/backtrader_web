@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { nextTick } from 'vue'
 import { createPinia, setActivePinia } from 'pinia'
@@ -22,6 +22,9 @@ const routeQuery = vi.hoisted(() => ({} as Record<string, unknown>))
 const routePath = vi.hoisted(() => ({ value: '/investment/strategies' }))
 const aiResearchMandates = vi.hoisted(() => new Map<string, any>())
 const runPrecheck = vi.hoisted(() => vi.fn())
+const lookupInstrument = vi.hoisted(() => vi.fn())
+const getQueryContract = vi.hoisted(() => vi.fn())
+const queryLocalFirst = vi.hoisted(() => vi.fn())
 
 vi.mock('vue-router', () => ({
   useRoute: () => ({
@@ -858,13 +861,31 @@ vi.mock('@/components/common/MonacoEditor.vue', () => ({
 }))
 
 vi.mock('@/api/marketData', () => ({
-  marketDataApi: { runPrecheck },
+  hasMarketDataQueryContract: (value: unknown) => (
+    Boolean(
+      value
+      && typeof value === 'object'
+      && (value as { version?: unknown }).version === 'market-data-v2'
+      && (value as { request?: unknown }).request,
+    )
+  ),
+  createMarketDataQueryFromContract: (
+    contract: { request: Record<string, unknown> },
+    options: Record<string, unknown>,
+  ) => ({ ...contract.request, ...options }),
+  isMarketDataQueryV2FallbackError: (error: { response?: { status?: unknown, data?: { details?: { code?: unknown } } } }) => (
+    [404, 405, 501].includes(Number(error?.response?.status))
+    || error?.response?.data?.details?.code === 'MARKET_DATA_QUERY_V2_DISABLED'
+  ),
+  marketDataApi: { runPrecheck, lookupInstrument, getQueryContract, queryLocalFirst },
 }))
 
 describe('StrategyPage', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
     vi.clearAllMocks()
+    vi.stubEnv('VITE_MARKET_DATA_QUERY_V2_ENABLED', 'false')
+    vi.stubEnv('VITE_MARKET_DATA_STRATEGY_BRIDGE_ENABLED', 'false')
     aiResearchMandates.clear()
     Object.keys(routeQuery).forEach(key => delete routeQuery[key])
     routePath.value = '/investment/strategies'
@@ -880,6 +901,13 @@ describe('StrategyPage', () => {
       quality_reports: [],
       gate_evaluations: [],
     })
+    lookupInstrument.mockResolvedValue({ query_contract: null })
+    getQueryContract.mockResolvedValue(null)
+    queryLocalFirst.mockResolvedValue(undefined)
+  })
+
+  afterEach(() => {
+    vi.unstubAllEnvs()
   })
 
   const setConfirmedAIResearchMandate = async (
@@ -8010,6 +8038,525 @@ describe('StrategyPage', () => {
     } finally {
       wrapper.unmount()
       vi.useRealTimers()
+    }
+  })
+
+  it('keeps the Iteration 197 sidecar off until both browser bridge gates are enabled', async () => {
+    for (const [v2Enabled, bridgeEnabled] of [
+      ['false', 'false'],
+      ['true', 'false'],
+      ['false', 'true'],
+    ]) {
+      vi.stubEnv('VITE_MARKET_DATA_QUERY_V2_ENABLED', v2Enabled)
+      vi.stubEnv('VITE_MARKET_DATA_STRATEGY_BRIDGE_ENABLED', bridgeEnabled)
+      const wrapper = doMount()
+      try {
+        const vm = wrapper.vm as any
+        await flushPromises()
+        runPrecheck.mockClear()
+        getQueryContract.mockClear()
+        queryLocalFirst.mockClear()
+
+        await vm.runAIResearchDataPrecheck({ interactive: false })
+        await flushPromises()
+
+        expect(runPrecheck).toHaveBeenCalledWith(expect.objectContaining({
+          asset_type: 'stock',
+          symbol: '000001.SZ',
+        }), expect.any(Object))
+        expect(getQueryContract).not.toHaveBeenCalled()
+        expect(queryLocalFirst).not.toHaveBeenCalled()
+        expect(vm.aiResearchMarketDataPlatformStatus.path).toBe('legacy')
+        expect(wrapper.find('[data-test="ai-research-data-platform-status"]').exists()).toBe(false)
+      } finally {
+        wrapper.unmount()
+      }
+    }
+  })
+
+  it('adds strict local-only market-data evidence without replacing the Iteration 196 precheck', async () => {
+    vi.stubEnv('VITE_MARKET_DATA_QUERY_V2_ENABLED', 'true')
+    vi.stubEnv('VITE_MARKET_DATA_STRATEGY_BRIDGE_ENABLED', 'true')
+    getQueryContract.mockResolvedValue({
+        version: 'market-data-v2',
+        request: {
+          identity: { canonical_id: 'instrument:stock:CN-SZSE:000001' },
+          dataset_code: 'market.stock_daily',
+          data_kind: 'bars',
+          frequency: '1d',
+          required_fields: ['close', 'volume'],
+          adjustment: 'qfq',
+          price_basis: 'close',
+          currency: 'CNY',
+          unit: 'share',
+          source_policy_id: 'market-default-v1',
+          family_id: 'stock.realtime',
+          family_contract_version: 'market-data-family-v1',
+          mode: 'local_first',
+        },
+    })
+    queryLocalFirst.mockResolvedValue({
+      query_id: 'research-query-1',
+      canonical_id: 'instrument:stock:CN-SZSE:000001',
+      dataset_code: 'market.stock_daily',
+      asset_type: 'stock',
+      instrument_metadata_version: 'stock-v1',
+      data_kind: 'bars',
+      frequency: '1d',
+      source_policy_id: 'market-default-v1',
+      family_id: 'stock.realtime',
+      family_contract_version: 'market-data-family-v1',
+      knowledge_cutoff: '2026-06-19T16:00:00Z',
+      identity_knowledge_cutoff: '2026-06-19T16:00:00Z',
+      observations: [],
+      next_cursor: null,
+      coverage: {
+        status: 'complete',
+        expected_event_count: 1,
+        accepted_event_count: 1,
+        missing_event_count: 0,
+        coverage_ratio: 1,
+        gaps: [],
+        rejection_counts: {},
+        calendar_reason: null,
+      },
+      fetches: [],
+      warnings: [],
+      refresh_status: null,
+      historical_status: null,
+    })
+    const wrapper = doMount()
+    try {
+      const vm = wrapper.vm as any
+      await vm.runAIResearchDataPrecheck({ interactive: false })
+      await flushPromises()
+
+      expect(runPrecheck).toHaveBeenCalledWith(expect.objectContaining({
+        asset_type: 'stock',
+        symbol: '000001.SZ',
+      }), expect.any(Object))
+      expect(getQueryContract).toHaveBeenCalledWith(expect.objectContaining({
+        asset_type: 'stock',
+        symbol: '000001.SZ',
+        period: 'daily',
+        family_id: 'stock.realtime',
+      }))
+      expect(lookupInstrument).not.toHaveBeenCalled()
+      expect(queryLocalFirst).toHaveBeenCalledWith(expect.objectContaining({
+        identity: { canonical_id: 'instrument:stock:CN-SZSE:000001' },
+        mode: 'local_only',
+        purpose: 'research',
+        consistency: 'strict',
+        knowledge_cutoff: expect.any(String),
+      }), expect.any(Object))
+      expect(vm.aiResearchPrecheckResult?.passed).toBe(true)
+      expect(vm.aiResearchMarketDataPlatformStatus.path).toBe('strict_local')
+    } finally {
+      wrapper.unmount()
+    }
+  })
+
+  it('warms and persists an exact local-first cache only after an explicit strategy precheck', async () => {
+    vi.stubEnv('VITE_MARKET_DATA_QUERY_V2_ENABLED', 'true')
+    vi.stubEnv('VITE_MARKET_DATA_STRATEGY_BRIDGE_ENABLED', 'true')
+    getQueryContract.mockResolvedValue({
+      version: 'market-data-v2',
+      request: {
+        identity: { canonical_id: 'instrument:stock:CN-SZSE:000001' },
+        dataset_code: 'market.stock_daily',
+        data_kind: 'bars',
+        frequency: '1d',
+        required_fields: ['close', 'volume'],
+        adjustment: 'qfq',
+        price_basis: 'close',
+        currency: 'CNY',
+        unit: 'share',
+        source_policy_id: 'market-default-v1',
+        family_id: 'stock.realtime',
+        family_contract_version: 'market-data-family-v1',
+        mode: 'local_first',
+      },
+    })
+    queryLocalFirst.mockResolvedValue({
+      query_id: 'research-warm-query-1',
+      canonical_id: 'instrument:stock:CN-SZSE:000001',
+      dataset_code: 'market.stock_daily',
+      asset_type: 'stock',
+      instrument_metadata_version: 'stock-v1',
+      data_kind: 'bars',
+      frequency: '1d',
+      source_policy_id: 'market-default-v1',
+      family_id: 'stock.realtime',
+      family_contract_version: 'market-data-family-v1',
+      knowledge_cutoff: '2026-06-19T16:00:00Z',
+      identity_knowledge_cutoff: '2026-06-19T16:00:00Z',
+      observations: [],
+      next_cursor: null,
+      coverage: {
+        status: 'complete',
+        expected_event_count: 1,
+        accepted_event_count: 1,
+        missing_event_count: 0,
+        coverage_ratio: 1,
+        gaps: [],
+        rejection_counts: {},
+        calendar_reason: null,
+      },
+      fetches: [{
+        route_id: 'akshare-stock-bars-v1',
+        provider_id: 'akshare',
+        source_snapshot_id: 'snapshot-1',
+        observation_revision_ids: ['revision-1'],
+        passing_observation_count: 1,
+        failed_observation_count: 0,
+      }],
+      warnings: [],
+      refresh_status: null,
+      historical_status: null,
+    })
+    const wrapper = doMount()
+    try {
+      const vm = wrapper.vm as any
+      await flushPromises()
+      runPrecheck.mockClear()
+      getQueryContract.mockClear()
+      queryLocalFirst.mockClear()
+
+      await vm.runAIResearchDataPrecheck()
+      await flushPromises()
+
+      expect(runPrecheck).toHaveBeenCalledWith(expect.objectContaining({
+        asset_type: 'stock',
+        symbol: '000001.SZ',
+      }), expect.any(Object))
+      expect(queryLocalFirst).toHaveBeenCalledWith(expect.objectContaining({
+        identity: { canonical_id: 'instrument:stock:CN-SZSE:000001' },
+        mode: 'local_first',
+        purpose: 'research_cache_fill',
+        consistency: 'display',
+      }), expect.any(Object))
+      const [warmRequest] = queryLocalFirst.mock.calls[0]
+      expect(warmRequest).not.toHaveProperty('knowledge_cutoff')
+      expect(vm.aiResearchPrecheckResult?.passed).toBe(true)
+      expect(vm.aiResearchMarketDataPlatformStatus).toMatchObject({
+        path: 'provider_persisted',
+        provider: 'akshare',
+        queryId: 'research-warm-query-1',
+      })
+    } finally {
+      wrapper.unmount()
+    }
+  })
+
+  it('does not reuse a strict-local contract across case-distinct exact symbols', async () => {
+    vi.stubEnv('VITE_MARKET_DATA_QUERY_V2_ENABLED', 'true')
+    vi.stubEnv('VITE_MARKET_DATA_STRATEGY_BRIDGE_ENABLED', 'true')
+    getQueryContract.mockImplementation(({ symbol }: { symbol: string }) => Promise.resolve({
+      version: 'market-data-v2',
+      request: {
+        identity: { canonical_id: `instrument:futures:CN-SHFE:${symbol}` },
+        dataset_code: 'market.futures_daily',
+        data_kind: 'bars',
+        frequency: '1d',
+        required_fields: ['close', 'volume'],
+        source_policy_id: 'market-default-v1',
+        family_id: 'futures.realtime',
+        family_contract_version: 'market-data-family-v1',
+        mode: 'local_first',
+      },
+    }))
+    queryLocalFirst.mockImplementation((request: { identity: { canonical_id: string } }) => (
+      Promise.resolve({
+        query_id: `research-query-${request.identity.canonical_id}`,
+        canonical_id: request.identity.canonical_id,
+        dataset_code: 'market.futures_daily',
+        asset_type: 'futures',
+        instrument_metadata_version: 'futures-v1',
+        data_kind: 'bars',
+        frequency: '1d',
+        source_policy_id: 'market-default-v1',
+        family_id: 'futures.realtime',
+        family_contract_version: 'market-data-family-v1',
+        knowledge_cutoff: '2026-06-19T16:00:00Z',
+        identity_knowledge_cutoff: '2026-06-19T16:00:00Z',
+        observations: [],
+        next_cursor: null,
+        coverage: {
+          status: 'complete',
+          expected_event_count: 1,
+          accepted_event_count: 1,
+          missing_event_count: 0,
+          coverage_ratio: 1,
+          gaps: [],
+          rejection_counts: {},
+          calendar_reason: null,
+        },
+        fetches: [],
+        warnings: [],
+        refresh_status: null,
+        historical_status: null,
+      })
+    ))
+    const wrapper = doMount()
+    try {
+      const vm = wrapper.vm as any
+      vm.aiResearchForm.symbol = 'rb0'
+      await nextTick()
+      await vm.runAIResearchDataPrecheck({ interactive: false })
+      await flushPromises()
+
+      vm.aiResearchForm.symbol = 'RB0'
+      await nextTick()
+      await vm.runAIResearchDataPrecheck({ interactive: false })
+      await flushPromises()
+
+      expect(getQueryContract).toHaveBeenNthCalledWith(1, expect.objectContaining({
+        asset_type: 'futures',
+        symbol: 'rb0',
+        family_id: 'futures.realtime',
+      }))
+      expect(getQueryContract).toHaveBeenNthCalledWith(2, expect.objectContaining({
+        asset_type: 'futures',
+        symbol: 'RB0',
+        family_id: 'futures.realtime',
+      }))
+      expect(queryLocalFirst).toHaveBeenNthCalledWith(2, expect.objectContaining({
+        identity: { canonical_id: 'instrument:futures:CN-SHFE:RB0' },
+      }), expect.any(Object))
+      expect(vm.aiResearchMarketDataPlatformStatus).toMatchObject({
+        path: 'strict_local',
+        queryId: 'research-query-instrument:futures:CN-SHFE:RB0',
+      })
+    } finally {
+      wrapper.unmount()
+    }
+  })
+
+  it.each([
+    ['family binding', { family_id: 'stock.valuation' }],
+    ['semantic data kind', { data_kind: 'quote_snapshot' }],
+  ])('rejects a stale or mixed-deployment v2 response with a mismatched %s', async (
+    _description,
+    responseOverride,
+  ) => {
+    vi.stubEnv('VITE_MARKET_DATA_QUERY_V2_ENABLED', 'true')
+    vi.stubEnv('VITE_MARKET_DATA_STRATEGY_BRIDGE_ENABLED', 'true')
+    getQueryContract.mockResolvedValue({
+      version: 'market-data-v2',
+      request: {
+        identity: { canonical_id: 'instrument:stock:CN-SZSE:000001' },
+        dataset_code: 'market.stock_daily',
+        data_kind: 'bars',
+        frequency: '1d',
+        required_fields: ['close', 'volume'],
+        adjustment: 'qfq',
+        price_basis: 'close',
+        currency: 'CNY',
+        unit: 'share',
+        source_policy_id: 'market-default-v1',
+        family_id: 'stock.realtime',
+        family_contract_version: 'market-data-family-v1',
+        mode: 'local_first',
+      },
+    })
+    queryLocalFirst.mockResolvedValue({
+      query_id: 'research-query-mismatch',
+      canonical_id: 'instrument:stock:CN-SZSE:000001',
+      dataset_code: 'market.stock_daily',
+      asset_type: 'stock',
+      instrument_metadata_version: 'stock-v1',
+      data_kind: 'bars',
+      frequency: '1d',
+      source_policy_id: 'market-default-v1',
+      family_id: 'stock.realtime',
+      family_contract_version: 'market-data-family-v1',
+      knowledge_cutoff: '2026-06-19T16:00:00Z',
+      identity_knowledge_cutoff: '2026-06-19T16:00:00Z',
+      observations: [],
+      next_cursor: null,
+      coverage: {
+        status: 'complete',
+        expected_event_count: 1,
+        accepted_event_count: 1,
+        missing_event_count: 0,
+        coverage_ratio: 1,
+        gaps: [],
+        rejection_counts: {},
+        calendar_reason: null,
+      },
+      fetches: [],
+      warnings: [],
+      refresh_status: null,
+      historical_status: null,
+      ...responseOverride,
+    })
+    const wrapper = doMount()
+    try {
+      const vm = wrapper.vm as any
+      await vm.runAIResearchDataPrecheck({ interactive: false })
+      await flushPromises()
+
+      expect(vm.aiResearchPrecheckResult?.passed).toBe(true)
+      expect(vm.aiResearchMarketDataPlatformStatus).toMatchObject({
+        path: 'error',
+        queryId: 'research-query-mismatch',
+        detail: 'MARKET_DATA_STRICT_LOCAL_RESPONSE_MISMATCH',
+      })
+    } finally {
+      wrapper.unmount()
+    }
+  })
+
+  it.each([
+    ['a different family', 'stock.valuation', 'market-data-family-v1'],
+    ['a different family contract version', 'stock.realtime', 'market-data-family-v2'],
+  ])('does not query v2 when the sidecar contract has %s', async (
+    _description,
+    familyId,
+    familyContractVersion,
+  ) => {
+    vi.stubEnv('VITE_MARKET_DATA_QUERY_V2_ENABLED', 'true')
+    vi.stubEnv('VITE_MARKET_DATA_STRATEGY_BRIDGE_ENABLED', 'true')
+    getQueryContract.mockResolvedValue({
+      version: 'market-data-v2',
+      request: {
+        identity: { canonical_id: 'instrument:stock:CN-SZSE:000001' },
+        dataset_code: 'market.stock_daily',
+        data_kind: 'bars',
+        frequency: '1d',
+        required_fields: ['close', 'volume'],
+        source_policy_id: 'market-default-v1',
+        family_id: familyId,
+        family_contract_version: familyContractVersion,
+        mode: 'local_first',
+      },
+    })
+    const wrapper = doMount()
+    try {
+      const vm = wrapper.vm as any
+      await vm.runAIResearchDataPrecheck({ interactive: false })
+      await flushPromises()
+
+      expect(runPrecheck).toHaveBeenCalledWith(expect.objectContaining({
+        asset_type: 'stock',
+        symbol: '000001.SZ',
+      }), expect.any(Object))
+      expect(getQueryContract).toHaveBeenCalledWith({
+        asset_type: 'stock',
+        symbol: '000001.SZ',
+        period: 'daily',
+        family_id: 'stock.realtime',
+      })
+      expect(queryLocalFirst).not.toHaveBeenCalled()
+      expect(lookupInstrument).not.toHaveBeenCalled()
+      expect(vm.aiResearchMarketDataPlatformStatus).toMatchObject({
+        path: 'unsupported',
+        detail: 'TYPED_QUERY_CONTRACT_UNAVAILABLE',
+      })
+      expect(vm.aiResearchPrecheckResult?.passed).toBe(true)
+    } finally {
+      wrapper.unmount()
+    }
+  })
+
+  it('does not mark incomplete strict local coverage as a successful precheck', async () => {
+    vi.stubEnv('VITE_MARKET_DATA_QUERY_V2_ENABLED', 'true')
+    vi.stubEnv('VITE_MARKET_DATA_STRATEGY_BRIDGE_ENABLED', 'true')
+    getQueryContract.mockResolvedValue({
+        version: 'market-data-v2',
+        request: {
+          identity: { canonical_id: 'instrument:stock:CN-SZSE:000001' },
+          dataset_code: 'market.stock_daily',
+          data_kind: 'bars',
+          frequency: '1d',
+          required_fields: ['close', 'volume'],
+          source_policy_id: 'market-default-v1',
+          family_id: 'stock.realtime',
+          family_contract_version: 'market-data-family-v1',
+          mode: 'local_first',
+        },
+    })
+    queryLocalFirst.mockResolvedValue({
+      query_id: 'research-query-incomplete',
+      canonical_id: 'instrument:stock:CN-SZSE:000001',
+      dataset_code: 'market.stock_daily',
+      asset_type: 'stock',
+      instrument_metadata_version: 'stock-v1',
+      data_kind: 'bars',
+      frequency: '1d',
+      source_policy_id: 'market-default-v1',
+      family_id: 'stock.realtime',
+      family_contract_version: 'market-data-family-v1',
+      knowledge_cutoff: '2026-06-19T16:00:00Z',
+      identity_knowledge_cutoff: '2026-06-19T16:00:00Z',
+      observations: [],
+      next_cursor: null,
+      coverage: {
+        status: 'incomplete',
+        expected_event_count: 2,
+        accepted_event_count: 1,
+        missing_event_count: 1,
+        coverage_ratio: 0.5,
+        gaps: [],
+        rejection_counts: {},
+        calendar_reason: null,
+      },
+      fetches: [],
+      warnings: [],
+      refresh_status: null,
+      historical_status: null,
+    })
+    const wrapper = doMount()
+    try {
+      const vm = wrapper.vm as any
+      await vm.runAIResearchDataPrecheck({ interactive: false })
+      await flushPromises()
+
+      expect(vm.aiResearchPrecheckResult?.passed).toBe(true)
+      expect(vm.aiResearchMarketDataPlatformStatus).toMatchObject({
+        path: 'error',
+        coverageStatus: 'incomplete',
+        detail: 'MARKET_DATA_STRICT_LOCAL_INCOMPLETE',
+      })
+    } finally {
+      wrapper.unmount()
+    }
+  })
+
+  it('keeps a v2 execution failure after contract issuance out of the legacy fallback path', async () => {
+    vi.stubEnv('VITE_MARKET_DATA_QUERY_V2_ENABLED', 'true')
+    vi.stubEnv('VITE_MARKET_DATA_STRATEGY_BRIDGE_ENABLED', 'true')
+    getQueryContract.mockResolvedValue({
+      version: 'market-data-v2',
+      request: {
+        identity: { canonical_id: 'instrument:stock:CN-SZSE:000001' },
+        dataset_code: 'market.stock_daily',
+        data_kind: 'bars',
+        frequency: '1d',
+        required_fields: ['close', 'volume'],
+        source_policy_id: 'market-default-v1',
+        family_id: 'stock.realtime',
+        family_contract_version: 'market-data-family-v1',
+        mode: 'local_first',
+      },
+    })
+    queryLocalFirst.mockRejectedValue({ response: { status: 404 } })
+
+    const wrapper = doMount()
+    try {
+      const vm = wrapper.vm as any
+      await vm.runAIResearchDataPrecheck({ interactive: false })
+      await flushPromises()
+
+      expect(getQueryContract).toHaveBeenCalledTimes(1)
+      expect(queryLocalFirst).toHaveBeenCalledTimes(1)
+      expect(lookupInstrument).not.toHaveBeenCalled()
+      expect(vm.aiResearchMarketDataPlatformStatus).toMatchObject({
+        path: 'error',
+        detail: 'MARKET_DATA_QUERY_V2_PRECHECK_FAILED',
+      })
+    } finally {
+      wrapper.unmount()
     }
   })
 

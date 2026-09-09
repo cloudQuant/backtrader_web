@@ -4,6 +4,7 @@ Configuration management - Load configuration from environment variables.
 
 import json
 import os
+import re
 from pathlib import Path
 from typing import Any, Literal
 
@@ -11,6 +12,7 @@ from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app.ai_provider_registry import get_default_provider_registry
+from app.services.market_data.openbb_runtime import SUPPORTED_OPENBB_RUNNER_PROVIDERS
 
 _DEFAULT_SECRETS = frozenset(
     {
@@ -20,6 +22,7 @@ _DEFAULT_SECRETS = frozenset(
 )
 
 _DEFAULT_PASSWORDS = frozenset({"admin123", "password", "12345678"})
+_MARKET_DATA_PROVIDER_TOKEN_PATTERN = re.compile(r"^[a-z0-9][a-z0-9._-]{0,127}$")
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 _DEFAULT_SQLITE_DATABASE_URL = (
     f"sqlite+aiosqlite:///{(_REPO_ROOT / 'data' / 'dev' / 'backtrader.db').as_posix()}"
@@ -104,6 +107,39 @@ class Settings(BaseSettings):
     )
     AKSHARE_DATA_DATABASE_URL: str = Field(
         default="", description="Akshare data warehouse database connection URL"
+    )
+    MARKET_DATA_QUERY_V2_ENABLED: bool = Field(
+        default=False,
+        description="Expose the Iteration 197 normalized market-data query API",
+    )
+    MARKET_DATA_ONLINE_FETCH_ENABLED: bool = Field(
+        default=False,
+        description="Allow the normalized market-data query API to invoke approved providers",
+    )
+    MARKET_DATA_RESEARCH_CACHE_FILL_ENABLED: bool = Field(
+        default=False,
+        description=(
+            "Allow an explicitly requested strategy-data cache fill with research source authorization"
+        ),
+    )
+    MARKET_DATA_CURSOR_SIGNING_KEY: str = Field(
+        default="",
+        repr=False,
+        description=(
+            "Operator-managed HMAC key for normalized market-data pagination cursors; "
+            "required when the v2 query API is enabled"
+        ),
+    )
+    MARKET_DATA_OPENBB_PROVIDER: str = Field(
+        default="yfinance",
+        description="Approved OpenBB provider identifier used by the isolated runner",
+    )
+    MARKET_DATA_OPENBB_ALLOWED_MARKETS: str = Field(
+        default="",
+        description=(
+            "Comma-separated master-data venues that may narrow an explicit OpenBB permit; "
+            "they cannot enable a route on their own"
+        ),
     )
     LEGACY_SQLITE_DATABASE_URL: str = Field(
         default="", description="Legacy SQLite database connection URL used during migration"
@@ -1005,6 +1041,11 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def validate_runtime_security_guards(self) -> "Settings":
         """Validate production-only secret and admin-password guards."""
+        if self.MARKET_DATA_QUERY_V2_ENABLED and not self.MARKET_DATA_CURSOR_SIGNING_KEY:
+            raise ValueError(
+                "MARKET_DATA_CURSOR_SIGNING_KEY is required when "
+                "MARKET_DATA_QUERY_V2_ENABLED=true"
+            )
         if production_security_mode(self):
             cors_origins = {
                 origin.strip() for origin in self.CORS_ORIGINS.split(",") if origin.strip()
@@ -1097,6 +1138,40 @@ class Settings(BaseSettings):
                 "AKSHARE_INTERFACE_BOOTSTRAP_MODE must be one of: "
                 f"{', '.join(sorted(supported_modes))}"
             )
+        return normalized
+
+    @field_validator("MARKET_DATA_OPENBB_PROVIDER")
+    @classmethod
+    def validate_market_data_openbb_provider(cls, v: str) -> str:
+        """Accept only runner providers with a reviewed static contract."""
+        normalized = str(v or "").strip().lower()
+        if not _MARKET_DATA_PROVIDER_TOKEN_PATTERN.fullmatch(normalized):
+            raise ValueError(
+                "MARKET_DATA_OPENBB_PROVIDER must be a lowercase provider token up to 128 chars"
+            )
+        if normalized not in SUPPORTED_OPENBB_RUNNER_PROVIDERS:
+            raise ValueError(
+                "MARKET_DATA_OPENBB_PROVIDER must be one of: "
+                f"{', '.join(sorted(SUPPORTED_OPENBB_RUNNER_PROVIDERS))}"
+            )
+        return normalized
+
+    @field_validator("MARKET_DATA_OPENBB_ALLOWED_MARKETS")
+    @classmethod
+    def validate_market_data_openbb_allowed_markets(cls, v: str) -> str:
+        """Normalize an operator-reviewed OpenBB venue allow-list without defaults."""
+        values = [item.strip() for item in str(v or "").split(",") if item.strip()]
+        if any(len(item) > 128 for item in values):
+            raise ValueError("MARKET_DATA_OPENBB_ALLOWED_MARKETS values must be at most 128 chars")
+        return ",".join(dict.fromkeys(values))
+
+    @field_validator("MARKET_DATA_CURSOR_SIGNING_KEY")
+    @classmethod
+    def validate_market_data_cursor_signing_key(cls, v: str) -> str:
+        """Accept a blank disabled-state value or a high-entropy HMAC secret."""
+        normalized = str(v or "").strip()
+        if normalized and len(normalized.encode("utf-8")) < 32:
+            raise ValueError("MARKET_DATA_CURSOR_SIGNING_KEY must be at least 32 bytes")
         return normalized
 
     @field_validator("AI_BUDGET_MODE")

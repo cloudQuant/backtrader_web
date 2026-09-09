@@ -473,13 +473,13 @@ async def test_market_instrument_lookup_returns_futures_snapshot_and_history(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ("asset_type", "symbol", "expected_price"),
+    ("asset_type", "symbol", "expected_price", "expected_history_total"),
     [
-        ("bond", "sh113527", 120.5),
-        ("fund", "159915", 1.234),
-        ("option", "10003889", 0.126),
-        ("fx", "USDCNH", 7.18),
-        ("crypto", "BTCJPY", 10000000),
+        ("bond", "sh113527", 120.5, 2),
+        ("fund", "159915", 1.234, 2),
+        ("option", "10003889", 0.126, 2),
+        ("fx", "USDCNH", 7.18, 2),
+        ("crypto", "BTCJPY", 10000000, 0),
     ],
 )
 async def test_market_instrument_lookup_returns_extended_asset_types(
@@ -489,6 +489,7 @@ async def test_market_instrument_lookup_returns_extended_asset_types(
     asset_type,
     symbol,
     expected_price,
+    expected_history_total,
 ):
     response = await client.get(
         "/api/v1/data/market-instruments/lookup",
@@ -506,7 +507,7 @@ async def test_market_instrument_lookup_returns_extended_asset_types(
     data = response.json()
     assert data["asset_type"] == asset_type
     assert data["snapshot"]["price"] == expected_price
-    assert data["history"]["total"] == 2
+    assert data["history"]["total"] == expected_history_total
     assert "已按查询请求从 AkShare 更新行情数据。" in data["warnings"]
 
 
@@ -645,37 +646,20 @@ async def test_market_instrument_stock_refresh_falls_back_to_tencent_history(
 
 
 @pytest.mark.asyncio
-async def test_market_instrument_option_main_contract_alias_resolves_to_current_contract(
+async def test_market_instrument_option_alias_does_not_resolve_to_a_different_contract(
     dummy_akshare,
     monkeypatch,
 ):
-    """The option page's stable alias must resolve to a current listed contract."""
+    """A main-contract alias cannot stand in for an exact option contract."""
     from app.services.market_instrument import MarketInstrumentService
 
-    def current_contracts():
-        return {"中证1000指数": ["mo2608"]}
-
-    def current_chain(symbol: str) -> pd.DataFrame:
-        assert symbol == "mo2608"
-        return pd.DataFrame([{"看涨合约-标识": "mo2608C6200", "看跌合约-标识": "mo2608P6200"}])
-
-    def current_history(symbol: str) -> pd.DataFrame:
-        assert symbol == "mo2608C6200"
-        return pd.DataFrame(
-            [
-                {"date": "2026-06-17", "open": 900.0, "high": 930.0, "low": 880.0, "close": 910.0},
-                {"date": "2026-06-18", "open": 910.0, "high": 970.0, "low": 900.0, "close": 960.0},
-            ]
+    def alias_lookup_must_not_run(**_kwargs: object) -> pd.DataFrame:
+        raise AssertionError(
+            "a main-contract alias must not invoke an exact-contract provider route"
         )
 
     monkeypatch.setattr(
-        dummy_akshare, "option_cffex_zz1000_list_sina", current_contracts, raising=False
-    )
-    monkeypatch.setattr(
-        dummy_akshare, "option_cffex_zz1000_spot_sina", current_chain, raising=False
-    )
-    monkeypatch.setattr(
-        dummy_akshare, "option_cffex_zz1000_daily_sina", current_history, raising=False
+        dummy_akshare, "option_cffex_zz1000_daily_sina", alias_lookup_must_not_run, raising=False
     )
 
     payload = await MarketInstrumentService().lookup(
@@ -686,6 +670,8 @@ async def test_market_instrument_option_main_contract_alias_resolves_to_current_
         refresh_online=True,
     )
 
-    assert payload["symbol"] == "mo2608C6200"
-    assert payload["snapshot"]["price"] == 960.0
-    assert payload["history"]["total"] == 2
+    assert payload["symbol"] == "MO"
+    assert payload["snapshot"] == {}
+    assert payload["history"]["total"] == 0
+    assert payload["provider"] == "akshare_data"
+    assert payload["warnings"] == ["期权查询必须使用精确合约代码；不支持主力或别名回退。"]

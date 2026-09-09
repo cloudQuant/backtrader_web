@@ -23,6 +23,7 @@ class TestConfig:
         monkeypatch.delenv("AI_RESEARCH_PROTOCOL_V2_WORKER_ENABLED", raising=False)
         monkeypatch.delenv("AI_RESEARCH_PROTOCOL_V2_WORKER_FACTORY", raising=False)
         monkeypatch.delenv("AI_RESEARCH_PROTOCOL_V2_WORKER_POLL_SECONDS", raising=False)
+        monkeypatch.delenv("MARKET_DATA_RESEARCH_CACHE_FILL_ENABLED", raising=False)
         settings = Settings(_env_file=None, DEBUG=True)
         assert settings.APP_NAME == "ai-for-investor"
         assert settings.JWT_ALGORITHM == "HS256"
@@ -35,6 +36,7 @@ class TestConfig:
         assert settings.AI_RESEARCH_PROTOCOL_V2_WORKER_ENABLED is False
         assert settings.AI_RESEARCH_PROTOCOL_V2_WORKER_FACTORY == ""
         assert settings.AI_RESEARCH_PROTOCOL_V2_WORKER_POLL_SECONDS == 10.0
+        assert settings.MARKET_DATA_RESEARCH_CACHE_FILL_ENABLED is False
         assert "openai" in settings.AI_PROVIDERS
         assert "ollama" in settings.AI_PROVIDERS
         assert "volcengine_ark" in settings.AI_PROVIDERS
@@ -57,6 +59,48 @@ class TestConfig:
 
         with pytest.raises(ValidationError):
             Settings(_env_file=None, AI_RESEARCH_PROTOCOL_V2_WORKFLOW_VERSION="browser-v1")
+
+    def test_market_data_v2_requires_an_operator_cursor_hmac_key(self):
+        """The enabled local-first API cannot issue unsigned pagination tokens."""
+        with pytest.raises(ValidationError, match="MARKET_DATA_CURSOR_SIGNING_KEY"):
+            Settings(
+                _env_file=None,
+                DEBUG=True,
+                MARKET_DATA_QUERY_V2_ENABLED=True,
+            )
+
+        settings = Settings(
+            _env_file=None,
+            DEBUG=True,
+            MARKET_DATA_QUERY_V2_ENABLED=True,
+            MARKET_DATA_CURSOR_SIGNING_KEY="x" * 32,
+        )
+
+        assert settings.MARKET_DATA_CURSOR_SIGNING_KEY == "x" * 32
+
+    def test_market_data_openbb_provider_uses_one_canonical_token_across_runtime_paths(self):
+        """Mixed-case operator input cannot create a route/receipt provider-ID split."""
+        settings = Settings(
+            _env_file=None,
+            DEBUG=True,
+            MARKET_DATA_OPENBB_PROVIDER="YFinance",
+        )
+
+        assert settings.MARKET_DATA_OPENBB_PROVIDER == "yfinance"
+
+        with pytest.raises(ValidationError, match="MARKET_DATA_OPENBB_PROVIDER"):
+            Settings(
+                _env_file=None,
+                DEBUG=True,
+                MARKET_DATA_OPENBB_PROVIDER="yfinance;unreviewed",
+            )
+
+        with pytest.raises(ValidationError, match="MARKET_DATA_OPENBB_PROVIDER"):
+            Settings(
+                _env_file=None,
+                DEBUG=True,
+                MARKET_DATA_OPENBB_PROVIDER="unreviewed-provider",
+            )
 
     def test_ai_providers_can_be_loaded_from_json_string(self):
         settings = Settings(

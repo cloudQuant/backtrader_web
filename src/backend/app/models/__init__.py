@@ -82,11 +82,14 @@ from app.models.backtest import BacktestResultModel, BacktestTask
 from app.models.broker_profile import BrokerConnectionProfile
 from app.models.comparison import Comparison, ComparisonShare
 from app.models.data_governance import (
+    DgDataset,
+    DgDatasetStorage,
     DgEndpoint,
     DgEndpointParam,
     DgIngestJob,
     DgProvider,
     DgQualityRule,
+    DgStorageTarget,
 )
 from app.models.knowledge_base import (
     ChatConversation,
@@ -96,6 +99,19 @@ from app.models.knowledge_base import (
     KnowledgeBase,
     ModelConfig,
     ModelUsageLog,
+)
+from app.models.market_data_platform import (
+    ImmutableMarketDataRecordError,
+    MdCalendarEvent,
+    MdCalendarImportLock,
+    MdCalendarSnapshot,
+    MdDataSeries,
+    MdFetchLease,
+    MdInstrumentIdentityRevision,
+    MdInstrumentLookupKey,
+    MdObservationRevision,
+    MdPublication,
+    MdSourceSnapshot,
 )
 from app.models.market_data_trust import (
     AssetSpecModel,
@@ -208,11 +224,14 @@ __all__ = [
     "Comparison",
     "ComparisonShare",
     "DataInterface",
+    "DgDataset",
+    "DgDatasetStorage",
     "DgEndpoint",
     "DgEndpointParam",
     "DgIngestJob",
     "DgProvider",
     "DgQualityRule",
+    "DgStorageTarget",
     "DataScript",
     "DataTable",
     "InterfaceCategory",
@@ -220,6 +239,17 @@ __all__ = [
     "InvestmentMandate",
     "MarketDataCoverageModel",
     "MarketDataQualityReportModel",
+    "ImmutableMarketDataRecordError",
+    "MdCalendarEvent",
+    "MdCalendarImportLock",
+    "MdCalendarSnapshot",
+    "MdDataSeries",
+    "MdFetchLease",
+    "MdInstrumentIdentityRevision",
+    "MdInstrumentLookupKey",
+    "MdObservationRevision",
+    "MdPublication",
+    "MdSourceSnapshot",
     "KnowledgeBase",
     "KBDocument",
     "DocumentChunk",

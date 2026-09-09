@@ -130,6 +130,15 @@ class DataTable(Base):
     table_comment = Column(String(200), nullable=True)
     category = Column(String(50), nullable=True, index=True)
     script_id = Column(String(100), nullable=True, index=True)
+    dataset_storage_id = Column(
+        String(36),
+        ForeignKey(
+            "dg_dataset_storages.id",
+            name="fk_ak_data_tables_dataset_storage_id_dg_dataset_storages",
+        ),
+        nullable=True,
+        index=True,
+    )
     row_count = Column(BigInteger, default=0, nullable=False)
     last_update_time = Column(DateTime, nullable=True, index=True)
     last_update_status = Column(String(20), nullable=True)
@@ -147,6 +156,8 @@ class DataTable(Base):
         onupdate=lambda: datetime.now(timezone.utc),
         nullable=False,
     )
+
+    dataset_storage = relationship("DgDatasetStorage", back_populates="data_tables")
 
 
 class InterfaceCategory(Base):

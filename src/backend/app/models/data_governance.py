@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from sqlalchemy import (
     JSON,
     Boolean,
+    CheckConstraint,
     Column,
     DateTime,
     Enum,
@@ -13,6 +14,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    event,
 )
 from sqlalchemy.orm import relationship
 
@@ -47,6 +49,100 @@ class DgProvider(Base):
     endpoints = relationship("DgEndpoint", back_populates="provider", cascade="all, delete-orphan")
 
 
+class DgDataset(Base):
+    """Stable logical data product, independent of a provider or physical table."""
+
+    __tablename__ = "dg_datasets"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    dataset_code = Column(String(160), unique=True, nullable=False, index=True)
+    display_name = Column(String(255), nullable=False)
+    domain = Column(String(80), nullable=False, index=True)
+    canonical_schema = Column(JSON, default=dict, nullable=False)
+    primary_key = Column(JSON, default=list, nullable=False)
+    is_active = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime, default=_utcnow_naive, nullable=False)
+
+    endpoints = relationship("DgEndpoint", back_populates="dataset")
+    storage_bindings = relationship(
+        "DgDatasetStorage", back_populates="dataset", cascade="all, delete-orphan"
+    )
+
+
+class DgStorageTarget(Base):
+    """A registered physical store that materializes one or more datasets."""
+
+    __tablename__ = "dg_storage_targets"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    storage_id = Column(String(100), unique=True, nullable=False, index=True)
+    engine = Column(String(32), nullable=False)
+    url_env = Column(String(100), nullable=False)
+    database_name = Column(String(100), nullable=False)
+    role = Column(String(32), nullable=False)
+    is_active = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime, default=_utcnow_naive, nullable=False)
+
+    dataset_bindings = relationship(
+        "DgDatasetStorage", back_populates="storage_target", cascade="all, delete-orphan"
+    )
+
+
+class DgDatasetStorage(Base):
+    """A dataset materialization in a registered physical store.
+
+    A normalized fact table can carry several semantically distinct datasets.
+    Each catalog binding is therefore unique per storage, physical table, and
+    dataset rather than claiming the table for just one dataset.
+    """
+
+    __tablename__ = "dg_dataset_storages"
+    __table_args__ = (
+        UniqueConstraint(
+            "storage_target_id",
+            "physical_table",
+            "dataset_id",
+            name="uq_dg_dataset_storage_target_table",
+        ),
+        UniqueConstraint(
+            "primary_dataset_id",
+            name="uq_dg_dataset_storages_primary_dataset",
+        ),
+        CheckConstraint(
+            "(is_primary = true AND primary_dataset_id IS NOT NULL "
+            "AND primary_dataset_id = dataset_id) "
+            "OR (is_primary = false AND primary_dataset_id IS NULL)",
+            name="ck_dg_dataset_storages_primary_slot",
+        ),
+    )
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    dataset_id = Column(String(36), ForeignKey("dg_datasets.id"), nullable=False, index=True)
+    storage_target_id = Column(
+        String(36), ForeignKey("dg_storage_targets.id"), nullable=False, index=True
+    )
+    physical_table = Column(String(128), nullable=False)
+    write_mode = Column(String(32), default="legacy_read_only", nullable=False)
+    is_primary = Column(Boolean, default=False, nullable=False)
+    # ``primary_dataset_id`` mirrors ``dataset_id`` only for the primary
+    # binding. A UNIQUE constraint then allows many NULL secondary rows but
+    # makes two primary rows for a dataset impossible across supported SQL
+    # engines.
+    primary_dataset_id = Column(String(36), nullable=True)
+    created_at = Column(DateTime, default=_utcnow_naive, nullable=False)
+
+    dataset = relationship("DgDataset", back_populates="storage_bindings")
+    storage_target = relationship("DgStorageTarget", back_populates="dataset_bindings")
+    data_tables = relationship("DataTable", back_populates="dataset_storage")
+
+
+@event.listens_for(DgDatasetStorage, "before_insert")
+@event.listens_for(DgDatasetStorage, "before_update")
+def _sync_primary_dataset_id(_mapper, _connection, target: DgDatasetStorage) -> None:
+    """Persist the primary slot used by the portable uniqueness constraint."""
+    target.primary_dataset_id = target.dataset_id if target.is_primary else None
+
+
 class DgEndpoint(Base):
     __tablename__ = "dg_endpoints"
     __table_args__ = (
@@ -55,6 +151,12 @@ class DgEndpoint(Base):
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     provider_id = Column(String(36), ForeignKey("dg_providers.id"), nullable=False, index=True)
+    dataset_id = Column(
+        String(36),
+        ForeignKey("dg_datasets.id", name="fk_dg_endpoints_dataset_id_dg_datasets"),
+        nullable=True,
+        index=True,
+    )
     endpoint_name = Column(String(100), nullable=False, index=True)
     display_name = Column(String(255), nullable=False)
     function_path = Column(String(255), nullable=True)
@@ -74,6 +176,7 @@ class DgEndpoint(Base):
     created_at = Column(DateTime, default=_utcnow_naive, nullable=False)
 
     provider = relationship("DgProvider", back_populates="endpoints")
+    dataset = relationship("DgDataset", back_populates="endpoints")
     params = relationship(
         "DgEndpointParam", back_populates="endpoint", cascade="all, delete-orphan"
     )

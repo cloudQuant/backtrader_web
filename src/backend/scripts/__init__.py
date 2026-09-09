@@ -1,1 +1,1 @@
-"""Backend operational entry points, isolated from third-party ``scripts`` packages."""
+"""Backend operational entry points and focused offline contract-test scripts."""

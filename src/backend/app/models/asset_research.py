@@ -28,6 +28,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.database import Base
+from app.models.identifier_types import exact_identifier_string
 
 
 def _uuid() -> str:
@@ -66,7 +67,7 @@ class AssetInstrument(RetentionMixin, Base):
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
-    canonical_id: Mapped[str] = mapped_column(String(512), nullable=False)
+    canonical_id: Mapped[str] = mapped_column(exact_identifier_string(512), nullable=False)
     asset_type: Mapped[str] = mapped_column(String(16), nullable=False)
     identity_level: Mapped[str] = mapped_column(String(16), nullable=False)
     venue: Mapped[str | None] = mapped_column(String(128), nullable=True)

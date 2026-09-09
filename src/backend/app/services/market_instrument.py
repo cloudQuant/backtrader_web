@@ -299,6 +299,18 @@ class MarketInstrumentService:
         if online_lookup is None:
             raise ValueError(f"Unsupported asset type: {asset_type}")
 
+        if asset_type == "option" and self._is_option_alias(normalized_symbol):
+            warnings.append("期权查询必须使用精确合约代码；不支持主力或别名回退。")
+            payload = self._empty_lookup_payload(
+                asset_type=asset_type,
+                symbol=normalized_symbol,
+                market=market,
+                period=normalized_period,
+            )
+            payload["warnings"] = warnings
+            payload["indicators"] = self._build_indicators([])
+            return payload
+
         warehouse_payload = await self._lookup_warehouse(
             asset_type=asset_type,
             symbol=normalized_symbol,
@@ -308,6 +320,21 @@ class MarketInstrumentService:
             market=market,
             warnings=warnings,
         )
+        if not self._payload_matches_request(
+            asset_type=asset_type,
+            symbol=normalized_symbol,
+            market=market,
+            payload=warehouse_payload,
+        ):
+            warnings.append("本地行情未返回所请求的精确标的，已忽略该结果。")
+            warehouse_payload = self._empty_lookup_payload(
+                asset_type=asset_type,
+                symbol=normalized_symbol,
+                market=market,
+                period=normalized_period,
+            )
+        elif not self._payload_has_data(warehouse_payload):
+            warnings.append("本地行情未找到所请求的精确标的。")
         if not refresh_online:
             warehouse_payload["warnings"] = warnings
             warehouse_payload["indicators"] = self._build_indicators(
@@ -329,6 +356,15 @@ class MarketInstrumentService:
         except Exception:
             online_payload = None
             online_warnings.append("AkShare 在线查询失败，已保留本地 MySQL 数据。")
+
+        if online_payload and not self._payload_matches_request(
+            asset_type=asset_type,
+            symbol=normalized_symbol,
+            market=market,
+            payload=online_payload,
+        ):
+            online_payload = None
+            online_warnings.append("AkShare 未返回所请求的精确标的，已忽略该结果。")
 
         warnings.extend(online_warnings)
         if not online_payload or not self._payload_has_data(online_payload):
@@ -399,6 +435,76 @@ class MarketInstrumentService:
         # not a market observation, so they must not overwrite usable MySQL
         # warehouse data after a user-triggered online refresh.
         return snapshot.get("price") is not None or bool(rows)
+
+    @staticmethod
+    def _identity_key(asset_type: MarketAssetType, symbol: Any) -> str:
+        value = _safe_str(symbol) or ""
+        if not value:
+            return ""
+        if asset_type in {"stock", "fund"}:
+            return _normalize_plain_code(value).upper()
+        if asset_type == "bond":
+            return _normalize_exchange_symbol(value).upper()
+        return value.upper()
+
+    @classmethod
+    def _payload_matches_request(
+        cls,
+        *,
+        asset_type: MarketAssetType,
+        symbol: str,
+        market: str | None,
+        payload: dict[str, Any],
+    ) -> bool:
+        expected_symbol = cls._identity_key(asset_type, symbol)
+        if not expected_symbol:
+            return False
+
+        snapshot = payload.get("snapshot") or {}
+        for returned_symbol in (payload.get("symbol"), snapshot.get("symbol")):
+            if returned_symbol is None:
+                continue
+            if cls._identity_key(asset_type, returned_symbol) != expected_symbol:
+                return False
+
+        if market:
+            returned_market = _safe_str(payload.get("market"))
+            if returned_market and returned_market.upper() != market.strip().upper():
+                return False
+        return True
+
+    def _empty_lookup_payload(
+        self,
+        *,
+        asset_type: MarketAssetType,
+        symbol: str,
+        market: str | None,
+        period: str,
+    ) -> dict[str, Any]:
+        return self._payload(
+            asset_type=asset_type,
+            symbol=symbol,
+            name=symbol,
+            market=market or self._default_market(asset_type),
+            snapshot={},
+            rows=[],
+            period=period,
+            provider=_WAREHOUSE_PROVIDER,
+        )
+
+    @staticmethod
+    def _is_option_alias(symbol: str) -> bool:
+        return symbol.strip().upper() in {
+            "IO",
+            "IO0",
+            "CFFEX_IO",
+            "HO",
+            "HO0",
+            "CFFEX_HO",
+            "MO",
+            "MO0",
+            "CFFEX_MO",
+        }
 
     @staticmethod
     def _history_requires_refresh(
@@ -1355,21 +1461,6 @@ class MarketInstrumentService:
                     "end": _sql_date_text(end_date, date.today()),
                 },
             )
-            if not rows:
-                rows = list(
-                    reversed(
-                        await self._fetch_rows(
-                            f"""
-                            SELECT *
-                            FROM {history_table}
-                            ORDER BY STR_TO_DATE(`date`, '%Y-%m-%d') DESC
-                            LIMIT 120
-                            """
-                        )
-                    )
-                )
-                if rows:
-                    warnings.append("所选日期范围无股票历史数据，已展示 akshare_data 最近可用记录")
             history_rows = self._normalize_warehouse_history(
                 rows,
                 date_key="date",
@@ -1414,20 +1505,6 @@ class MarketInstrumentService:
             if history_rows:
                 history_table = "STOCK_ZH_A_HIST"
 
-        if spot is None and not history_rows:
-            spot = await self._fetch_one(
-                """
-                SELECT *
-                FROM STOCK_ZH_A_SPOT_EM
-                WHERE `最新价` IS NOT NULL AND `最新价` <> 0
-                ORDER BY data_date DESC, `成交额` DESC
-                LIMIT 1
-                """
-            )
-            if spot:
-                code = _safe_str(_first_value(spot, "代码", "symbol")) or code
-                warnings.append(f"akshare_data 未找到 {symbol}，已展示最新股票样例 {code}")
-
         snapshot = self._snapshot_from_cn_quote(spot or {}, symbol=code) if spot else {}
         snapshot = snapshot or self._snapshot_from_latest_history(code, history_rows)
         snapshot["data_source_table"] = (
@@ -1466,31 +1543,6 @@ class MarketInstrumentService:
             """,
             {"symbol": requested, "start": start_date, "end": end_date},
         )
-        if not rows:
-            fallback = await self._fetch_one(
-                """
-                SELECT SYMBOL
-                FROM FUTURES_DAILY_MARKET
-                WHERE TRADE_DATE = (SELECT MAX(TRADE_DATE) FROM FUTURES_DAILY_MARKET)
-                GROUP BY SYMBOL
-                ORDER BY COUNT(*) DESC, SYMBOL ASC
-                LIMIT 1
-                """
-            )
-            if fallback:
-                requested = str(fallback["SYMBOL"])
-                warnings.append(f"akshare_data 未找到 {symbol}，已展示最新期货合约 {requested}")
-                rows = await self._fetch_rows(
-                    """
-                    SELECT *
-                    FROM FUTURES_DAILY_MARKET
-                    WHERE SYMBOL = :symbol
-                    ORDER BY TRADE_DATE ASC
-                    LIMIT 260
-                    """,
-                    {"symbol": requested},
-                )
-
         history_rows = self._normalize_warehouse_history(
             rows,
             date_key="TRADE_DATE",
@@ -1553,38 +1605,16 @@ class MarketInstrumentService:
             SELECT *
             FROM BOND_ZH_HS_COV_MIN
             WHERE LOWER(symbol) = :symbol
+              AND data_date BETWEEN :start AND :end
             ORDER BY `时间` ASC
             LIMIT 260
             """,
-            {"symbol": exchange_symbol.lower()},
+            {
+                "symbol": exchange_symbol.lower(),
+                "start": _sql_date_text(start_date, date.today()),
+                "end": _sql_date_text(end_date, date.today()),
+            },
         )
-        if not rows and spot is None:
-            fallback = await self._fetch_one(
-                """
-                SELECT symbol
-                FROM BOND_ZH_HS_COV_MIN
-                WHERE symbol IS NOT NULL
-                GROUP BY symbol
-                ORDER BY MAX(data_date) DESC, COUNT(*) DESC
-                LIMIT 1
-                """
-            )
-            if fallback:
-                exchange_symbol = str(fallback["symbol"])
-                plain_code = exchange_symbol[2:]
-                warnings.append(
-                    f"akshare_data 未找到 {symbol}，已展示最新可转债样例 {exchange_symbol}"
-                )
-                rows = await self._fetch_rows(
-                    """
-                    SELECT *
-                    FROM BOND_ZH_HS_COV_MIN
-                    WHERE LOWER(symbol) = :symbol
-                    ORDER BY `时间` ASC
-                    LIMIT 260
-                    """,
-                    {"symbol": exchange_symbol.lower()},
-                )
         history_rows = self._normalize_warehouse_history(
             rows,
             date_key="时间",
@@ -1648,20 +1678,6 @@ class MarketInstrumentService:
             """,
             {"code": code},
         )
-        if spot is None:
-            spot = await self._fetch_one(
-                """
-                SELECT *
-                FROM ETF_REALTIME_QUOTE_EM
-                WHERE LATEST_PRICE IS NOT NULL AND LATEST_PRICE <> 0
-                ORDER BY QUOTE_DATE DESC, TURNOVER DESC
-                LIMIT 1
-                """
-            )
-            if spot:
-                code = str(spot["ETF_CODE"])
-                warnings.append(f"akshare_data 未找到 {symbol}，已展示最新 ETF 样例 {code}")
-
         rows: list[dict[str, Any]] = []
         if code == "510300":
             rows = await self._fetch_rows(
@@ -1677,31 +1693,21 @@ class MarketInstrumentService:
                     "end": _sql_date_text(end_date, date.today()),
                 },
             )
-            if not rows:
-                rows = list(
-                    reversed(
-                        await self._fetch_rows(
-                            """
-                            SELECT *
-                            FROM FUND_ETF_HIST_SINA
-                            ORDER BY STR_TO_DATE(`date`, '%Y-%m-%d') DESC
-                            LIMIT 120
-                            """
-                        )
-                    )
-                )
-                if rows:
-                    warnings.append("所选日期范围无基金历史数据，已展示 akshare_data 最近可用记录")
         else:
             nav_rows = await self._fetch_rows(
                 """
                 SELECT *
                 FROM ETF_FUND_HIST_EM
                 WHERE FUND_CODE = :code
+                  AND VALUE_DATE BETWEEN :start AND :end
                 ORDER BY VALUE_DATE ASC
                 LIMIT 260
                 """,
-                {"code": code},
+                {
+                    "code": code,
+                    "start": _sql_date_text(start_date, date.today()),
+                    "end": _sql_date_text(end_date, date.today()),
+                },
             )
             rows = [
                 {
@@ -1780,37 +1786,20 @@ class MarketInstrumentService:
             """,
             {"symbol": normalized},
         )
-        if current is None:
-            current = await self._fetch_one(
-                """
-                SELECT *
-                FROM OPTION_CURRENT_EM
-                WHERE `最新价` IS NOT NULL
-                ORDER BY data_date DESC, `成交量` DESC
-                LIMIT 1
-                """
-            )
-            if current:
-                normalized = str(_first_value(current, "symbol", "代码") or normalized)
-                warnings.append(f"akshare_data 未找到 {symbol}，已展示最新期权样例 {normalized}")
-
-        latest_date_row = await self._fetch_one(
-            "SELECT MAX(data_date) AS latest_date FROM OPTION_CURRENT_EM"
-        )
-        latest_date = latest_date_row.get("latest_date") if latest_date_row else None
-        rows = (
-            await self._fetch_rows(
-                """
+        rows = await self._fetch_rows(
+            """
             SELECT *
             FROM OPTION_CURRENT_EM
-            WHERE data_date = :latest_date
-            ORDER BY `成交量` DESC, `持仓量` DESC
-            LIMIT 80
+            WHERE (UPPER(symbol) = :symbol OR UPPER(`代码`) = :symbol)
+              AND data_date BETWEEN :start AND :end
+            ORDER BY data_date ASC
+            LIMIT 260
             """,
-                {"latest_date": latest_date},
-            )
-            if latest_date
-            else []
+            {
+                "symbol": normalized,
+                "start": _sql_date_text(start_date, date.today()),
+                "end": _sql_date_text(end_date, date.today()),
+            },
         )
         history_rows = [
             {
@@ -1876,50 +1865,9 @@ class MarketInstrumentService:
             """,
             {"symbol": normalized},
         )
-        if spot is None:
-            spot = await self._fetch_one(
-                """
-                SELECT *
-                FROM FOREX_SPOT_EM
-                WHERE `最新价` IS NOT NULL
-                ORDER BY data_date DESC, ABS(`涨跌幅`) DESC
-                LIMIT 1
-                """
-            )
-            if spot:
-                normalized = str(_first_value(spot, "代码", "symbol") or normalized)
-                warnings.append(f"akshare_data 未找到 {symbol}，已展示最新外汇样例 {normalized}")
-
-        currency_column = self._fx_history_column(normalized)
-        rows = await self._fetch_rows(
-            f"""
-            SELECT `日期` AS date, `{currency_column}` AS close
-            FROM CURRENCY_BOC_SAFE
-            WHERE STR_TO_DATE(`日期`, '%Y-%m-%d') BETWEEN :start AND :end
-            ORDER BY STR_TO_DATE(`日期`, '%Y-%m-%d') ASC
-            LIMIT 260
-            """,
-            {
-                "start": _sql_date_text(start_date, date.today()),
-                "end": _sql_date_text(end_date, date.today()),
-            },
-        )
-        if not rows:
-            rows = list(
-                reversed(
-                    await self._fetch_rows(
-                        f"""
-                        SELECT `日期` AS date, `{currency_column}` AS close
-                        FROM CURRENCY_BOC_SAFE
-                        ORDER BY STR_TO_DATE(`日期`, '%Y-%m-%d') DESC
-                        LIMIT 120
-                        """
-                    )
-                )
-            )
-            if rows:
-                warnings.append("所选日期范围无外汇历史数据，已展示 akshare_data 最近可用记录")
-        history_rows = self._normalize_fx_history(rows)
+        # CURRENCY_BOC_SAFE is a currency reference series, not a history of an
+        # exact FX pair. It must not be presented as a requested pair's bars.
+        history_rows: list[dict[str, Any]] = []
         snapshot = {
             "symbol": normalized,
             "name": _safe_str(_first_value(spot or {}, "名称", "name", "代码")) or normalized,
@@ -1931,8 +1879,7 @@ class MarketInstrumentService:
             "low": _safe_float(_first_value(spot or {}, "最低")),
             "previous_close": _safe_float(_first_value(spot or {}, "昨收")),
             "update_time": _safe_str(_first_value(spot or {}, "data_date")),
-            "history_currency": currency_column,
-            "data_source_table": "FOREX_SPOT_EM/CURRENCY_BOC_SAFE",
+            "data_source_table": "FOREX_SPOT_EM",
         }
         snapshot = snapshot or self._snapshot_from_latest_history(normalized, history_rows)
         return self._payload(
@@ -1967,43 +1914,9 @@ class MarketInstrumentService:
             """,
             {"symbol": normalized},
         )
-        if spot is None:
-            spot = await self._fetch_one(
-                """
-                SELECT *
-                FROM CRYPTO_JS_SPOT
-                WHERE `最近报价` IS NOT NULL AND `最近报价` <> 0
-                ORDER BY data_date DESC, `24小时成交量` DESC
-                LIMIT 1
-                """
-            )
-            if spot:
-                normalized = str(_first_value(spot, "交易品种") or normalized)
-                warnings.append(
-                    f"akshare_data 未找到 {symbol}，已展示最新数字货币样例 {normalized}"
-                )
-
-        latest_date_row = await self._fetch_one(
-            "SELECT MAX(data_date) AS latest_date FROM CRYPTO_BITCOIN_CME"
-        )
-        latest_date = latest_date_row.get("latest_date") if latest_date_row else None
-        cme_rows = (
-            await self._fetch_rows(
-                """
-            SELECT *
-            FROM CRYPTO_BITCOIN_CME
-            WHERE data_date = :latest_date
-            ORDER BY `未平仓合约` DESC
-            LIMIT 20
-            """,
-                {"latest_date": latest_date},
-            )
-            if latest_date
-            else []
-        )
-        history_rows = self._normalize_crypto_cme_rows(
-            pd.DataFrame(cme_rows), latest_date or date.today()
-        )
+        # CRYPTO_BITCOIN_CME is a Bitcoin positioning report, not price bars
+        # for a requested crypto pair such as BTCJPY.
+        history_rows: list[dict[str, Any]] = []
         snapshot = {
             "symbol": normalized,
             "name": _safe_str(_first_value(spot or {}, "交易品种")) or normalized,
@@ -2015,7 +1928,7 @@ class MarketInstrumentService:
             "volume": _safe_float(_first_value(spot or {}, "24小时成交量")),
             "market": _safe_str(_first_value(spot or {}, "市场")),
             "update_time": _safe_str(_first_value(spot or {}, "更新时间", "data_date")),
-            "data_source_table": "CRYPTO_JS_SPOT/CRYPTO_BITCOIN_CME",
+            "data_source_table": "CRYPTO_JS_SPOT",
         }
         return self._payload(
             asset_type="crypto",
@@ -2203,8 +2116,9 @@ class MarketInstrumentService:
 
         try:
             spot_df = ak.futures_zh_spot(symbol=symbol, market=normalized_market, adjust="0")
-            if not spot_df.empty:
-                row = spot_df.iloc[0].to_dict()
+            matched = self._match_any(spot_df, symbol, ["symbol", "代码", "合约"])
+            if not matched.empty:
+                row = matched.iloc[0].to_dict()
                 snapshot = {
                     "symbol": symbol,
                     "name": _safe_str(row.get("symbol")) or symbol,
@@ -2221,6 +2135,8 @@ class MarketInstrumentService:
                     "open_interest": _safe_int(row.get("hold")),
                     "update_time": _safe_str(row.get("time")),
                 }
+            elif not spot_df.empty:
+                warnings.append(f"未在期货实时快照中找到 {symbol}")
         except Exception as exc:
             warnings.append(f"期货实时快照不可用: {exc}")
 
@@ -2311,38 +2227,6 @@ class MarketInstrumentService:
             period=period,
         )
 
-    @staticmethod
-    def _resolve_option_symbol(ak: Any, symbol: str, warnings: list[str]) -> str:
-        """Resolve the stable MO alias to the first current CFFEX option contract."""
-        normalized = symbol.strip()
-        if normalized.upper() not in {"MO", "MO0", "CFFEX_MO"}:
-            return normalized
-
-        try:
-            listings = ak.option_cffex_zz1000_list_sina()
-            contracts = [
-                str(contract).strip()
-                for values in (listings or {}).values()
-                if isinstance(values, list)
-                for contract in values
-                if str(contract).strip()
-            ]
-            if not contracts:
-                raise ValueError("未找到中证 1000 期权月份")
-
-            chain = ak.option_cffex_zz1000_spot_sina(contracts[0])
-            for column in ("看涨合约-标识", "看跌合约-标识"):
-                if column not in chain:
-                    continue
-                for value in chain[column].tolist():
-                    contract = str(value or "").strip()
-                    if contract:
-                        return contract
-            raise ValueError("当前月份未返回可查询的期权合约")
-        except Exception as exc:
-            warnings.append(f"期权主力合约解析失败: {exc}")
-            return normalized
-
     def _lookup_option(
         self,
         *,
@@ -2355,7 +2239,7 @@ class MarketInstrumentService:
     ) -> dict[str, Any]:
         import akshare as ak
 
-        resolved_symbol = self._resolve_option_symbol(ak, symbol, warnings)
+        resolved_symbol = symbol.strip()
         normalized_symbol = resolved_symbol.lower()
         history_rows: list[dict[str, Any]] = []
         try:
@@ -2405,7 +2289,7 @@ class MarketInstrumentService:
             if not matched.empty:
                 row = matched.iloc[0].to_dict()
                 snapshot = {
-                    "symbol": symbol,
+                    "symbol": _safe_str(_first_present(row, "代码", "货币对", "symbol")) or symbol,
                     "name": _safe_str(_first_present(row, "名称", "货币对", "代码")) or symbol,
                     "price": _safe_float(_first_present(row, "最新价", "最新", "price", "close")),
                     "change": _safe_float(_first_present(row, "涨跌额", "change")),
@@ -2459,7 +2343,7 @@ class MarketInstrumentService:
             if not matched.empty:
                 row = matched.iloc[0].to_dict()
                 snapshot = {
-                    "symbol": symbol,
+                    "symbol": _safe_str(row.get("交易品种")) or symbol,
                     "name": _safe_str(row.get("交易品种")) or symbol,
                     "price": _safe_float(row.get("最近报价")),
                     "change": _safe_float(row.get("涨跌额")),
@@ -2474,12 +2358,6 @@ class MarketInstrumentService:
                 warnings.append(f"未在数字货币实时快照中找到 {symbol}")
         except Exception as exc:
             warnings.append(f"数字货币实时快照不可用: {exc}")
-
-        try:
-            cme_df = ak.crypto_bitcoin_cme(date=_date_text(end_date, date.today()))
-            history_rows = self._normalize_crypto_cme_rows(cme_df, end_date)
-        except Exception as exc:
-            warnings.append(f"数字货币 CME 持仓数据不可用: {exc}")
 
         return self._payload(
             asset_type="crypto",

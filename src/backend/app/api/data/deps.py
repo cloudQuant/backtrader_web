@@ -12,6 +12,7 @@ from app.config import get_settings
 from app.db.database import get_db
 from app.models.permission import Role, user_roles
 from app.models.user import User
+from app.services.market_data.access import MarketDataAccessAuthorizer
 from app.utils.security import decode_access_token
 
 settings = get_settings()
@@ -55,6 +56,13 @@ async def get_current_db_user(
 
     request.state.user_id = user.id
     return user
+
+
+def get_market_data_access_authorizer(
+    db: AsyncSession = Depends(get_db),
+) -> MarketDataAccessAuthorizer:
+    """Build the request-scoped v2 market-data authorization boundary."""
+    return MarketDataAccessAuthorizer(db)
 
 
 async def user_has_admin_access(db: AsyncSession, user: User) -> bool:

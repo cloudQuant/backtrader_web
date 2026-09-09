@@ -7,8 +7,17 @@ import typing
 from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.data.deps import get_current_db_user, get_market_data_access_authorizer
 from app.api.deps import get_current_user
+from app.config import get_settings
+from app.db.database import get_db
+from app.models.user import User
+from app.services.market_data.access import MarketDataAccessAuthorizer, MarketDataAuthorizationError
+from app.services.market_data.dataset_contracts import DatasetContractRegistryError
+from app.services.market_data.legacy_contract import LegacyMarketDataQueryContractResolver
 from app.services.market_instrument import MarketAssetType, MarketInstrumentService
 
 router = APIRouter()
@@ -17,6 +26,92 @@ logger = logging.getLogger(__name__)
 
 def get_market_instrument_service() -> MarketInstrumentService:
     return MarketInstrumentService()
+
+
+def get_legacy_market_data_query_contract_resolver(
+    db: AsyncSession = Depends(get_db),
+) -> LegacyMarketDataQueryContractResolver:
+    """Build the read-only v2 compatibility bridge for a request database session."""
+    settings = get_settings()
+    allowed_markets = frozenset(
+        item.strip()
+        for item in str(getattr(settings, "MARKET_DATA_OPENBB_ALLOWED_MARKETS", "")).split(",")
+        if item.strip()
+    )
+    return LegacyMarketDataQueryContractResolver(
+        db,
+        openbb_provider=str(getattr(settings, "MARKET_DATA_OPENBB_PROVIDER", "yfinance")),
+        openbb_allowed_markets=allowed_markets,
+    )
+
+
+@router.get(
+    "/market-instruments/query-contract",
+    summary="Resolve a local-first market-data query contract",
+    response_model=None,
+)
+async def get_market_data_query_contract(
+    symbol: str = Query(
+        ..., min_length=1, description="Exact instrument code from approved master data"
+    ),
+    asset_type: MarketAssetType = Query("stock", description="Instrument type"),
+    period: str = Query("daily", description="Period: daily/weekly/monthly"),
+    family_id: str | None = Query(
+        default=None,
+        max_length=128,
+        description="Optional exact market-page family selected from the server bundle",
+    ),
+    current_user: User = Depends(get_current_db_user),
+    access_authorizer: MarketDataAccessAuthorizer = Depends(get_market_data_access_authorizer),
+    query_contracts: LegacyMarketDataQueryContractResolver = Depends(
+        get_legacy_market_data_query_contract_resolver
+    ),
+) -> typing.Any:
+    """Return a strict v2 template without touching legacy data providers.
+
+    A page uses this probe before the legacy lookup so a catalog-backed,
+    uniquely registered identity can take the normalized local-first path on
+    its first request. The resolver does not derive an identity from a nearby
+    symbol and the endpoint intentionally returns 404 if bootstrap or
+    approved master data is incomplete; clients then retain the legacy path.
+    """
+    if not get_settings().MARKET_DATA_QUERY_V2_ENABLED:
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "MARKET_DATA_QUERY_V2_DISABLED"},
+        )
+    try:
+        principal = await access_authorizer.principal_for_user(current_user)
+        access_authorizer.require_read_data(principal=principal)
+        resolve_args: dict[str, str] = {
+            "asset_type": asset_type,
+            "symbol": symbol,
+            "period": period,
+        }
+        if family_id is not None:
+            resolve_args["family_id"] = family_id
+        contract = await query_contracts.resolve(**resolve_args)
+    except MarketDataAuthorizationError as exc:
+        raise HTTPException(status_code=403, detail={"code": exc.code}) from exc
+    except DatasetContractRegistryError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": exc.code},
+        ) from exc
+    except SQLAlchemyError as exc:
+        # A partially migrated metadata store is an unavailable compatibility
+        # probe, not a server trace exposed to a market-page client.
+        logger.warning("market-data v2 query contract unavailable")
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "MARKET_DATA_QUERY_CONTRACT_UNAVAILABLE"},
+        ) from exc
+    if contract is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"code": "MARKET_DATA_QUERY_CONTRACT_UNAVAILABLE"},
+        )
+    return contract
 
 
 @router.get("/kline", summary="Query K-line data", response_model=None)
@@ -131,10 +226,14 @@ async def lookup_market_instrument(
     ),
     current_user: typing.Any = Depends(get_current_user),
     service: MarketInstrumentService = Depends(get_market_instrument_service),
+    access_authorizer: MarketDataAccessAuthorizer = Depends(get_market_data_access_authorizer),
+    query_contracts: LegacyMarketDataQueryContractResolver = Depends(
+        get_legacy_market_data_query_contract_resolver
+    ),
 ) -> typing.Any:
     """Return a normalized snapshot, historical rows, and derived indicators."""
     try:
-        return await service.lookup(
+        payload = await service.lookup(
             asset_type=asset_type,
             symbol=symbol,
             start_date=start_date,
@@ -143,6 +242,68 @@ async def lookup_market_instrument(
             market=market,
             refresh_online=refresh_online,
         )
+        # The legacy shape remains authoritative until the v2 rollout is
+        # explicitly enabled and its catalog/master-data prerequisites are
+        # satisfied.  Absence of this optional field is a safe instruction for
+        # clients to continue using the existing compatibility endpoint.
+        if get_settings().MARKET_DATA_QUERY_V2_ENABLED:
+            try:
+                principal = await access_authorizer.principal_for_user(current_user)
+                access_authorizer.require_read_data(principal=principal)
+            except MarketDataAuthorizationError:
+                # Keep the legacy lookup's historic authorization semantics,
+                # but never mint or disclose a v2 catalog/identity template to
+                # a caller without the independent data-read entitlement.
+                contract = None
+            except SQLAlchemyError:
+                # A current-principal check is optional on this legacy route.
+                # Its metadata outage must not invalidate an already completed
+                # compatibility lookup, and must never cause a v2 disclosure.
+                logger.warning("market-data v2 compatibility authorization unavailable")
+                contract = None
+            else:
+                try:
+                    contract = await query_contracts.resolve(
+                        asset_type=asset_type,
+                        symbol=symbol,
+                        period=period,
+                    )
+                except DatasetContractRegistryError:
+                    # The derived family is not executable. Keep the legacy
+                    # response usable without advertising a generic v2 route.
+                    contract = None
+                except SQLAlchemyError:
+                    # The optional bridge must never turn a completed legacy
+                    # lookup into a 500. Its metadata outage omits only the
+                    # optional v2 template.
+                    logger.warning("market-data v2 compatibility contract unavailable")
+                    contract = None
+            if contract is not None:
+                # A legacy lookup may advertise a v2 template only with an
+                # explicit echo of the exact symbol and canonical identity
+                # used to mint it.  Do not let a mixed or malformed metadata
+                # response turn an otherwise complete legacy read into a 500,
+                # or advertise a contract that the client cannot safely bind.
+                contract_request = contract.get("request") if isinstance(contract, dict) else None
+                contract_identity = (
+                    contract_request.get("identity") if isinstance(contract_request, dict) else None
+                )
+                canonical_id = (
+                    contract_identity.get("canonical_id")
+                    if isinstance(contract_identity, dict)
+                    else None
+                )
+                if not isinstance(canonical_id, str) or not canonical_id.strip():
+                    logger.warning("market-data v2 compatibility contract malformed")
+                else:
+                    payload["query_contract"] = contract
+                    # The frontend compares all three values before allowing
+                    # this compatibility bridge to issue a v2 query, so a
+                    # stale/mixed legacy payload cannot redirect a current
+                    # symbol to a different canonical instrument.
+                    payload["query_contract_symbol"] = symbol.strip()
+                    payload["query_contract_canonical_id"] = canonical_id
+        return payload
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

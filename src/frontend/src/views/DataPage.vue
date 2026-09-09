@@ -15,6 +15,36 @@
             <el-tag type="info">
               {{ t('dataMgmt.providerTag', { provider: result?.provider || '-' }) }}
             </el-tag>
+            <div
+              class="market-data-platform-status"
+              data-test="market-data-platform-status"
+            >
+              <span>路径</span>
+              <el-tag :type="marketDataPlatformTagType">
+                {{ marketDataPlatformSourceText }}
+              </el-tag>
+              <span>缓存</span>
+              <el-tag :type="marketDataPlatformTagType">
+                {{ marketDataPlatformCacheText }}
+              </el-tag>
+              <span>覆盖</span>
+              <el-tag :type="marketDataPlatformTagType">
+                {{ marketDataPlatformCoverageText }}
+              </el-tag>
+            </div>
+            <div
+              v-if="marketDataPlatformProvenance.length"
+              class="market-data-platform-provenance"
+              data-test="market-data-platform-provenance"
+            >
+              <span
+                v-for="item in marketDataPlatformProvenance"
+                :key="item.label"
+              >
+                <strong>{{ item.label }}：</strong>
+                <code>{{ item.value }}</code>
+              </span>
+            </div>
             <div class="history-query-stats">
               <article
                 v-for="item in heroStats"
@@ -93,6 +123,20 @@
           </el-option>
         </el-select>
         <el-select
+          v-if="selectableDataFamilies.length"
+          :model-value="selectedFamilyId"
+          data-test="market-data-family-select"
+          placeholder="数据族"
+          @update:model-value="selectDataFamily"
+        >
+          <el-option
+            v-for="family in selectableDataFamilies"
+            :key="family.value"
+            :label="family.label"
+            :value="family.value"
+          />
+        </el-select>
+        <el-select
           v-model="form.period"
           :placeholder="t('dataMgmt.periodPlaceholder')"
         >
@@ -119,7 +163,7 @@
           type="primary"
           :loading="loading"
           data-test="market-instrument-query"
-          @click="lookupInstrument(true)"
+          @click="lookupInstrument(false)"
         >
           <el-icon aria-hidden="true">
             <Search />
@@ -350,7 +394,10 @@
       </el-collapse>
     </section>
 
-    <section class="market-workbench-grid">
+    <section
+      v-if="!isReferenceSeriesSelected"
+      class="market-workbench-grid"
+    >
       <el-card class="market-chart-card">
         <template #header>
           <div class="section-header market-chart-header">
@@ -436,8 +483,9 @@
         <div class="data-family-grid">
           <article
             v-for="family in assetDataFamilies"
-            :key="family.label"
+            :key="family.familyId"
             class="data-family-card"
+            :data-test="`market-data-family-${family.familyId}`"
           >
             <div class="data-family-card-head">
               <span>{{ family.label }}</span>
@@ -449,6 +497,22 @@
               </el-tag>
             </div>
             <p>{{ family.description }}</p>
+            <div
+              v-if="family.contract"
+              class="data-family-contract"
+              data-test="market-data-family-contract"
+            >
+              <code>{{ family.familyId }}</code>
+              <span>{{ family.contract.dataKind }} · {{ family.contract.frequencySemantics }}</span>
+              <span>{{ family.contract.coverageModel }} · {{ family.contract.observationShape }}</span>
+            </div>
+            <small
+              v-if="family.readStatusLabel"
+              class="data-family-read-state"
+              data-test="market-data-family-read-state"
+            >
+              {{ family.readStatusLabel }}
+            </small>
             <div class="field-chip-row">
               <span
                 v-for="field in family.fields"
@@ -575,7 +639,62 @@
       </el-card>
     </div>
 
-    <el-card class="history-table-card">
+    <el-card
+      v-if="isReferenceSeriesSelected"
+      class="history-table-card"
+      data-test="market-reference-series-table"
+    >
+      <template #header>
+        <div class="section-header">
+          <span>参考序列</span>
+          <el-tag
+            v-if="referenceSeriesResult"
+            size="small"
+            type="success"
+          >
+            {{ t('dataMgmt.historyRows', { count: referenceSeriesRows.length }) }}
+          </el-tag>
+          <el-tag
+            size="small"
+            type="info"
+            data-test="market-reference-series-family"
+          >
+            {{ selectedFamilyId }}
+          </el-tag>
+        </div>
+      </template>
+      <el-table
+        v-if="referenceSeriesRows.length"
+        v-loading="loading"
+        :data="referenceSeriesRows"
+        stripe
+        max-height="520"
+      >
+        <el-table-column
+          v-for="column in referenceSeriesTableColumns"
+          :key="column.key"
+          :prop="column.key"
+          :label="column.label"
+          :width="column.width"
+          :min-width="column.minWidth"
+          :align="column.align"
+          :fixed="column.fixed"
+        >
+          <template #default="{ row }">
+            {{ formatHistoryCell(row, column) }}
+          </template>
+        </el-table-column>
+      </el-table>
+      <el-empty
+        v-else
+        :description="referenceSeriesEmptyText"
+      />
+    </el-card>
+
+    <el-card
+      v-else
+      class="history-table-card"
+    >
       <template #header>
         <div class="section-header">
           <span>{{ t('dataMgmt.cardHistory') }}</span>
@@ -658,6 +777,8 @@ const dataPage = useDataPage()
 const {
   t,
   assetTabs,
+  selectedFamilyId,
+  selectableDataFamilies,
   periods,
   form,
   dateRange,
@@ -676,8 +797,18 @@ const {
   coverageError,
   coverageTimeframe,
   coverageProvider,
+  marketDataPlatformSourceText,
+  marketDataPlatformCacheText,
+  marketDataPlatformCoverageText,
+  marketDataPlatformTagType,
+  marketDataPlatformProvenance,
   snapshot,
   displayHistoryRows,
+  isReferenceSeriesSelected,
+  referenceSeriesResult,
+  referenceSeriesRows,
+  referenceSeriesTableColumns,
+  referenceSeriesEmptyText,
   chartCanRender,
   activeAssetConfig,
   activeAssetIcon,
@@ -703,6 +834,7 @@ const {
   historyTableColumns,
   assetLabel,
   setAssetType,
+  selectDataFamily,
   lookupInstrument,
   loadCoverageMatrix,
   refreshCoverageMatrix,
