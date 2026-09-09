@@ -828,6 +828,81 @@ def calendar_coverage_descriptor(payload: object) -> tuple[str, str] | None:
     return _calendar_coverage_descriptor(payload)
 
 
+class MdResearchDataBinding(Base):
+    """Server-issued immutable market-data artifact binding for one research intent.
+
+    The relational receipt is the authority for a backtest input artifact.  A
+    caller may carry its opaque identifier and HMAC envelope through a
+    workspace request, but it never supplies a filesystem path, provider, or
+    canonical identity.  The artifact itself is retained outside the database;
+    its relative path and content digest are therefore stored with the exact
+    local-first/PIT evidence that produced it.
+    """
+
+    __tablename__ = "md_research_data_bindings"
+    __table_args__ = (
+        UniqueConstraint("binding_hash", name="uq_md_rdb_binding_hash"),
+        CheckConstraint(
+            f"length(binding_hash) = {_SHA256_LENGTH}",
+            name="ck_md_rdb_binding_hash_len",
+        ),
+        CheckConstraint(
+            f"length(manifest_sha256) = {_SHA256_LENGTH}",
+            name="ck_md_rdb_manifest_hash_len",
+        ),
+        CheckConstraint(
+            f"length(artifact_sha256) = {_SHA256_LENGTH}",
+            name="ck_md_rdb_artifact_hash_len",
+        ),
+        CheckConstraint(
+            "artifact_size_bytes > 0",
+            name="ck_md_rdb_artifact_size_pos",
+        ),
+        CheckConstraint(
+            "status IN ('ACTIVE', 'REVOKED', 'INVALID')",
+            name="ck_md_rdb_status",
+        ),
+        CheckConstraint(
+            "visibility_sequence >= 0 AND identity_visibility_sequence >= 0",
+            name="ck_md_rdb_visibility_seq",
+        ),
+        Index("ix_md_rdb_owner_intent", "user_id", "intent_id", "created_at"),
+        Index("ix_md_rdb_status_created", "status", "created_at"),
+    )
+
+    id = Column(String(36), primary_key=True, default=_uuid)
+    user_id = Column(
+        String(36),
+        ForeignKey("users.id", name="fk_md_rdb_user", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    intent_id = Column(String(128), nullable=False)
+    binding_hash = Column(String(_SHA256_LENGTH), nullable=False)
+    binding_schema_version = Column(String(64), nullable=False)
+    status = Column(String(16), nullable=False, default="ACTIVE")
+    artifact_relative_path = Column(String(512), nullable=False)
+    artifact_sha256 = Column(String(_SHA256_LENGTH), nullable=False)
+    artifact_size_bytes = Column(BigInteger, nullable=False)
+    manifest_json = Column(JSON, default=dict, nullable=False)
+    manifest_sha256 = Column(String(_SHA256_LENGTH), nullable=False)
+    canonical_id = Column(exact_identifier_string(512), nullable=False)
+    instrument_metadata_version = Column(String(128), nullable=False)
+    dataset_code = Column(String(255), nullable=False)
+    family_id = Column(String(128), nullable=False)
+    family_contract_version = Column(String(64), nullable=False)
+    data_kind = Column(String(64), nullable=False)
+    frequency = Column(String(32), nullable=False)
+    source_policy_id = Column(String(128), nullable=False)
+    query_fingerprint = Column(String(_SHA256_LENGTH), nullable=False)
+    knowledge_cutoff = Column(PITDateTime, nullable=False)
+    identity_knowledge_cutoff = Column(PITDateTime, nullable=False)
+    visibility_at = Column(PITDateTime, nullable=False)
+    visibility_sequence = Column(BigInteger, nullable=False)
+    identity_visibility_at = Column(PITDateTime, nullable=False)
+    identity_visibility_sequence = Column(BigInteger, nullable=False)
+    created_at = Column(PITDateTime, default=_utcnow, nullable=False)
+
+
 def _deny_immutable_mutation(_mapper: Any, _connection: Any, target: Any) -> None:
     """Keep evidence entities append-only when accessed through the ORM."""
     raise ImmutableMarketDataRecordError(
@@ -843,6 +918,7 @@ for _immutable_model in (
     MdCalendarEvent,
     MdInstrumentIdentityRevision,
     MdPublication,
+    MdResearchDataBinding,
 ):
     event.listen(_immutable_model, "before_update", _deny_immutable_mutation)
     event.listen(_immutable_model, "before_delete", _deny_immutable_mutation)
