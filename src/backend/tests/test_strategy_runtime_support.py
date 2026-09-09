@@ -702,9 +702,11 @@ class TestWorkspaceUnitRuntime:
         finally:
             sys.modules.pop(module_name, None)
         assert resolved == root / "bindings" / ("a" * 64) / "data.csv"
-        assert workspace_unit_runtime._UNIT_RUN_PY.index(
-            "resolve_verified_market_data_binding_file(data)"
-        ) < workspace_unit_runtime._UNIT_RUN_PY.index("raw_directory =")
+        loader_start = workspace_unit_runtime._UNIT_RUN_PY.index("def load_dataframe")
+        loader_end = workspace_unit_runtime._UNIT_RUN_PY.index("def _import_strategy_module")
+        bound_loader = workspace_unit_runtime._UNIT_RUN_PY[loader_start:loader_end]
+        assert "open_verified_market_data_binding_file(data)" in bound_loader
+        assert "pd.read_csv(csv_handle)" in bound_loader
 
     def test_generated_runner_keeps_date_only_bound_end_inclusive(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -729,6 +731,16 @@ class TestWorkspaceUnitRuntime:
         sys.modules[module_name] = runner_module
         try:
             exec(workspace_unit_runtime._UNIT_RUN_PY, runner_module.__dict__)
+            original_read_csv = runner_module.__dict__["pd"].read_csv
+            csv_sources: list[object] = []
+
+            def guarded_read_csv(source: object, *args: object, **kwargs: object) -> object:
+                csv_sources.append(source)
+                assert hasattr(source, "read")
+                assert not isinstance(source, (str, Path))
+                return original_read_csv(source, *args, **kwargs)
+
+            monkeypatch.setattr(runner_module.__dict__["pd"], "read_csv", guarded_read_csv)
             dataframe, _csv_path = runner_module.__dict__["load_dataframe"](
                 {
                     "data": {
@@ -744,6 +756,39 @@ class TestWorkspaceUnitRuntime:
             sys.modules.pop(module_name, None)
 
         assert list(dataframe.index.strftime("%Y-%m-%d")) == ["2024-01-01", "2024-01-02"]
+        assert len(csv_sources) == 1
+
+    def test_verified_binding_descriptor_survives_path_replacement(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """A post-verification rename cannot make the caller read a new pathname target."""
+        import app.config as config_module
+
+        root, content, signing_key, metadata = self._signed_binding_data(tmp_path)
+        monkeypatch.setattr(
+            config_module,
+            "get_settings",
+            lambda: SimpleNamespace(MARKET_DATA_RESEARCH_ARTIFACT_SIGNING_KEY=signing_key),
+        )
+        monkeypatch.setattr(
+            workspace_unit_runtime,
+            "_market_data_binding_artifact_root",
+            lambda: root.resolve(),
+        )
+        binding_hash = "a" * 64
+        artifact_path = root / "bindings" / binding_hash / "data.csv"
+        replacement = tmp_path / "replacement.csv"
+        replacement.write_bytes(content.replace(b",1,0\n", b",9,0\n"))
+
+        with workspace_unit_runtime.open_verified_market_data_binding_file(
+            {"market_data_binding_required": True, "market_data_binding": metadata}
+        ) as (handle, resolved_path):
+            replacement.replace(artifact_path)
+
+            assert resolved_path == artifact_path
+            assert handle.read() == content
+
+        assert artifact_path.read_bytes() != content
 
     @pytest.mark.parametrize(
         ("tamper", "expected_code"),
@@ -751,6 +796,7 @@ class TestWorkspaceUnitRuntime:
             ("path", "MARKET_DATA_BINDING_SIGNATURE_INVALID"),
             ("bytes", "MARKET_DATA_BINDING_ARTIFACT_DIGEST_MISMATCH"),
             ("symlink", "MARKET_DATA_BINDING_ARTIFACT_PATH_INVALID"),
+            ("symlink-directory", "MARKET_DATA_BINDING_ARTIFACT_PATH_INVALID"),
         ],
     )
     def test_bound_runtime_rejects_tampered_binding_before_csv_selection(
@@ -780,11 +826,16 @@ class TestWorkspaceUnitRuntime:
             metadata["artifact_relative_path"] = f"bindings/{binding_hash}/not-data.csv"
         elif tamper == "bytes":
             artifact_path.write_bytes(content.replace(b",1,0\n", b",2,0\n"))
-        else:
+        elif tamper == "symlink":
             outside = tmp_path / "outside.csv"
             outside.write_bytes(content)
             artifact_path.unlink()
             artifact_path.symlink_to(outside)
+        else:
+            bindings_dir = root / "bindings"
+            outside_dir = tmp_path / "outside-bindings"
+            bindings_dir.replace(outside_dir)
+            bindings_dir.symlink_to(outside_dir, target_is_directory=True)
 
         with pytest.raises(
             workspace_unit_runtime.MarketDataBindingRuntimeError,
@@ -799,10 +850,10 @@ class TestWorkspaceUnitRuntime:
             )
 
     @pytest.mark.asyncio
-    async def test_required_binding_revalidation_normalizes_date_only_oos_subset_to_core(
+    async def test_required_binding_revalidation_reloads_bound_unit_and_normalizes_oos_subset(
         self, monkeypatch: pytest.MonkeyPatch
     ):
-        """Run orchestration supplies DB, owner, identity, timeframe, and OOS subwindow."""
+        """The core receives current persisted scope/intent, never stale ORM binding data."""
         import app.services.market_data.research_binding as research_binding
 
         calls: list[dict[str, object]] = []
@@ -813,14 +864,9 @@ class TestWorkspaceUnitRuntime:
                 calls.append(kwargs)
                 return expected_binding
 
-        db = object()
-        fake_service = FakeBindingService()
-        monkeypatch.setattr(
-            research_binding,
-            "build_market_data_research_binding_service",
-            lambda passed_db: fake_service if passed_db is db else None,
-        )
-        unit = SimpleNamespace(
+        current_unit = SimpleNamespace(
+            id="unit-1",
+            workspace_id="workspace-1",
             symbol="000001.SZ",
             timeframe="1d",
             timeframe_n=1,
@@ -829,9 +875,43 @@ class TestWorkspaceUnitRuntime:
                 "market_data_binding_id": "binding-1",
                 "market_data_binding_hash": "a" * 64,
                 "market_data_binding_signature": "server-token",
+                "market_data_binding_intent_id": "research-task-1",
                 "range_type": "date",
                 "start_date": "2024-01-02",
                 "end_date": "2024-01-03",
+            },
+        )
+
+        class FakeDb:
+            def __init__(self) -> None:
+                self.get_calls: list[tuple[object, str]] = []
+
+            async def get(self, model: object, unit_id: str) -> object | None:
+                self.get_calls.append((model, unit_id))
+                return current_unit if unit_id == "unit-1" else None
+
+        db = FakeDb()
+        fake_service = FakeBindingService()
+        monkeypatch.setattr(
+            research_binding,
+            "build_market_data_research_binding_service",
+            lambda passed_db: fake_service if passed_db is db else None,
+        )
+        unit = SimpleNamespace(
+            id="unit-1",
+            workspace_id="workspace-1",
+            symbol="STALE-SYMBOL",
+            timeframe="1h",
+            timeframe_n=99,
+            data_config={
+                "market_data_binding_required": True,
+                "market_data_binding_id": "stale-binding",
+                "market_data_binding_hash": "b" * 64,
+                "market_data_binding_signature": "stale-token",
+                "market_data_binding_intent_id": "stale-intent",
+                "range_type": "date",
+                "start_date": "2020-01-01",
+                "end_date": "2020-01-02",
             },
         )
 
@@ -842,12 +922,16 @@ class TestWorkspaceUnitRuntime:
         )
 
         assert resolved is expected_binding
+        assert db.get_calls == [(workspace_unit_runtime.StrategyUnit, "unit-1")]
         assert calls == [
             {
                 "user_id": "user-1",
                 "binding_id": "binding-1",
                 "binding_hash": "a" * 64,
                 "signature": "server-token",
+                "workspace_id": "workspace-1",
+                "unit_id": "unit-1",
+                "intent_id": "research-task-1",
                 "symbol": "000001.SZ",
                 "timeframe": "1d",
                 "timeframe_n": 1,
@@ -855,8 +939,47 @@ class TestWorkspaceUnitRuntime:
                 "end": "2024-01-04T00:00:00.000000Z",
             }
         ]
-        assert unit.data_config["start_date"] == "2024-01-02"
-        assert unit.data_config["end_date"] == "2024-01-03"
+        assert unit.data_config["market_data_binding_id"] == "stale-binding"
+        assert unit.data_config["market_data_binding_intent_id"] == "stale-intent"
+
+    @pytest.mark.asyncio
+    async def test_required_binding_revalidation_rejects_missing_current_unit(self) -> None:
+        """A stale unit object cannot authorize a deleted or replaced DB row."""
+
+        class FakeDb:
+            async def get(self, _model: object, _unit_id: str) -> None:
+                return None
+
+        unit = SimpleNamespace(
+            id="unit-1",
+            workspace_id="workspace-1",
+            data_config={"market_data_binding_required": True},
+        )
+
+        with pytest.raises(
+            workspace_unit_runtime.MarketDataBindingRuntimeError,
+            match="MARKET_DATA_BINDING_RUNTIME_INTENT_DENIED",
+        ):
+            await workspace_unit_runtime.resolve_required_market_data_binding(
+                unit,
+                "user-1",
+                db=FakeDb(),
+            )
+
+    @pytest.mark.asyncio
+    async def test_unbound_unit_skips_binding_session_lookup(self) -> None:
+        """Legacy units preserve their prior no-binding runtime path exactly."""
+        unit = SimpleNamespace(
+            id="legacy-unit",
+            workspace_id="workspace-1",
+            data_config={"directory_path": "/legacy/csv"},
+        )
+
+        assert await workspace_unit_runtime.resolve_required_market_data_binding(
+            unit,
+            "user-1",
+            db=object(),
+        ) is None
 
     @pytest.mark.asyncio
     async def test_parallel_bound_runs_use_distinct_revalidation_sessions_before_submission(

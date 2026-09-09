@@ -1,15 +1,18 @@
 from __future__ import annotations
 
+import errno
 import hashlib
 import logging
+import os
 import shutil
 import stat
 import textwrap
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
 from copy import deepcopy
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, BinaryIO
 
 import yaml
 
@@ -204,25 +207,66 @@ async def resolve_required_market_data_binding(
 
     An optional/unbound legacy unit deliberately returns ``None`` so its
     historical CSV behaviour stays untouched.  A bound unit has no fallback:
-    the service validates the HMAC-backed record, current owner, identity,
-    timeframe and that the requested window is a subset of the sealed window.
+    the service validates the HMAC-backed record, current owner, server-side
+    workspace/unit/intent attachment, identity, timeframe and that the
+    requested window is a subset of the sealed window.  The outer workspace
+    session can hold an old ORM instance, so all binding fields are reloaded
+    through this independent binding session before they reach the core
+    authorization boundary.
     """
-    data_config = dict(getattr(unit, "data_config", {}) or {})
+    outer_data_config = dict(getattr(unit, "data_config", {}) or {})
+    if not _market_data_binding_required(outer_data_config):
+        # Keep ordinary historical units entirely off the binding/DB path.
+        return None
+    requested_unit_id = str(getattr(unit, "id", "") or "").strip()
+    requested_workspace_id = str(getattr(unit, "workspace_id", "") or "").strip()
+    if not requested_unit_id:
+        raise MarketDataBindingRuntimeError("MARKET_DATA_BINDING_RUNTIME_CONFIG_INVALID")
+    try:
+        current_unit = await db.get(StrategyUnit, requested_unit_id)
+    except Exception as exc:
+        logger.warning("Unable to reload research binding unit", exc_info=True)
+        raise MarketDataBindingRuntimeError(
+            "MARKET_DATA_BINDING_RUNTIME_REVALIDATION_FAILED"
+        ) from exc
+    if current_unit is None:
+        raise MarketDataBindingRuntimeError("MARKET_DATA_BINDING_RUNTIME_INTENT_DENIED")
+
+    workspace_id = str(getattr(current_unit, "workspace_id", "") or "").strip()
+    unit_id = str(getattr(current_unit, "id", "") or "").strip()
+    if not workspace_id or not unit_id or unit_id != requested_unit_id:
+        raise MarketDataBindingRuntimeError("MARKET_DATA_BINDING_RUNTIME_INTENT_DENIED")
+    if requested_workspace_id and workspace_id != requested_workspace_id:
+        raise MarketDataBindingRuntimeError("MARKET_DATA_BINDING_RUNTIME_INTENT_DENIED")
+
+    data_config = dict(getattr(current_unit, "data_config", {}) or {})
     if not _market_data_binding_required(data_config):
         return None
 
     binding_id = str(data_config.get("market_data_binding_id") or "").strip()
     binding_hash = str(data_config.get("market_data_binding_hash") or "").strip()
     signature = str(data_config.get("market_data_binding_signature") or "").strip()
-    symbol = str(getattr(unit, "symbol", "") or "").strip()
-    timeframe = str(getattr(unit, "timeframe", "") or "").strip()
+    intent_id = str(data_config.get("market_data_binding_intent_id") or "").strip()
+    symbol = str(getattr(current_unit, "symbol", "") or "").strip()
+    timeframe = str(getattr(current_unit, "timeframe", "") or "").strip()
     try:
-        timeframe_n = int(getattr(unit, "timeframe_n", 0) or 0)
+        timeframe_n = int(getattr(current_unit, "timeframe_n", 0) or 0)
     except (TypeError, ValueError):
         timeframe_n = 0
     raw_start = str(data_config.get("start_date") or "").strip()
     raw_end = str(data_config.get("end_date") or "").strip()
-    if not all((binding_id, binding_hash, signature, symbol, timeframe, raw_start, raw_end)) or timeframe_n < 1:
+    if not all(
+        (
+            binding_id,
+            binding_hash,
+            signature,
+            intent_id,
+            symbol,
+            timeframe,
+            raw_start,
+            raw_end,
+        )
+    ) or timeframe_n < 1:
         raise MarketDataBindingRuntimeError("MARKET_DATA_BINDING_RUNTIME_CONFIG_INVALID")
     if str(data_config.get("range_type") or "date").strip().lower() != "date":
         raise MarketDataBindingRuntimeError("MARKET_DATA_BINDING_RUNTIME_WINDOW_INVALID")
@@ -241,6 +285,9 @@ async def resolve_required_market_data_binding(
             binding_id=binding_id,
             binding_hash=binding_hash,
             signature=signature,
+            workspace_id=workspace_id,
+            unit_id=unit_id,
+            intent_id=intent_id,
             symbol=symbol,
             timeframe=timeframe,
             timeframe_n=timeframe_n,
@@ -982,8 +1029,16 @@ _UNIT_RUN_PY = textwrap.dedent(
     def load_dataframe(config: dict) -> tuple[pd.DataFrame, Path]:
         data = config.get('data') or {}
         binding_required = _safe_bool(data.get('market_data_binding_required'), False)
-        csv_path = resolve_data_file(config)
-        df = pd.read_csv(csv_path)
+        if binding_required:
+            # The verified helper holds one O_NOFOLLOW-protected descriptor
+            # while it hashes and pandas consumes the bytes.  Do not turn its
+            # diagnostic Path back into a second, unchecked path open.
+            from app.services.workspace_unit_runtime import open_verified_market_data_binding_file
+            with open_verified_market_data_binding_file(data) as (csv_handle, csv_path):
+                df = pd.read_csv(csv_handle)
+        else:
+            csv_path = resolve_data_file(config)
+            df = pd.read_csv(csv_path)
         rename_map = {}
         if 'time' in df.columns and 'datetime' not in df.columns:
             rename_map['time'] = 'datetime'
@@ -1333,22 +1388,8 @@ def _market_data_binding_artifact_root() -> Path:
     return resolved
 
 
-def _sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        while chunk := handle.read(1024 * 1024):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
-def resolve_verified_market_data_binding_file(data: Mapping[str, Any]) -> Path:
-    """Return the exact signed CSV for a bound unit or fail before it is read.
-
-    This function runs in the generated backtest subprocess as well as normal
-    tests.  It intentionally ignores every generic CSV directory, provider,
-    canonical-ID, and environment fallback.  Its only path source is a signed
-    server payload combined with the deployment-owned artifact root.
-    """
+def _validated_market_data_binding_payload(data: Mapping[str, Any]) -> dict[str, object]:
+    """Return the HMAC-authenticated artifact payload without touching its path."""
     if not isinstance(data, Mapping):
         raise MarketDataBindingRuntimeError("MARKET_DATA_BINDING_RUNTIME_CONFIG_INVALID")
     raw_metadata = data.get(_MARKET_DATA_BINDING_CONFIG_KEY)
@@ -1403,6 +1444,172 @@ def resolve_verified_market_data_binding_file(data: Mapping[str, Any]) -> Path:
 
     if dict(signed_payload) != expected_payload:
         raise MarketDataBindingRuntimeError("MARKET_DATA_BINDING_SIGNATURE_INVALID")
+    return expected_payload
+
+
+def _binding_open_flags(*, directory: bool) -> int:
+    """Return fail-closed POSIX descriptor flags for a sealed artifact chain."""
+    nofollow = getattr(os, "O_NOFOLLOW", 0)
+    if os.name != "posix" or not nofollow or os.open not in os.supports_dir_fd:
+        raise MarketDataBindingRuntimeError("MARKET_DATA_BINDING_ARTIFACT_PATH_INVALID")
+    flags = os.O_RDONLY | nofollow | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NONBLOCK", 0)
+    if directory:
+        directory_flag = getattr(os, "O_DIRECTORY", 0)
+        if not directory_flag:
+            raise MarketDataBindingRuntimeError("MARKET_DATA_BINDING_ARTIFACT_PATH_INVALID")
+        flags |= directory_flag
+    return flags
+
+
+def _raise_binding_artifact_open_error(exc: OSError) -> None:
+    """Normalize descriptor-open failures without exposing filesystem detail."""
+    if exc.errno in {errno.ELOOP, errno.ENOTDIR}:
+        raise MarketDataBindingRuntimeError("MARKET_DATA_BINDING_ARTIFACT_PATH_INVALID") from exc
+    raise MarketDataBindingRuntimeError("MARKET_DATA_BINDING_ARTIFACT_MISSING") from exc
+
+
+def _close_binding_fd(fd: int | None) -> None:
+    if fd is None:
+        return
+    try:
+        os.close(fd)
+    except OSError:
+        pass
+
+
+def _open_binding_directory_at(parent_fd: int, part: str) -> int:
+    """Open one direct directory child while refusing symlinks and files."""
+    if not part or part in {".", ".."} or "/" in part:
+        raise MarketDataBindingRuntimeError("MARKET_DATA_BINDING_ARTIFACT_PATH_INVALID")
+    try:
+        descriptor = os.open(part, _binding_open_flags(directory=True), dir_fd=parent_fd)
+    except OSError as exc:
+        _raise_binding_artifact_open_error(exc)
+        raise AssertionError("unreachable") from exc
+    try:
+        if not stat.S_ISDIR(os.fstat(descriptor).st_mode):
+            raise MarketDataBindingRuntimeError("MARKET_DATA_BINDING_ARTIFACT_PATH_INVALID")
+        return descriptor
+    except Exception:
+        _close_binding_fd(descriptor)
+        raise
+
+
+def _open_secure_binding_root(root: Path) -> int:
+    """Anchor an artifact root through a no-symlink descriptor chain from `/`."""
+    if not root.is_absolute() or root.anchor != os.path.sep:
+        raise MarketDataBindingRuntimeError("MARKET_DATA_BINDING_ARTIFACT_PATH_INVALID")
+    try:
+        descriptor = os.open(root.anchor, _binding_open_flags(directory=True))
+    except OSError as exc:
+        _raise_binding_artifact_open_error(exc)
+        raise AssertionError("unreachable") from exc
+    try:
+        for part in root.parts:
+            if part == root.anchor:
+                continue
+            next_descriptor = _open_binding_directory_at(descriptor, part)
+            _close_binding_fd(descriptor)
+            descriptor = next_descriptor
+        return descriptor
+    except Exception:
+        _close_binding_fd(descriptor)
+        raise
+
+
+def _open_verified_market_data_binding_descriptor(
+    root: Path,
+    binding_hash: str,
+) -> tuple[int, Path]:
+    """Open the exact `bindings/<hash>/data.csv` inode from a secure root fd."""
+    root_fd = _open_secure_binding_root(root)
+    current_fd: int | None = root_fd
+    try:
+        for part in ("bindings", binding_hash):
+            next_fd = _open_binding_directory_at(current_fd, part)
+            _close_binding_fd(current_fd)
+            current_fd = next_fd
+        try:
+            artifact_fd = os.open(
+                "data.csv",
+                _binding_open_flags(directory=False),
+                dir_fd=current_fd,
+            )
+        except OSError as exc:
+            _raise_binding_artifact_open_error(exc)
+            raise AssertionError("unreachable") from exc
+        artifact_path = root / "bindings" / binding_hash / "data.csv"
+        return artifact_fd, artifact_path
+    finally:
+        _close_binding_fd(current_fd)
+
+
+def _sha256_open_file(handle: BinaryIO) -> str:
+    """Hash an already-open descriptor and rewind it for its sole consumer."""
+    digest = hashlib.sha256()
+    try:
+        handle.seek(0)
+        while chunk := handle.read(1024 * 1024):
+            digest.update(chunk)
+        handle.seek(0)
+    except (OSError, ValueError) as exc:
+        raise MarketDataBindingRuntimeError("MARKET_DATA_BINDING_ARTIFACT_MISSING") from exc
+    return digest.hexdigest()
+
+
+def _artifact_stat_fingerprint(artifact_stat: os.stat_result) -> tuple[int, int, int, int, int]:
+    """Capture descriptor identity metadata around the digest read."""
+    return (
+        artifact_stat.st_dev,
+        artifact_stat.st_ino,
+        artifact_stat.st_size,
+        getattr(artifact_stat, "st_mtime_ns", 0),
+        getattr(artifact_stat, "st_ctime_ns", 0),
+    )
+
+
+def _verify_open_market_data_binding_artifact(
+    handle: BinaryIO,
+    expected_payload: Mapping[str, object],
+) -> None:
+    """Verify one opened inode before it is handed to pandas for the only read."""
+    try:
+        before = os.fstat(handle.fileno())
+    except (OSError, ValueError) as exc:
+        raise MarketDataBindingRuntimeError("MARKET_DATA_BINDING_ARTIFACT_MISSING") from exc
+    if not stat.S_ISREG(before.st_mode):
+        raise MarketDataBindingRuntimeError("MARKET_DATA_BINDING_ARTIFACT_PATH_INVALID")
+    try:
+        expected_size = int(expected_payload["artifact_size_bytes"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise MarketDataBindingRuntimeError("MARKET_DATA_BINDING_RUNTIME_CONFIG_INVALID") from exc
+    if before.st_size != expected_size:
+        raise MarketDataBindingRuntimeError("MARKET_DATA_BINDING_ARTIFACT_SIZE_MISMATCH")
+    actual_sha256 = _sha256_open_file(handle)
+    try:
+        after = os.fstat(handle.fileno())
+    except (OSError, ValueError) as exc:
+        raise MarketDataBindingRuntimeError("MARKET_DATA_BINDING_ARTIFACT_MISSING") from exc
+    if after.st_size != expected_size:
+        raise MarketDataBindingRuntimeError("MARKET_DATA_BINDING_ARTIFACT_SIZE_MISMATCH")
+    if _artifact_stat_fingerprint(before) != _artifact_stat_fingerprint(after):
+        raise MarketDataBindingRuntimeError("MARKET_DATA_BINDING_ARTIFACT_DIGEST_MISMATCH")
+    if actual_sha256 != expected_payload["artifact_sha256"]:
+        raise MarketDataBindingRuntimeError("MARKET_DATA_BINDING_ARTIFACT_DIGEST_MISMATCH")
+
+
+@contextmanager
+def open_verified_market_data_binding_file(
+    data: Mapping[str, Any],
+) -> Iterator[tuple[BinaryIO, Path]]:
+    """Yield the one HMAC-verified CSV descriptor for a bound research run.
+
+    The descriptor is rooted at the deployment-owned artifact directory and
+    is opened through every path component with ``O_NOFOLLOW``.  Hashing and
+    the caller's CSV read share that descriptor, so a rename or symlink swap
+    after validation cannot make pandas reopen a different pathname.
+    """
+    expected_payload = _validated_market_data_binding_payload(data)
 
     binding_hash = str(expected_payload["binding_hash"])
     relative_path = str(expected_payload["artifact_relative_path"])
@@ -1410,36 +1617,25 @@ def resolve_verified_market_data_binding_file(data: Mapping[str, Any]) -> Path:
     if relative_path != expected_relative_path:
         raise MarketDataBindingRuntimeError("MARKET_DATA_BINDING_ARTIFACT_PATH_INVALID")
     root = _market_data_binding_artifact_root()
-    artifact_path = root.joinpath(*relative_path.split("/"))
+    artifact_fd: int | None = None
     try:
-        # Reject all symlink segments.  Containment alone would accept an
-        # internal symlink, but a sealed research artifact must be a direct
-        # regular file below the server-owned root.
-        current = root
-        for part in relative_path.split("/"):
-            current = current / part
-            if current.is_symlink():
-                raise MarketDataBindingRuntimeError("MARKET_DATA_BINDING_ARTIFACT_PATH_INVALID")
-        resolved_path = artifact_path.resolve(strict=True)
-        resolved_path.relative_to(root)
-        artifact_stat = resolved_path.lstat()
-    except MarketDataBindingRuntimeError:
-        raise
-    except (OSError, ValueError) as exc:
-        raise MarketDataBindingRuntimeError("MARKET_DATA_BINDING_ARTIFACT_MISSING") from exc
-    if not stat.S_ISREG(artifact_stat.st_mode):
-        raise MarketDataBindingRuntimeError("MARKET_DATA_BINDING_ARTIFACT_PATH_INVALID")
+        artifact_fd, artifact_path = _open_verified_market_data_binding_descriptor(root, binding_hash)
+        with os.fdopen(artifact_fd, "rb", closefd=True) as handle:
+            artifact_fd = None
+            _verify_open_market_data_binding_artifact(handle, expected_payload)
+            yield handle, artifact_path
+    finally:
+        _close_binding_fd(artifact_fd)
 
-    expected_size = int(expected_payload["artifact_size_bytes"])
-    if artifact_stat.st_size != expected_size:
-        raise MarketDataBindingRuntimeError("MARKET_DATA_BINDING_ARTIFACT_SIZE_MISMATCH")
-    try:
-        actual_sha256 = _sha256_file(resolved_path)
-    except OSError as exc:
-        raise MarketDataBindingRuntimeError("MARKET_DATA_BINDING_ARTIFACT_MISSING") from exc
-    if actual_sha256 != expected_payload["artifact_sha256"]:
-        raise MarketDataBindingRuntimeError("MARKET_DATA_BINDING_ARTIFACT_DIGEST_MISMATCH")
-    return resolved_path
+
+def resolve_verified_market_data_binding_file(data: Mapping[str, Any]) -> Path:
+    """Return a verified diagnostic path for compatibility; never use it for I/O.
+
+    Backtest execution must use :func:`open_verified_market_data_binding_file`
+    so the verified descriptor, rather than this path value, reaches pandas.
+    """
+    with open_verified_market_data_binding_file(data) as (_handle, artifact_path):
+        return artifact_path
 
 
 def _normalize_unit_data_config(data_config: dict[str, Any] | None) -> dict[str, Any]:
