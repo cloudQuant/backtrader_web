@@ -296,6 +296,10 @@ class MarketDataProviderRequest:
     # echoed DTO so an isolated runner cannot substitute a same-shaped route.
     family_id: str | None = None
     provider_endpoint: str | None = None
+    # These frozen master-data facts let an adapter defend a product-specific
+    # source route even when it is invoked outside the policy selector.
+    product_type: str | None = None
+    fund_identity_kind: str | None = None
     # This is the reviewed, server-owned source-policy descriptor.  It is
     # deliberately separate from the authenticated caller's dynamic access
     # grant below, so a receipt can prove both what route policy allowed and
@@ -329,6 +333,8 @@ class MarketDataProviderRequest:
             "route_id",
             "family_id",
             "provider_endpoint",
+            "product_type",
+            "fund_identity_kind",
         ):
             value = getattr(self, field_name)
             if value is not None:
@@ -395,6 +401,8 @@ class MarketDataProviderRequest:
             "route_id": self.route_id,
             "family_id": self.family_id,
             "provider_endpoint": self.provider_endpoint,
+            "product_type": self.product_type,
+            "fund_identity_kind": self.fund_identity_kind,
             "policy_descriptor_hash": self.policy_descriptor_hash,
             "access_grant_descriptor_hash": self.access_grant_descriptor_hash,
         }

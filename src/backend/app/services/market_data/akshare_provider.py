@@ -116,6 +116,10 @@ class AkShareRoute:
     supported_price_bases: frozenset[str] = frozenset({"close"})
     supported_currencies: frozenset[str] | None = None
     supported_units: frozenset[str] | None = None
+    # A source function may be limited to one frozen product identity even
+    # when several products share the same symbol syntax and market.
+    supported_product_types: frozenset[str] | None = None
+    supported_fund_identity_kinds: frozenset[str] | None = None
     # The policy-level route ID is deliberately separate from the AkShare
     # endpoint name.  Several single-record product families can share an
     # asset type and data kind (for example, stock reference series), but
@@ -147,6 +151,20 @@ class AkShareRoute:
             raise ValueError("use None to reject all explicit AkShare currencies")
         if self.supported_units is not None and not self.supported_units:
             raise ValueError("use None to reject all explicit AkShare units")
+        for field_name, values in (
+            ("supported_product_types", self.supported_product_types),
+            ("supported_fund_identity_kinds", self.supported_fund_identity_kinds),
+        ):
+            if values is not None:
+                if (
+                    not isinstance(values, frozenset)
+                    or not values
+                    or any(not isinstance(value, str) or not value.strip() for value in values)
+                ):
+                    raise ValueError(f"{field_name} must be a non-empty frozenset of text")
+                object.__setattr__(self, field_name, frozenset(value.strip() for value in values))
+        if self.supported_fund_identity_kinds is not None and self.asset_type != "fund":
+            raise ValueError("supported_fund_identity_kinds require a fund route")
         if not isinstance(self.route_ids, frozenset):
             raise TypeError("AkShare route_ids must be a frozenset")
         if any(not isinstance(route_id, str) or not route_id.strip() for route_id in self.route_ids):
@@ -450,6 +468,20 @@ def _build_historical_kline_kwargs(request: MarketDataProviderRequest) -> Mappin
     }
 
 
+def _build_fund_nav_kwargs(request: MarketDataProviderRequest) -> Mapping[str, Any]:
+    """Build the exact ETF NAV-history call without borrowing the price-bar route.
+
+    ``fund_etf_fund_info_em`` has a different argument contract from
+    ``fund_etf_hist_em`` and returns source-reported net asset values. Its
+    inclusive source dates are derived from the v2 half-open query window.
+    """
+    return {
+        "fund": request.provider_symbol,
+        "start_date": _format_akshare_date(request.start_at),
+        "end_date": _format_akshare_inclusive_end_date(request.end_at),
+    }
+
+
 def _build_symbol_only_kwargs(request: MarketDataProviderRequest) -> Mapping[str, Any]:
     """Build a route that returns the source's full history for one exact symbol."""
     return {"symbol": request.provider_symbol}
@@ -612,6 +644,27 @@ AKSHARE_ROUTE_REGISTRY: tuple[AkShareRoute, ...] = (
         supported_units=frozenset({"share"}),
         request_validator=_validate_cn_etf_symbol,
         route_ids=frozenset({"akshare-fund-liquidity-primary-v1"}),
+    ),
+    # NAV is a source-reported per-fund-share reference series. It is neither
+    # a traded ETF price bar nor a liquidity projection, so it uses the
+    # dedicated Eastmoney/AkShare history endpoint and separate semantic axes.
+    AkShareRoute(
+        asset_type="fund",
+        data_kind="reference_series",
+        frequencies=_DAILY_ONLY_FREQUENCIES,
+        endpoint="fund_etf_fund_info_em",
+        build_call_kwargs=_build_fund_nav_kwargs,
+        timestamp_columns=("净值日期", "date"),
+        allowed_markets=frozenset({"CN-SSE", "CN-SZSE"}),
+        client_filters_window=True,
+        supported_adjustments=frozenset({"source_reported"}),
+        supported_price_bases=frozenset({"nav"}),
+        supported_currencies=frozenset({"CNY"}),
+        supported_units=frozenset({"fund_share"}),
+        supported_product_types=frozenset({"ETF"}),
+        supported_fund_identity_kinds=frozenset({"LISTING"}),
+        request_validator=_validate_cn_etf_symbol,
+        route_ids=frozenset({"akshare-fund-nav-primary-v1"}),
     ),
     AkShareRoute(
         asset_type="option",
@@ -801,6 +854,16 @@ class AkShareMarketDataProvider:
             route.supported_units is None or request.unit not in route.supported_units
         ):
             raise AkShareProviderError("AKSHARE_UNIT_UNSUPPORTED")
+        if (
+            route.supported_product_types is not None
+            and request.product_type not in route.supported_product_types
+        ):
+            raise AkShareProviderError("AKSHARE_PRODUCT_IDENTITY_UNSUPPORTED")
+        if (
+            route.supported_fund_identity_kinds is not None
+            and request.fund_identity_kind not in route.supported_fund_identity_kinds
+        ):
+            raise AkShareProviderError("AKSHARE_PRODUCT_IDENTITY_UNSUPPORTED")
         if route.identity_proof == "source_request_bound" and request.source_policy_id is None:
             raise AkShareProviderError("AKSHARE_SOURCE_POLICY_REQUIRED")
         if route.request_validator is not None:
@@ -850,7 +913,11 @@ class AkShareMarketDataProvider:
             for frequency in route.frequencies:
                 key = (route.asset_type, route.data_kind, frequency)
                 conflicts = seen_routes.setdefault(key, [])
-                if any(_routes_overlap(route, existing) for existing in conflicts):
+                if any(
+                    _routes_overlap(route, existing)
+                    and not _route_ids_disambiguate(route, existing)
+                    for existing in conflicts
+                ):
                     raise ValueError(f"duplicate AkShare route: {key!r}")
                 conflicts.append(route)
 
@@ -889,6 +956,18 @@ def _routes_overlap(left: AkShareRoute, right: AkShareRoute) -> bool:
     if left.allowed_markets is None or right.allowed_markets is None:
         return True
     return bool(left.allowed_markets & right.allowed_markets)
+
+
+def _route_ids_disambiguate(left: AkShareRoute, right: AkShareRoute) -> bool:
+    """Return whether server-issued policy route IDs separate overlapping products.
+
+    Products such as ETF liquidity and NAV legitimately share asset type,
+    data kind, frequency and market. They may coexist only when their
+    non-empty policy route-ID sets are disjoint. A direct adapter call without
+    one of those IDs still sees multiple candidates and fails closed in
+    ``_route_for``; only the server-owned source-policy path supplies it.
+    """
+    return bool(left.route_ids and right.route_ids and left.route_ids.isdisjoint(right.route_ids))
 
 
 def _coerce_response_rows(response: object) -> list[dict[str, Any]]:

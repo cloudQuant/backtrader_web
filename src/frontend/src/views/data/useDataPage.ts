@@ -33,6 +33,7 @@ import {
   type MarketDataQueryBundleFamily,
   type MarketDataQueryBundleFamilyStatus,
   type MarketDataQueryContract,
+  type MarketDataQueryMode,
   type MarketDataQueryResponse,
 } from '@/api/marketData'
 import { CANDLE_DOWN_COLOR, CANDLE_ITEM_STYLE, CANDLE_UP_COLOR } from '@/constants/chartColors'
@@ -159,6 +160,18 @@ export function useDataPage() {
     familyId: string
   }
 
+  /**
+   * Keep automatic reads distinct from a user-requested cache fill.
+   *
+   * ``local_only`` is the safe default for page lifecycle work: opening a
+   * route, switching a route tab, or changing the displayed asset must never
+   * start a provider fetch. ``local_first`` is reserved for the explicit
+   * query button and remains subject to the server-owned v2 capability and
+   * online-fetch gate. ``refresh`` is retained for existing explicit refresh
+   * callers; it never falls through to the legacy endpoint.
+   */
+  type MarketLookupIntent = MarketDataQueryMode | boolean
+
   type DataFamilyOption = {
     value: string
     label: string
@@ -186,8 +199,11 @@ export function useDataPage() {
   type MarketDataPlatformStatus = {
     path: (
       | 'legacy'
+      | 'local_only'
       | 'local_first'
+      | 'local_coverage_incomplete'
       | 'provider_persisted'
+      | 'provider_persisted_incomplete'
       | 'legacy_fallback'
       | 'bundle_unconfigured'
       | 'bundle_period_unsupported'
@@ -562,8 +578,9 @@ export function useDataPage() {
         familyId: 'fund.nav',
         labelKey: 'dataMgmt.familyNav',
         descKey: 'dataMgmt.familyNavDesc',
-        fields: ['price', 'previous_close'],
-        historyFields: ['close', 'change_pct'],
+        // NAV is a reference series with its own audited field profile. Do
+        // not describe it through an ETF quote's price/previous-close fields.
+        fields: ['nav', 'cumulative_nav', 'daily_growth_rate'],
         tableKeywords: ['fund_open_fund', 'fund_net_value', 'reits_hist'],
       },
     ],
@@ -790,6 +807,21 @@ export function useDataPage() {
     selectedMarketPageFamily.value?.data_kind === 'reference_series'
     || referenceSeriesResult.value?.familyId === selectedFamilyId.value
   ))
+  const isFundNavReferenceSeries = computed(() => {
+    const presentation = referenceSeriesResult.value
+    const request = result.value?.query_contract?.request
+    return form.asset_type === 'fund'
+      && selectedFamilyId.value === 'fund.nav'
+      && presentation?.familyId === 'fund.nav'
+      && request?.family_id === 'fund.nav'
+      && request.dataset_code === 'market.fund_nav'
+      && request.data_kind === 'reference_series'
+      && sameDeclaredFields(presentation.requiredFields, request.required_fields)
+  })
+  const fundNavReferenceFields = computed(() => {
+    if (!isFundNavReferenceSeries.value) return []
+    return [...(referenceSeriesResult.value?.requiredFields || [])]
+  })
   const referenceSeriesRows = computed(() => {
     const presentation = referenceSeriesResult.value
     if (!presentation || presentation.familyId !== selectedFamilyId.value) return []
@@ -812,7 +844,10 @@ export function useDataPage() {
         label: fieldLabel(field),
         minWidth: 130,
         align: 'right' as const,
-        format: 'number' as const,
+        // A reference-series percentage must use the same formatter as its
+        // overview/KPI presentation.  Rendering it as a generic number would
+        // silently remove the percent unit from ETF NAV daily growth.
+        format: field === 'daily_growth_rate' ? 'percent' as const : 'number' as const,
       })),
     ]
   })
@@ -855,6 +890,43 @@ export function useDataPage() {
     symbol: result.value?.symbol || form.symbol || '-',
   }))
   const hasSnapshotChange = computed(() => hasValue(snapshot.value.change) || hasValue(snapshot.value.change_pct))
+  const marketOverviewPrimaryLabel = computed(() => (
+    isFundNavReferenceSeries.value ? fieldLabel('nav') : t('dataMgmt.fieldPrice')
+  ))
+  const marketOverviewPrimaryValue = computed(() => (
+    isFundNavReferenceSeries.value
+      ? formatReferenceSeriesField('nav', snapshot.value.nav)
+      : formatNumber(snapshot.value.price)
+  ))
+  const marketOverviewTone = computed(() => (
+    isFundNavReferenceSeries.value
+      ? toneClass(snapshot.value.daily_growth_rate)
+      : toneClass(snapshot.value.change_pct ?? snapshot.value.change)
+  ))
+  const marketOverviewSecondaryText = computed(() => {
+    if (isFundNavReferenceSeries.value) {
+      return hasValue(snapshot.value.daily_growth_rate)
+        ? `${fieldLabel('daily_growth_rate')} ${formatReferenceSeriesField('daily_growth_rate', snapshot.value.daily_growth_rate)}`
+        : null
+    }
+    if (!hasSnapshotChange.value) return null
+    return `${formatNumber(snapshot.value.change)} / ${formatPercent(snapshot.value.change_pct)}`
+  })
+  const assetOverviewDescription = computed(() => (
+    isFundNavReferenceSeries.value
+      ? t('dataMgmt.familyNavDesc', { count: 0 })
+      : t(activeAssetConfig.value.descKey)
+  ))
+  const assetDetailTitle = computed(() => (
+    isFundNavReferenceSeries.value
+      ? t('dataMgmt.familyNav')
+      : t(activeAssetConfig.value.detailTitleKey)
+  ))
+  const assetDetailNote = computed(() => (
+    isFundNavReferenceSeries.value
+      ? t('dataMgmt.familyNavDesc', { count: 0 })
+      : t(activeAssetConfig.value.detailNoteKey)
+  ))
   const hasSnapshotTurnover = computed(() => hasValue(snapshot.value.turnover))
   const hasSnapshotBidAsk = computed(() => hasValue(snapshot.value.bid) || hasValue(snapshot.value.ask))
   const hasSnapshotOpenInterest = computed(() => hasValue(snapshot.value.open_interest))
@@ -875,6 +947,17 @@ export function useDataPage() {
         label: t('dataMgmt.fieldDataSourceTable'),
         value: formatText(snapshot.value.data_source_table),
       })
+    }
+
+    if (isFundNavReferenceSeries.value) {
+      metrics.push(...fundNavReferenceFields.value.map((field) => ({
+        key: field,
+        label: fieldLabel(field),
+        value: formatReferenceSeriesField(field, snapshot.value[field]),
+        tone: referenceSeriesFieldTone(field, snapshot.value[field]),
+      })))
+      metrics.push({ key: 'updated', label: t('dataMgmt.fieldUpdated'), value: formatText(snapshot.value.update_time) })
+      return metrics
     }
 
     metrics.push({ key: 'price', label: t('dataMgmt.fieldPrice'), value: formatNumber(snapshot.value.price) })
@@ -954,8 +1037,22 @@ export function useDataPage() {
     if (status.path === 'provider_persisted') {
       return status.provider ? `已获取并入库 · ${status.provider}` : '已获取并入库'
     }
+    if (status.path === 'provider_persisted_incomplete') {
+      const receipts = `已记录 ${status.fetchedProviderCount} 个来源回执；本地覆盖不足`
+      return status.fallbackReason === 'ONLINE_FETCH_DISABLED'
+        ? `${receipts}；在线补齐已禁用`
+        : receipts
+    }
+    if (status.path === 'local_only') return '仅本地读取'
     if (status.path === 'local_first') {
       return status.provider ? `本地优先 · ${status.provider}` : '本地优先'
+    }
+    if (status.path === 'local_coverage_incomplete') {
+      return status.fallbackReason === 'ONLINE_FETCH_DISABLED'
+        ? '本地覆盖不足；在线补齐已禁用'
+        : status.fallbackReason === 'LOCAL_ONLY_COVERAGE_INCOMPLETE'
+          ? '本地覆盖不足；仅本地读取'
+        : '本地覆盖不足'
     }
     if (status.path === 'legacy_fallback') return '传统接口回退'
     if (status.path === 'bundle_unconfigured') return '数据族未配置'
@@ -966,7 +1063,12 @@ export function useDataPage() {
   const marketDataPlatformCacheText = computed(() => {
     const status = marketDataPlatformStatus.value
     if (status.path === 'provider_persisted') return `已保存 ${status.fetchedProviderCount} 个来源回执`
+    if (status.path === 'provider_persisted_incomplete') {
+      return `已保存 ${status.fetchedProviderCount} 个来源回执，但未形成完整本地可追溯缓存`
+    }
+    if (status.path === 'local_only') return '未触发来源采集'
     if (status.path === 'local_first') return '命中本地可追溯缓存'
+    if (status.path === 'local_coverage_incomplete') return '未命中完整本地可追溯缓存'
     if (status.path === 'legacy_fallback') return '保留兼容查询结果'
     if (status.path === 'bundle_unconfigured') return '已签发数据族控制面'
     if (status.path === 'bundle_period_unsupported') {
@@ -990,8 +1092,11 @@ export function useDataPage() {
   })
   const marketDataPlatformTagType = computed<'success' | 'warning' | 'info'>(() => {
     const path = marketDataPlatformStatus.value.path
-    if (path === 'local_first' || path === 'provider_persisted') return 'success'
+    if (path === 'local_only' || path === 'local_first' || path === 'provider_persisted') return 'success'
     if (
+      path === 'local_coverage_incomplete'
+      || path === 'provider_persisted_incomplete'
+      ||
       path === 'legacy_fallback'
       || path === 'bundle_unconfigured'
       || path === 'bundle_period_unsupported'
@@ -1045,13 +1150,20 @@ export function useDataPage() {
       rows: formatNumber(totalRows),
     })
   })
-  const assetDetailRows = computed<DetailRow[]>(() => (
-    activeAssetConfig.value.detailFields.map((field) => ({
+  const assetDetailRows = computed<DetailRow[]>(() => {
+    if (isFundNavReferenceSeries.value) {
+      return fundNavReferenceFields.value.map((field) => ({
+        label: fieldLabel(field),
+        value: formatReferenceSeriesField(field, snapshot.value[field]),
+        tone: referenceSeriesFieldTone(field, snapshot.value[field]),
+      }))
+    }
+    return activeAssetConfig.value.detailFields.map((field) => ({
       label: t(field.labelKey),
       value: formatDetailValue(field),
       tone: field.tone ? toneClass(snapshot.value[field.fields[0]]) : '',
     }))
-  ))
+  })
   const historyTableColumns = computed<HistoryTableColumn[]>(() => [
     {
       key: 'date',
@@ -1078,7 +1190,7 @@ export function useDataPage() {
     }
     void loadInstrumentOptions(formSymbolText())
     void loadCoverageMatrix()
-    void lookupInstrument()
+    void lookupInstrument('local_only')
     window.addEventListener('resize', handleViewportResize)
   })
 
@@ -1093,7 +1205,7 @@ export function useDataPage() {
       if (applyRouteTab(tab, true)) {
         void loadInstrumentOptions(formSymbolText())
         void loadCoverageMatrix()
-        void lookupInstrument()
+        void lookupInstrument('local_only')
       }
     },
   )
@@ -1161,7 +1273,7 @@ export function useDataPage() {
     if (applyAssetType(assetType)) {
       void loadInstrumentOptions(formSymbolText())
       void loadCoverageMatrix()
-      void lookupInstrument()
+      void lookupInstrument('local_only')
     }
   }
 
@@ -1769,15 +1881,35 @@ export function useDataPage() {
     }
   }
 
-  function setV2MarketDataPlatformStatus(response: MarketDataQueryResponse) {
+  function hasIncompleteCoverageStatus(path: MarketDataPlatformStatus['path']): boolean {
+    return path === 'local_coverage_incomplete' || path === 'provider_persisted_incomplete'
+  }
+
+  function setV2MarketDataPlatformStatus(
+    response: MarketDataQueryResponse,
+    queryMode: MarketDataQueryMode,
+    capabilities: MarketDataCapabilitiesResponse | null,
+  ) {
     const fetches = response.fetches || []
+    const incompleteLocalCoverage = response.coverage.status !== 'complete'
+    const onlineFetchDisabled = capabilities?.online_fetch_enabled === false
+      && response.warnings.some((warning) => warning.code === 'ONLINE_FETCH_DISABLED')
+    const incompleteFallbackReason = queryMode === 'local_only'
+      ? 'LOCAL_ONLY_COVERAGE_INCOMPLETE'
+      : onlineFetchDisabled ? 'ONLINE_FETCH_DISABLED' : 'LOCAL_COVERAGE_INCOMPLETE'
     marketDataPlatformStatus.value = {
-      path: fetches.length ? 'provider_persisted' : 'local_first',
+      path: incompleteLocalCoverage
+        ? fetches.length ? 'provider_persisted_incomplete' : 'local_coverage_incomplete'
+        : queryMode === 'local_only'
+          ? 'local_only'
+          : fetches.length ? 'provider_persisted' : 'local_first',
       provider: fetches[fetches.length - 1]?.provider_id || null,
       coverageStatus: response.coverage.status,
       coverageRatio: response.coverage.coverage_ratio,
       fetchedProviderCount: fetches.length,
-      fallbackReason: null,
+      fallbackReason: incompleteLocalCoverage
+        ? incompleteFallbackReason
+        : null,
       queryId: response.query_id,
       canonicalId: publicMarketDataProvenanceValue(response.canonical_id),
       datasetCode: publicMarketDataProvenanceValue(response.dataset_code),
@@ -1791,7 +1923,7 @@ export function useDataPage() {
   async function queryV2FromLookupContract(
     contract: MarketDataQueryContract,
     legacyLookup: MarketInstrumentLookupResponse,
-    refreshOnline = false,
+    queryMode: MarketDataQueryMode = 'local_first',
     requestedDateRange: readonly [string | undefined, string | undefined] = dateRange.value,
   ): Promise<V2LookupResult> {
     const window = queryWindowFromDateRange(requestedDateRange)
@@ -1800,7 +1932,7 @@ export function useDataPage() {
     const response = await queryAllV2MarketDataPages(
       createMarketDataQueryFromContract(contract, {
         ...window,
-        mode: refreshOnline ? 'refresh' : 'local_first',
+        mode: queryMode,
         purpose: 'display',
         consistency: 'display',
         page_size: V2_MARKET_DATA_PAGE_SIZE,
@@ -1908,7 +2040,14 @@ export function useDataPage() {
     }
   }
 
-  async function lookupInstrument(refreshOnline = false) {
+  async function lookupInstrument(intent: MarketLookupIntent = 'local_first') {
+    // ``true``/``false`` were the pre-197 exposed refresh argument. Preserve
+    // that boundary for existing callers while making lifecycle/UI calls name
+    // their exact query intent.
+    const queryMode: MarketDataQueryMode = intent === true
+      ? 'refresh'
+      : intent === false ? 'local_first' : intent
+    const refreshOnline = queryMode === 'refresh'
     const requestedSymbol = formSymbolText()
     if (!requestedSymbol) {
       ElMessage.error(t('dataMgmt.msgSymbolRequired'))
@@ -2064,16 +2203,24 @@ export function useDataPage() {
         const v2Result = await queryV2FromLookupContract(
           directContract,
           directLookup,
-          refreshOnline,
+          queryMode,
           requestSnapshot.dateRange,
         )
         if (!isCurrentFamilyLookup()) return
-        setV2MarketDataPlatformStatus(v2Result.response)
+        // A local-only lifecycle request is proof-bound to the local store.
+        // A response claiming a new fetch would contradict that immutable
+        // request mode, so do not render it as a cache hit.
+        if (queryMode === 'local_only' && v2Result.response.fetches.length > 0) {
+          throw new Error('MARKET_DATA_LOCAL_ONLY_FETCH_EVIDENCE')
+        }
+        setV2MarketDataPlatformStatus(v2Result.response, queryMode, capabilities)
         referenceSeriesResult.value = v2Result.referenceSeries
         result.value = v2Result.lookup
         rememberMarketAssetSelection(queryAssetType, symbol, queryMarket)
         void loadRelatedTables(v2Result.lookup)
-        ElMessage.success(t('dataMgmt.msgQueriedCount', { count: v2Result.lookup.history.total }))
+        if (!hasIncompleteCoverageStatus(marketDataPlatformStatus.value.path)) {
+          ElMessage.success(t('dataMgmt.msgQueriedCount', { count: v2Result.lookup.history.total }))
+        }
         return
       }
 
@@ -2099,7 +2246,10 @@ export function useDataPage() {
         start_date: queryStartDate,
         end_date: queryEndDate,
         market: queryMarket || undefined,
-        refresh_online: refreshOnline,
+        // The compatibility facade is a local display read only. A legacy
+        // online refresh would return an in-memory payload without the v2
+        // persistence receipt, so it is never a fallback for any intent.
+        refresh_online: false,
       })
       if (!isCurrentFamilyLookup()) return
 
@@ -2107,7 +2257,8 @@ export function useDataPage() {
       // Compatibility bridge for a server that returns a typed contract from
       // the legacy response but has not yet deployed the read-only contract
       // endpoint. The legacy read has already completed; only the v2 call may
-      // decide that a bounded local-first gap fill is needed.
+      // decide whether this intent is a local-only re-read or a bounded
+      // local-first gap fill.
       const bootstrapContract = v2FeatureEnabled && !directContract && !refreshOnline
         ? queryContractForCurrentLookup(legacyResponse, queryAssetType, symbol, queryPeriod)
         : null
@@ -2124,11 +2275,14 @@ export function useDataPage() {
         const v2Result = await queryV2FromLookupContract(
           bootstrapContract,
           legacyResponse,
-          false,
+          queryMode,
           requestSnapshot.dateRange,
         )
         if (!isCurrentFamilyLookup()) return
-        setV2MarketDataPlatformStatus(v2Result.response)
+        if (queryMode === 'local_only' && v2Result.response.fetches.length > 0) {
+          throw new Error('MARKET_DATA_LOCAL_ONLY_FETCH_EVIDENCE')
+        }
+        setV2MarketDataPlatformStatus(v2Result.response, queryMode, capabilities)
         referenceSeriesResult.value = v2Result.referenceSeries
         response = v2Result.lookup
       }
@@ -2139,7 +2293,9 @@ export function useDataPage() {
       result.value = response
       rememberMarketAssetSelection(queryAssetType, symbol, queryMarket)
       void loadRelatedTables(response)
-      ElMessage.success(t('dataMgmt.msgQueriedCount', { count: response.history.total }))
+      if (!hasIncompleteCoverageStatus(marketDataPlatformStatus.value.path)) {
+        ElMessage.success(t('dataMgmt.msgQueriedCount', { count: response.history.total }))
+      }
     } catch {
       if (!isCurrentFamilyLookup()) return
       result.value = null
@@ -2526,7 +2682,11 @@ export function useDataPage() {
     const status = marketDataPlatformStatus.value
     const contract = result.value?.query_contract
     return (
-      (status.path === 'local_first' || status.path === 'provider_persisted')
+      (
+        status.path === 'local_only'
+        || status.path === 'local_first'
+        || status.path === 'provider_persisted'
+      )
       && status.familyId === family.family_id
       && result.value?.asset_type === form.asset_type
       && contract?.request.family_id === family.family_id
@@ -2683,7 +2843,11 @@ export function useDataPage() {
   }
 
   function fieldLabel(field: string) {
-    return t(fieldLabelKeys[field] || field)
+    const labelKey = fieldLabelKeys[field]
+    // Unmapped fields keep their server-issued names. This is particularly
+    // important for reference products such as `market.fund_nav`, whose NAV
+    // axes are not interchangeable with a generic quote field.
+    return labelKey ? t(labelKey) : field
   }
 
   function capitalize(value: string) {
@@ -3052,6 +3216,14 @@ export function useDataPage() {
   }
 
   function buildAssetKpiCards(): KpiCard[] {
+    if (isFundNavReferenceSeries.value) {
+      return fundNavReferenceFields.value.map((field) => ({
+        label: fieldLabel(field),
+        value: formatReferenceSeriesField(field, snapshot.value[field]),
+        tone: referenceSeriesFieldTone(field, snapshot.value[field]),
+      }))
+    }
+
     const latestPrice = snapshot.value.price ?? result.value?.indicators.latest_close
     const periodReturn = result.value?.indicators.return_pct ?? snapshot.value.change_pct
     const cardsByAsset: Record<MarketAssetType, KpiCard[]> = {
@@ -3127,6 +3299,14 @@ export function useDataPage() {
       return formatValuation()
     }
     return formatNumber(snapshot.value[firstField])
+  }
+
+  function formatReferenceSeriesField(field: string, value: unknown): string {
+    return field === 'daily_growth_rate' ? formatPercent(value) : formatNumber(value)
+  }
+
+  function referenceSeriesFieldTone(field: string, value: unknown): string {
+    return field === 'daily_growth_rate' ? toneClass(value) : ''
   }
 
   function formatHistoryCell(row: MarketHistoryRow, column: HistoryTableColumn) {
@@ -3339,6 +3519,8 @@ export function useDataPage() {
     historyRows,
     selectedMarketPageFamily,
     isReferenceSeriesSelected,
+    isFundNavReferenceSeries,
+    fundNavReferenceFields,
     referenceSeriesResult,
     referenceSeriesRows,
     referenceSeriesTableColumns,
@@ -3356,6 +3538,13 @@ export function useDataPage() {
     chartSubtitle,
     chartAriaLabel,
     hasSnapshotChange,
+    marketOverviewPrimaryLabel,
+    marketOverviewPrimaryValue,
+    marketOverviewTone,
+    marketOverviewSecondaryText,
+    assetOverviewDescription,
+    assetDetailTitle,
+    assetDetailNote,
     hasSnapshotTurnover,
     hasSnapshotBidAsk,
     hasSnapshotOpenInterest,
@@ -3451,6 +3640,8 @@ export function useDataPage() {
     buildAssetKpiCards,
     metricCard,
     formatDetailValue,
+    formatReferenceSeriesField,
+    referenceSeriesFieldTone,
     formatHistoryCell,
     shouldShowHistoryColumn,
     formatPair,

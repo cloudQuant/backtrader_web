@@ -147,6 +147,7 @@ def _default_source_policy_registry(
             currencies=frozenset({"CNY"}),
             units=frozenset({"share"}),
             adapter=_shared_akshare_provider(),
+            family_id="stock.liquidity",
         ),
         MarketDataProviderRoute(
             route_id="akshare-fund-primary-v1",
@@ -178,6 +179,30 @@ def _default_source_policy_registry(
             currencies=frozenset({"CNY"}),
             units=frozenset({"share"}),
             adapter=_shared_akshare_provider(),
+            family_id="fund.liquidity",
+        ),
+        # ETF NAV is a separately sourced, source-reported reference series.
+        # Its family binding and semantic axes prevent it from being selected
+        # by either the ETF price-bar or liquidity contract.
+        MarketDataProviderRoute(
+            route_id="akshare-fund-nav-primary-v1",
+            request_provider="akshare",
+            expected_result_provider_ids=frozenset({"akshare"}),
+            asset_types=frozenset({"fund"}),
+            data_kinds=frozenset({"reference_series"}),
+            frequencies=_DAILY_ONLY_FREQUENCIES,
+            markets=frozenset({"CN-SSE", "CN-SZSE"}),
+            adjustments=frozenset({"source_reported"}),
+            price_bases=frozenset({"nav"}),
+            currencies=frozenset({"CNY"}),
+            units=frozenset({"fund_share"}),
+            adapter=_shared_akshare_provider(),
+            family_id="fund.nav",
+            # The reviewed endpoint is only for a listed CN ETF. Product
+            # type and listing kind are frozen master-data facts, never
+            # inferred from the symbol prefix at request time.
+            product_types=frozenset({"ETF"}),
+            fund_identity_kinds=frozenset({"LISTING"}),
         ),
         MarketDataProviderRoute(
             route_id="akshare-futures-primary-v1",

@@ -1,16 +1,16 @@
 # 迭代 197 候选实现与验收状态
 
 > 记录日期：2026-09-10<br>
-> 文档性质：隔离工作树中的候选实现审计，不是生产发布证明。<br>
-> 设计基线：迭代 196 已冻结；本 completion candidate 待合并至 `dev`，本文件不解除真实数据、数据库、浏览器和部署验收闸门。
+> 文档性质：当前 `dev` 工作树的未冻结候选实现审计，不是生产发布证明。<br>
+> 设计基线：迭代 196 已冻结并已接入 `dev`；本候选仍待完成干净提交，本文件不解除真实数据、数据库、浏览器和部署验收闸门。
 
 ## 1. 阅读规则和状态含义
 
-本文件把候选工作树中已经存在的实现，与尚未完成的真实环境验收明确分开。`DONE` 只表示候选代码和其定向自动化验证已具备，不表示迁移、真实来源、生产数据库、浏览器 E2E 或策略工件验收已经完成。
+本文件把当前 `dev` 候选中已经存在的实现，与尚未完成的真实环境验收明确分开。`DONE` 只表示候选代码和其定向自动化验证已具备，不表示迁移、真实来源、生产数据库、浏览器 E2E 或策略工件验收已经完成。
 
 | 状态 | 含义 |
 | --- | --- |
-| `DONE` | 候选工作树已有实现和对应离线/定向测试证据；仍可能有外部验收未运行。 |
+| `DONE` | 当前候选已有实现和对应离线/定向测试证据；仍可能有外部验收未运行。 |
 | `IN_PROGRESS` | 已有基础或局部接线，但尚缺一个可安全启用的完整闭环。 |
 | `NOT_CONFIGURED` | 有明确数据合同或需求，但没有经批准的 source policy/route；页面必须显示未配置，不得猜测回退。 |
 | `BLOCKED` | 必须等待真实环境授权、外部服务或尚未实现的数据模型；不把本地候选代码当作解除条件。 |
@@ -29,7 +29,7 @@
 | quote snapshot local-first 覆盖 | `DONE` | `SnapshotCoveragePlanner` 已避免把 quote 强行塞入交易日历；产品 SLA 以 `source_policy_version` 锚定，quote 响应会隐藏超过该 policy freshness 的记录。 | `NOT_RUN`：真实 snapshot feed、七资产 identity 映射和 freshness 行为尚未在真实来源验证。 |
 | F1 市场页控制面 | `DONE`（L-197-15，本地候选） | 已认证 capability 文档是 v2/bundle 唯一前端开关；有效 bundle 中 `unconfigured/not_applicable` 不走 legacy lookup，旧服务明确兼容错误才走无 bundle v2。静止候选的 capability API、cache 矩阵、选择器竞态和页面 v2 回归已通过。 | `NOT_RUN`：未在浏览器、真实后端、真实数据状态下 E2E。 |
 | F1 策略页严格本地预检 | `DONE`（L-197-15，本地候选） | 普通预检只读 `local_only + research + strict`；只有显式缓存补齐受 `query_v2 + online_fetch + cache_fill` 有效 capability 控制，独立于 bridge，成功后允许 strict 本地 v2 复读但不产生工件。bridge marker 从同一次提交的 symbol 快照派生，bridge 禁用时在同步/异步持久化前失败关闭；同步/异步拒绝与研究链全量回归已通过。 | `NOT_RUN`：未在真实数据、浏览器和部署环境完成工件回放。 |
-| F2 quote/valuation/settlement/NAV/reference | `IN_PROGRESS` | 已有离线 schedule/shadow snapshot importer 候选，但它未连接任何 provider route 或网络；各数据族仍保持 fail-closed。 | `NOT_RUN`：没有真实采集、回填或页面启用。 |
+| F2 quote/valuation/settlement/NAV/reference | `IN_PROGRESS` | `stock.liquidity`、`fund.liquidity`、`fund.nav` 和 `fx.range` 已具 request-time 候选 contract/route；其中 NAV 仅为 CN ETF 日线源报告净值。其余 quote、valuation、settlement、宽表 importer 和多记录产品仍保持 fail-closed。 | `NOT_RUN`：没有真实采集、回填或页面灰度验收。 |
 | 共享 binding migration 与 server capability 代码整合 | `DONE`（代码整合） | 196/197 migration chain 与 binding consumer 已进入集成基线；server capability 接线不改变默认关闭状态。真实回填、页面灰度和生产开关不属于这一行的完成声明。 | `NOT_RUN`：未在可恢复真实数据库、页面灰度或生产部署执行。 |
 
 ## 3. 当前 21 个页面数据族
@@ -42,7 +42,7 @@
 | --- | --- | --- | --- | --- |
 | `stock.realtime` | `DONE`：`market.bars` / `bars` / 1d、1w、1mo | `market.quote_snapshot` / snapshot | `NOT_CONFIGURED` | 实时逐笔/盘口或源 tick 时间。 |
 | `stock.valuation` | `NOT_CONFIGURED`：`market.valuation` / reference / 1d | 市值、PE、PB、as-of | `NOT_CONFIGURED` | 用局部字段或历史 bars 补齐估值。 |
-| `stock.liquidity` | `NOT_CONFIGURED`：`market.liquidity` / reference / 1d | volume、turnover、turnover rate | `IN_PROGRESS`：已有安全 exact route 设计 | 无 route 前的在线获取。 |
+| `stock.liquidity` | `DONE`（候选 `ready`）：`market.liquidity` / reference series / 1d | volume、turnover、turnover rate | 候选 exact route；真实验收 `NOT_RUN` | 真实来源、完整覆盖或写回已经通过。 |
 | `futures.realtime` | `DONE`：`market.bars` / 1d | `market.quote_snapshot` / snapshot | `NOT_CONFIGURED` | 现货 bid/ask、当前 OI。 |
 | `futures.settlement` | `NOT_CONFIGURED`：`market.settlement` / reference / 1d | settle、previous settle、OI | `IN_PROGRESS`：legacy bridge 设计 | 不带 `MARKET` 的旧表查询或由日线猜昨结。 |
 | `futures.inventory` | `NOT_CONFIGURED`：`market.inventory` / inventory report | 仓单、库存、交割数量 | `NOT_CONFIGURED` | 将不同来源库存/仓单拼成一条报告。 |
@@ -50,14 +50,14 @@
 | `bond.orderbook` | `NOT_CONFIGURED`：`market.quote_snapshot` / snapshot | bid、ask、volume、turnover | `NOT_CONFIGURED` | 以可转债宽表冒充全部债券 order book。 |
 | `bond.fixed_income` | `NOT_CONFIGURED`：`market.bond_reference` / reference / 1d | YTM、coupon、maturity | `NOT_CONFIGURED` | 用短名称或收益率曲线当单券 reference。 |
 | `fund.realtime` | `DONE`：`market.bars` / 1d、1w、1mo | ETF `market.quote_snapshot` | `NOT_CONFIGURED` | 开放式基金 NAV 或实时 ETF quote。 |
-| `fund.liquidity` | `NOT_CONFIGURED`：`market.liquidity` / reference / 1d | ETF volume、turnover | `IN_PROGRESS`：已有安全 exact route 设计 | 用 NAV 模拟成交量。 |
-| `fund.nav` | `NOT_CONFIGURED`：`market.fund_nav` / reference / 1d | unit NAV、cumulative NAV、daily growth | `IN_PROGRESS`：组合式 importer 设计 | 直接把 ETF K 线当 NAV。 |
+| `fund.liquidity` | `DONE`（候选 `ready`）：`market.liquidity` / reference series / 1d | ETF volume、turnover | 候选 exact route；真实验收 `NOT_RUN` | 用 NAV 模拟成交量，或将真实来源误称为验收通过。 |
+| `fund.nav` | `DONE`（候选 `ready`）：`market.fund_nav` / reference series / 1d | CN ETF 的 unit NAV、cumulative NAV、daily growth | `fund_etf_fund_info_em` 候选 exact route；真实验收 `NOT_RUN` | 直接把 ETF K 线当 NAV，或扩大为开放式基金宽表采集。 |
 | `option.realtime` | `DONE`：`market.bars` / 1d | contract `quote_snapshot` | `NOT_CONFIGURED` | 实时报价或期权链。 |
 | `option.derivative` | `NOT_CONFIGURED`：`market.option_chain` / snapshot | chain、IV、OI、strike、expiry | `NOT_CONFIGURED` | 以单合约或宽表的部分字段宣称全链。 |
 | `option.risk_surface` | `NOT_CONFIGURED`：`market.option_risk_surface` / snapshot | IV、Greeks、model version | `NOT_CONFIGURED` | 用单个 IV 或无模型版本值构造风险面。 |
 | `fx.realtime` | `DONE`：`market.bars` / 1d | `market.quote_snapshot` | `NOT_CONFIGURED` | 交易所/报价源实时 FX quote。 |
 | `fx.macro_fx` | `NOT_CONFIGURED`：`market.fx_reference` / reference / 1d | official/central rate reference | `NOT_CONFIGURED` | 将中间价混作交易 FX pair。 |
-| `fx.range` | `NOT_CONFIGURED`：`market.bars` / 1d | exact FX OHLC range | `IN_PROGRESS`：已有安全 exact route 设计 | 周/月/分钟或未验证的 pair mapping。 |
+| `fx.range` | `DONE`（候选 `ready`）：`market.bars` / 1d | exact FX OHLC range | 候选 exact route；真实验收 `NOT_RUN` | 周/月/分钟或未验证的 pair mapping。 |
 | `crypto.realtime` | `NOT_CONFIGURED`：`market.quote_snapshot` / snapshot | venue/pair quote | `NOT_CONFIGURED` | 无 venue、base、quote 映射的通用加密行情。 |
 | `crypto.cme_position` | `NOT_CONFIGURED`：`market.position_report` / report | long、short、net、OI | `NOT_CONFIGURED` | 将 CME 比特币成交量报告称为持仓报告。 |
 | `crypto.range` | `NOT_CONFIGURED`：`market.bars` / 1d | approved provider historical bars | `NOT_CONFIGURED` | AkShare 或 OpenBB 的无配置全局 fallback。 |
@@ -70,9 +70,10 @@
 
 | F2 family | 方法 | 必要 identity 和时间语义 | 设计状态 |
 | --- | --- | --- | --- |
-| `stock.liquidity` | `ak.stock_zh_a_hist(symbol, period, start_date, end_date, adjust)` | 精确 CN-SSE/SZSE listing + response code；交易日 close；`1d`。 | `IN_PROGRESS`：可增加 `akshare-stock-liquidity-v1`。 |
-| `fund.liquidity` | `ak.fund_etf_hist_em(symbol, period, start_date, end_date, adjust)` | 精确 ETF listing + CN venue；`1d`。 | `IN_PROGRESS`：可增加 `akshare-fund-liquidity-v1`。 |
-| `fx.range` | `ak.forex_hist_em(symbol)` | 精确 provider code 与 frozen FX pair mapping；只批准 `1d`。 | `IN_PROGRESS`：现有 bars adapter 可复用，但 family/profile 尚未启用。 |
+| `stock.liquidity` | `ak.stock_zh_a_hist(symbol, period, start_date, end_date, adjust)` | 精确 CN-SSE/SZSE listing + response code；交易日 close；`1d`。 | `DONE`（候选 `akshare-stock-liquidity-primary-v1`）；真实 route 验收仍 `NOT_RUN`，且历史零行子用例保留 `FAIL`。 |
+| `fund.liquidity` | `ak.fund_etf_hist_em(symbol, period, start_date, end_date, adjust)` | 精确 ETF listing + CN venue；`1d`。 | `DONE`（候选 `akshare-fund-liquidity-primary-v1`）；真实 route 验收 `NOT_RUN`。 |
+| `fund.nav` | `ak.fund_etf_fund_info_em(fund, start_date, end_date)` | 精确 CN-SSE/CN-SZSE ETF `LISTING`；冻结 identity 必须为 `product_type=ETF` 与 `fund_identity_kind=LISTING`，半开窗口转换为来源包含式日期；`nav/cumulative_nav/daily_growth_rate`；`source_reported + nav + CNY + fund_share`。 | `DONE`（候选 `akshare-fund-nav-primary-v1`）；policy、compatibility bridge 和 adapter 均在 I/O 前拒绝 LOF、REIT、share class 或缺失身份；真实 provider → store → `local_only` 验收 `NOT_RUN`。 |
+| `fx.range` | `ak.forex_hist_em(symbol)` | 精确 provider code 与 frozen FX pair mapping；只批准 `1d`。 | `DONE`（候选 route）；真实 route 验收 `NOT_RUN`。 |
 
 现有 bars compatibility 路线也属于候选 `DONE` 范围，但只覆盖其已声明的精确 asset、venue、频率和字段；它们不自动扩大为 F2 quote、valuation、settlement、NAV 或 report 能力。
 
@@ -107,7 +108,7 @@ collector 无法获得可信 provider row time 时，`event_at` 只能被明确�
 
 当前 v1 bundle 有意把六个 `*.realtime` family 标为 `market.bars` compatibility，并且 required field 只保证 `close`。这使页面在旧数据源未迁移时仍可获得有限历史行情，但它不是 quote snapshot。
 
-候选前端已做到：已授权服务端 capability 是 v2/bundle 唯一准入；有效 bundle 中，只有 `ready + bars` 才能进入 v2 query；`unconfigured/not_applicable` 不会回落到 legacy lookup；V2 contract 已发放后的查询失败被标为 error，不会再次走 legacy。能力接口失效时只保留遗留本地兼容读取，浏览器 feature flag 不能改变该行为。对于已配置的 quote，候选响应按 `source_policy_version` 对应的 freshness SLA 过滤并隐藏 stale records；这项行为尚未经过真实 snapshot 来源验证。
+候选前端已做到：已授权服务端 capability 是 v2/bundle 唯一准入；有效 bundle 中，用户明确选择的 `ready + calendar_grid + 无维度 + bars/reference_series` family 才能进入 v2 query；`unconfigured/not_applicable` 不会回落到 legacy lookup；V2 contract 已发放后的查询失败被标为 error，不会再次走 legacy。页面初始化、路由 tab 切换和资产切换一律发 `local_only`，只有显式查询才发 `local_first`；本地覆盖不足且在线补齐关闭时显示明确状态而不伪称缓存命中。即使服务端已记录一条或多条来源回执，只要 coverage 不是 `complete`，页面也显示“本地覆盖不足”而不显示“已获取并入库”。NAV 与流动性按合同字段展示，`fund.nav` 不把 `price`、`close` 或 K 线替代为净值。能力接口失效时只保留遗留本地兼容读取，浏览器 feature flag 不能改变该行为。对于已配置的 quote，候选响应按 `source_policy_version` 对应的 freshness SLA 过滤并隐藏 stale records；这项行为尚未经过真实 snapshot 来源验证。
 
 仍存在一个产品语义风险：页面 family 名称使用“实时”，而 bars compatibility 可能展示日线/周线/月线 close。F2 未完成前，页面不得把该 close 的 `event_at` 或本地 `available_at` 展示为“实时价格/实时更新时间”。启用 quote 前至少要满足以下条件：
 
@@ -126,6 +127,9 @@ collector 无法获得可信 provider row time 时，`event_at` 只能被明确�
 | 历史候选代码格式、规则和 migration head | 历史记录（Ruff format/check、`alembic heads`） | 当时 48 个目标 Python 文件格式通过，规则检查通过，head 为 `20260908_market_data_shared_dataset_bindings`；不描述当前 head，且未运行真实迁移。 |
 | 历史候选前端相关单元、类型和构建门禁 | 历史记录（`12 + 28 + 100` 单元测试、`vue-tsc --noEmit`、Vite build） | 当时按文件串行的本地验证；不覆盖本次 capability/bridge 增量，Browserslist 与 bundle-size 警告已记录，不等价于浏览器 E2E。 |
 | 本次 capability/cache-fill/bridge guard 增量 | `PASS`（L-197-15，本地） | 静止候选已完成 capability API、cache 状态矩阵、同步/异步 bridge 拒绝、symbol 快照竞态和四份前端 v2 测试；不替代浏览器、真实数据或部署证据。 |
+| 当前 ETF NAV identity/coverage/runner 增量 | `PASS`（L-197-16、L-197-19，本地） | 646 条后端回归、21 条 runner 回归、71 条行情页前端回归、typecheck/build 与目标 Ruff 均通过；`fund.nav` 仅接受 ETF `LISTING`，coverage 不完整时页面不显示成功。G1 fixture 即使通过，仍因其它 formal gates pending 返回 `NOT_RUN` 进程状态；G2/G3/G4 模式映射也只能对应正式 required gate。此记录不替代真实 route、数据库或浏览器验收。 |
+| unified matrix live gate | `BLOCKED`（L-197-17） | 没有 external approval 或 approved source manifest 时，在 provider I/O 前返回 `ACCEPTANCE_EXTERNAL_APPROVAL_REQUIRED`；这是 fail-closed 证明。 |
+| large-file ratchet | `BLOCKED / NO-GO`（L-197-18） | 当前 38 项超限，未改写 baseline；该全仓质量闸门恢复前不得作发布签收。 |
 | 真实 AkShare exact route | `NOT_RUN` | 每条 route 的实际请求/回执、字段和身份 mismatch 反例、限流与错误码证据。 |
 | F2 collector 宽表刷新 | `IN_PROGRESS` | 离线 schedule/shadow snapshot importer 候选已存在，但没有 route 或网络调用；真实 feed-level singleflight、raw snapshot、ambiguous-row quarantine、首次导入后第二次同请求零网络仍为 `NOT_RUN`。 |
 | OpenBB operator runner | `NOT_RUN` | 独立环境、provider allow-list、extension 版本、许可证/凭据、子进程隔离和真实 data receipt。 |
@@ -136,7 +140,7 @@ collector 无法获得可信 provider row time 时，`event_at` 只能被明确�
 
 ## 7. 与迭代 196 的交接条件
 
-迭代 196 已冻结。196/197 的代码与迁移整合已在本 completion candidate 通过 L-197-15 本地回归，待本候选提交并合并至 `dev`。下列条件仍限制页面灰度和生产启用，而不是限制代码合并：
+迭代 196 已冻结，196/197 的代码与迁移整合已接入 `dev`。下列条件仍限制页面灰度和生产启用，而不是限制当前候选提交：
 
 1. 在可恢复 MySQL/PostgreSQL 副本确认唯一 Alembic head、迁移顺序、lease/fencing、备份与恢复路径。
 2. 数据中台输出固定 provenance manifest hash、dataset/identity/policy version、source snapshot IDs、visibility anchor 和 artifact fingerprint，并用批准的真实数据重放。

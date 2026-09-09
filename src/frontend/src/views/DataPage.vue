@@ -163,7 +163,7 @@
           type="primary"
           :loading="loading"
           data-test="market-instrument-query"
-          @click="lookupInstrument(false)"
+          @click="lookupInstrument('local_first')"
         >
           <el-icon aria-hidden="true">
             <Search />
@@ -187,19 +187,19 @@
         <div>
           <span class="asset-overview-label">{{ assetLabel(form.asset_type) }}</span>
           <h3>{{ result?.name || result?.symbol || form.symbol || '-' }}</h3>
-          <p>{{ t(activeAssetConfig.descKey) }}</p>
+          <p>{{ assetOverviewDescription }}</p>
         </div>
       </div>
       <div class="asset-overview-meta">
-        <span>{{ t('dataMgmt.fieldPrice') }}</span>
-        <strong :class="toneClass(snapshot.change_pct ?? snapshot.change)">
-          {{ formatNumber(snapshot.price) }}
+        <span>{{ marketOverviewPrimaryLabel }}</span>
+        <strong :class="marketOverviewTone">
+          {{ marketOverviewPrimaryValue }}
         </strong>
         <small
-          v-if="hasSnapshotChange"
-          :class="toneClass(snapshot.change_pct ?? snapshot.change)"
+          v-if="marketOverviewSecondaryText"
+          :class="marketOverviewTone"
         >
-          {{ formatNumber(snapshot.change) }} / {{ formatPercent(snapshot.change_pct) }}
+          {{ marketOverviewSecondaryText }}
         </small>
         <small v-else>{{ chartSubtitle }}</small>
         <div class="asset-overview-context">
@@ -608,7 +608,7 @@
       <el-card class="asset-detail-card">
         <template #header>
           <div class="section-header">
-            <span>{{ t(activeAssetConfig.detailTitleKey) }}</span>
+            <span>{{ assetDetailTitle }}</span>
             <el-tag
               v-if="result?.provider"
               size="small"
@@ -634,7 +634,7 @@
             <span>{{ row.label }}</span>
             <strong :class="row.tone">{{ row.value }}</strong>
           </div>
-          <p>{{ t(activeAssetConfig.detailNoteKey) }}</p>
+          <p>{{ assetDetailNote }}</p>
         </div>
       </el-card>
     </div>
@@ -802,7 +802,6 @@ const {
   marketDataPlatformCoverageText,
   marketDataPlatformTagType,
   marketDataPlatformProvenance,
-  snapshot,
   displayHistoryRows,
   isReferenceSeriesSelected,
   referenceSeriesResult,
@@ -817,7 +816,13 @@ const {
   chartEmptyText,
   chartSubtitle,
   chartAriaLabel,
-  hasSnapshotChange,
+  marketOverviewPrimaryLabel,
+  marketOverviewPrimaryValue,
+  marketOverviewTone,
+  marketOverviewSecondaryText,
+  assetOverviewDescription,
+  assetDetailTitle,
+  assetDetailNote,
   snapshotMetrics,
   assetKpiCards,
   chartModeOptions,
@@ -846,7 +851,6 @@ const {
   goTableDetail,
   formatHistoryCell,
   formatNumber,
-  formatPercent,
   coverageStatusTagType,
   coverageStatusLabel,
   coverageDateRange,

@@ -1502,6 +1502,12 @@ def _provider_request_for(
         route_id=route.route_id,
         family_id=context.query.family_id,
         provider_endpoint=route.provider_endpoint,
+        product_type=context.identity.identity.product_type,
+        fund_identity_kind=getattr(
+            context.identity.identity.details,
+            "fund_identity_kind",
+            None,
+        ),
         policy_descriptor_hash=policy_descriptor_hash,
         access_grant_descriptor_hash=access_grant_descriptor_hash,
     )
@@ -1871,6 +1877,14 @@ def _policy_descriptor_hash(policy: MarketDataSourcePolicy) -> str:
                 "units": _policy_axis_payload(route.units),
                 "family_id": route.family_id,
                 "provider_endpoint": route.provider_endpoint,
+                "product_types": (
+                    sorted(route.product_types) if route.product_types is not None else None
+                ),
+                "fund_identity_kinds": (
+                    sorted(route.fund_identity_kinds)
+                    if route.fund_identity_kinds is not None
+                    else None
+                ),
             }
             for route in policy.routes
         ],

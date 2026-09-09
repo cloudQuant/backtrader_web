@@ -81,6 +81,14 @@ _CN_STOCK_FUND_LIQUIDITY_DEFAULTS = _SemanticDefaults(
     currency="CNY",
     unit="share",
 )
+_CN_ETF_NAV_DEFAULTS = _SemanticDefaults(
+    # NAV is published by the source for one fund share. It must never be
+    # reinterpreted as a qfq/hfq traded price or recomputed from ETF bars.
+    adjustment="source_reported",
+    price_basis="nav",
+    currency="CNY",
+    unit="fund_share",
+)
 _CN_FUTURES_DEFAULTS = _SemanticDefaults(
     adjustment="unadjusted",
     price_basis="close",
@@ -203,6 +211,8 @@ class LegacyMarketDataQueryContractResolver:
             family_id=family_contract.family_id,
             asset_type=identity.asset_type,
             venue=identity.venue,
+            product_type=identity.identity.product_type,
+            fund_identity_kind=getattr(identity.identity.details, "fund_identity_kind", None),
         )
         # A compatibility bridge signs every B1 semantic field explicitly.
         # Keep that signature tied to the same registry-owned binding used by
@@ -225,6 +235,8 @@ class LegacyMarketDataQueryContractResolver:
             venue=identity.venue,
             frequency=frequency,
             semantics=semantics,
+            product_type=identity.identity.product_type,
+            fund_identity_kind=getattr(identity.identity.details, "fund_identity_kind", None),
         ):
             # The source policy remains the final authorization boundary, but
             # publishing no v2 contract here preserves the legacy page when
@@ -312,6 +324,8 @@ class LegacyMarketDataQueryContractResolver:
         venue: str | None,
         frequency: str,
         semantics: _SemanticDefaults | None,
+        product_type: str | None = None,
+        fund_identity_kind: str | None = None,
     ) -> bool:
         """Match one exact family to its default-policy route and semantics.
 
@@ -335,6 +349,15 @@ class LegacyMarketDataQueryContractResolver:
                 and venue in {"CN-SSE", "CN-SZSE"}
                 and frequency in _DAILY_BAR_FREQUENCIES
                 and semantics == _CN_STOCK_FUND_LIQUIDITY_DEFAULTS
+            )
+        if family_id == "fund.nav":
+            return (
+                asset_type == "fund"
+                and venue in {"CN-SSE", "CN-SZSE"}
+                and product_type == "ETF"
+                and fund_identity_kind == "LISTING"
+                and frequency in _DAILY_BAR_FREQUENCIES
+                and semantics == _CN_ETF_NAV_DEFAULTS
             )
         if family_id == "fx.range":
             return (
@@ -399,6 +422,8 @@ def _semantics_for(
     family_id: str,
     asset_type: str,
     venue: str | None,
+    product_type: str | None = None,
+    fund_identity_kind: str | None = None,
 ) -> _SemanticDefaults | None:
     """Return defaults only for one exact ready-family/venue combination.
 
@@ -413,6 +438,15 @@ def _semantics_for(
     if family_id == "fund.liquidity":
         if asset_type == "fund" and venue in {"CN-SSE", "CN-SZSE"}:
             return _CN_STOCK_FUND_LIQUIDITY_DEFAULTS
+        return None
+    if family_id == "fund.nav":
+        if (
+            asset_type == "fund"
+            and venue in {"CN-SSE", "CN-SZSE"}
+            and product_type == "ETF"
+            and fund_identity_kind == "LISTING"
+        ):
+            return _CN_ETF_NAV_DEFAULTS
         return None
     if family_id == "fx.range":
         if asset_type == "fx" and venue in {"OTC", "CN-OTC"}:

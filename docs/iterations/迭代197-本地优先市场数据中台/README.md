@@ -7,11 +7,13 @@
 - [需求文档](REQUIREMENTS.md)：范围、用户故事、行为边界和验收口径。
 - [设计文档](DESIGN.md)：数据模型、读取/写入流程、接口、迁移和运维设计。
 - [验收文档](ACCEPTANCE.md)：自动化证据、待验证外部依赖和迭代 196 的整合闸门。
-- [范围清单闸门](SCOPE_MANIFEST.md)：从 21 个家族合同和当前 UI/API 输入生成可复核清单；本候选已附带经迭代 196 冻结收据验证的基线和生成结果。
+- [范围清单闸门](SCOPE_MANIFEST.md)：从 21 个家族合同和当前 UI/API 输入生成可复核清单；当前候选已按迭代 196 冻结收据重新生成并验证范围产物。
 - [数据产品扩展计划](PRODUCT_EXPANSION_PLAN.md)：21 个页面家族的实际能力台账，以及 11 个单记录和 4 个多记录产品的后续模型、来源与验收要求。
 - [并行设计基线整合记录](DOCUMENT_INTEGRATION_20260909.md)：保留独立设计工作区的同名文档基线及当前实现候选文档的对应关系。
 
-当前实现已为 11 个 B1 单记录家族建立惰性的逻辑数据集目录、精确 family-shape 白名单和合同驱动的页面状态。其中 `stock.liquidity`、`fund.liquidity` 和 `fx.range` 已完成候选代码开通：它们具有各自的 `ready` family contract、精确来源策略和页面显式选择路径；其余八个 B1 家族仍为 `unconfigured`。这只表示代码合同与离线回归已具备，不能表示所有产品已经通过真实 provider、数据库或页面灰度验收。
+当前实现已为 11 个 B1 单记录家族建立惰性的逻辑数据集目录、精确 family-shape 白名单和合同驱动的页面状态。其中 `stock.liquidity`、`fund.liquidity`、`fund.nav` 和 `fx.range` 已完成候选代码开通：它们具有各自的 `ready` family contract、精确来源策略和页面显式选择路径。`fund.nav` 只覆盖 CN-SSE/CN-SZSE ETF 的日线净值，字段为 `nav`、`cumulative_nav`、`daily_growth_rate`，语义固定为 `source_reported + nav + CNY + fund_share`。它还要求 frozen identity 同时声明 `product_type=ETF` 和 `fund_identity_kind=LISTING`；source policy、legacy compatibility bridge 和 AkShare adapter 均在 provider I/O 前复核该条件。其余七个 B1 家族仍为 `unconfigured`。这只表示代码合同与离线回归已具备，不能表示所有产品已经通过真实 provider、数据库或页面灰度验收。
+
+当 `local_first` 收到来源回执但 coverage 仍不完整时，行情页会显示“已记录回执；本地覆盖不足”的非成功状态，不能标为“已获取并入库”或完整本地缓存。该状态同样不触发 legacy price/K 线对 NAV 的替代展示。
 
 > 当前候选仍处于实现与离线验证阶段，不能视为发布验收通过。OpenBB runtime permit matrix 仍为空；fork `24d06a7657ab9e19d07b5ba4f801394a440287a1` 的 `openbb-yfinance 1.6.3.post1` 只是一份待封装的运行构件候选，不安装到主应用，也不注册 route 或 permit。该候选仅定义 UTC 日对齐、最长 3650 天的 `1d` 窗口，并把 OpenBB 的包含式日终转换为 yfinance 的排他 `end`；在完成隔离动态扩展导入闭包、镜像、AGPL-3.0-only 许可证和出网审计前，任何正常请求仍在导入前拒绝。没有执行 OpenBB/yfinance 真实网络调用。跨 MySQL/PostgreSQL 的 PIT 验证、OpenBB 的操作系统级隔离、真实 provider 回执和浏览器灰度仍保留为 `NOT_RUN` 或 `BLOCKED`，具体证据边界见 [验收文档](ACCEPTANCE.md)。
 

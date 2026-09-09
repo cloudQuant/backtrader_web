@@ -319,6 +319,15 @@ _READY_FAMILY_SHAPES: dict[str, _ReadyFamilyShape] = {
         ("1d",),
         ("nav", "cumulative_nav", "daily_growth_rate"),
         "calendar_grid",
+        DatasetSemanticBinding(
+            # The source supplies a published per-fund-share NAV series. No
+            # client-side price adjustment is permitted; cumulative NAV is a
+            # separately reported field rather than an inferred calculation.
+            adjustment="source_reported",
+            price_basis="nav",
+            currency="CNY",
+            unit="fund_share",
+        ),
     ),
     "option.realtime": _ReadyFamilyShape(
         "market.bars",
@@ -711,14 +720,20 @@ _CONTRACTS: tuple[DatasetContract, ...] = (
     DatasetContract(
         "fund.nav",
         "fund",
-        "unconfigured",
+        "ready",
         "market.fund_nav",
         "reference_series",
         "calendar_grid",
         ("1d",),
         _profile("fund-nav-v1", ("nav", "cumulative_nav", "daily_growth_rate")),
         "calendar_grid",
-        reason_code="DATASET_CONTRACT_UNCONFIGURED",
+        source_policy_id="market-default-v1",
+        semantic_binding=DatasetSemanticBinding(
+            adjustment="source_reported",
+            price_basis="nav",
+            currency="CNY",
+            unit="fund_share",
+        ),
     ),
     DatasetContract(
         "option.realtime",

@@ -102,6 +102,87 @@ def test_default_policy_routes_an_exact_cffex_option_contract_to_akshare() -> No
     assert [route.route_id for route in routes] == ["akshare-cffex-option-primary-v1"]
 
 
+def test_default_policy_routes_only_the_exact_etf_nav_product_contract() -> None:
+    """ETF NAV cannot share an ETF-bar or liquidity route merely by asset type."""
+    registry = _default_source_policy_registry("yfinance", ())
+    context = SimpleNamespace(
+        identity=SimpleNamespace(
+            asset_type="fund",
+            venue="CN-SZSE",
+            identity=SimpleNamespace(
+                product_type="ETF",
+                details=SimpleNamespace(fund_identity_kind="LISTING"),
+            ),
+        ),
+        query=SimpleNamespace(
+            family_id="fund.nav",
+            data_kind="reference_series",
+            frequency="1d",
+            adjustment="source_reported",
+            price_basis="nav",
+            currency="CNY",
+            unit="fund_share",
+        ),
+    )
+
+    routes = registry.resolve("market-default-v1").routes_for(context)
+
+    assert [route.route_id for route in routes] == ["akshare-fund-nav-primary-v1"]
+    assert registry.resolve("market-default-v1").routes_for(
+        SimpleNamespace(
+            identity=context.identity,
+            query=SimpleNamespace(
+                family_id="fund.liquidity",
+                data_kind="reference_series",
+                frequency="1d",
+                adjustment="source_reported",
+                price_basis="nav",
+                currency="CNY",
+                unit="fund_share",
+            ),
+        )
+    ) == ()
+
+
+@pytest.mark.parametrize(
+    ("product_type", "fund_identity_kind"),
+    (
+        ("LOF", "LISTING"),
+        ("REIT", "LISTING"),
+        ("ETF", "SHARE_CLASS"),
+        (None, "LISTING"),
+        ("ETF", None),
+    ),
+)
+def test_default_policy_rejects_non_etf_or_non_listing_fund_nav_identities(
+    product_type: str | None,
+    fund_identity_kind: str | None,
+) -> None:
+    """ETF NAV policy selection depends on frozen product and listing facts."""
+    registry = _default_source_policy_registry("yfinance", ())
+    context = SimpleNamespace(
+        identity=SimpleNamespace(
+            asset_type="fund",
+            venue="CN-SZSE",
+            identity=SimpleNamespace(
+                product_type=product_type,
+                details=SimpleNamespace(fund_identity_kind=fund_identity_kind),
+            ),
+        ),
+        query=SimpleNamespace(
+            family_id="fund.nav",
+            data_kind="reference_series",
+            frequency="1d",
+            adjustment="source_reported",
+            price_basis="nav",
+            currency="CNY",
+            unit="fund_share",
+        ),
+    )
+
+    assert registry.resolve("market-default-v1").routes_for(context) == ()
+
+
 def test_default_policy_only_grants_research_cache_fill_after_server_opt_in() -> None:
     """A browser cannot enable the research-authorized write purpose by itself."""
     _default_source_policy_registry.cache_clear()

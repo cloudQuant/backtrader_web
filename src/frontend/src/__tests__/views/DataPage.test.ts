@@ -425,6 +425,104 @@ function createStockLiquidityResponseFixture(): MarketDataQueryResponse {
   }
 }
 
+function fundNavFamilyBinding(): FamilyBindingFixture {
+  return {
+    family_id: 'fund.nav',
+    family_contract_version: 'market-data-family-v1',
+  }
+}
+
+function createFundNavContractFixture() {
+  return {
+    version: 'market-data-v2' as const,
+    request: {
+      identity: { canonical_id: 'instrument:fund:CN:510300' },
+      dataset_code: 'market.fund_nav',
+      data_kind: 'reference_series' as const,
+      frequency: '1d' as const,
+      required_fields: ['nav', 'cumulative_nav', 'daily_growth_rate'],
+      adjustment: 'source_reported',
+      price_basis: 'nav',
+      currency: 'CNY',
+      unit: 'fund_share',
+      source_policy_id: 'market-default-v1',
+      ...fundNavFamilyBinding(),
+      mode: 'local_first' as const,
+    },
+  }
+}
+
+function createFundNavResponseFixture(): MarketDataQueryResponse {
+  return {
+    ...createV2ResponseFixture(fundNavFamilyBinding()),
+    query_id: 'query-fund-nav-1',
+    canonical_id: 'instrument:fund:CN:510300',
+    dataset_code: 'market.fund_nav',
+    asset_type: 'fund',
+    instrument_metadata_version: 'fund-v1',
+    data_kind: 'reference_series',
+    observations: [
+      {
+        revision_id: 'fund-nav-revision-1',
+        source_snapshot_id: 'fund-nav-snapshot-1',
+        event_at: '2026-06-18T00:00:00Z',
+        available_at: '2026-06-18T15:00:00Z',
+        committed_at: '2026-06-18T15:00:01Z',
+        revision_number: 1,
+        quality: 'pass',
+        fields: {
+          nav: 1.2345,
+          cumulative_nav: 2.5678,
+          daily_growth_rate: 0.65,
+          price: 9999,
+          previous_close: 9998,
+          close: 9997,
+          change_pct: 9996,
+        },
+      },
+      {
+        revision_id: 'fund-nav-revision-2',
+        source_snapshot_id: 'fund-nav-snapshot-2',
+        event_at: '2026-06-20T00:00:00Z',
+        available_at: '2026-06-20T15:00:00Z',
+        committed_at: '2026-06-20T15:00:01Z',
+        revision_number: 1,
+        quality: 'pass',
+        fields: {
+          nav: 1.2425,
+          cumulative_nav: 2.5886,
+          daily_growth_rate: -0.18,
+          price: 8888,
+          previous_close: 8887,
+          close: 8886,
+          change_pct: 8885,
+        },
+      },
+    ],
+  }
+}
+
+function createFundRealtimeContractFixture() {
+  const contract = createV2ContractFixture({
+    family_id: 'fund.realtime',
+    family_contract_version: 'market-data-family-v1',
+  })
+  contract.request.identity.canonical_id = 'instrument:fund:CN:510300'
+  return contract
+}
+
+function createFundRealtimeResponseFixture(): MarketDataQueryResponse {
+  return {
+    ...createV2ResponseFixture({
+      family_id: 'fund.realtime',
+      family_contract_version: 'market-data-family-v1',
+    }),
+    canonical_id: 'instrument:fund:CN:510300',
+    asset_type: 'fund',
+    instrument_metadata_version: 'fund-v1',
+  }
+}
+
 function configureReadyReferenceSeriesFamily(
   bundle: MarketDataQueryBundle,
   familyId: string,
@@ -513,6 +611,20 @@ function createQueryBundleFixture(
       }
     }),
   }
+}
+
+function createFundNavBundleFixture(): MarketDataQueryBundle {
+  const bundle = createQueryBundleFixture('fund', {
+    'fund.realtime': 'ready',
+    'fund.nav': 'ready',
+  })
+  configureReadyReferenceSeriesFamily(
+    bundle,
+    'fund.nav',
+    'market.fund_nav',
+    ['nav', 'cumulative_nav', 'daily_growth_rate'],
+  )
+  return bundle
 }
 
 describe('DataPage', () => {
@@ -626,7 +738,7 @@ describe('DataPage', () => {
     return wrapper
   }
 
-  it('keeps the complete v2 page path off when the server capability is disabled', async () => {
+  it('keeps lifecycle and user queries off legacy online refresh when the server capability is disabled', async () => {
     // A browser build flag must never claim the receipt-backed path is live
     // while the authenticated server capability says it is disabled.
     apiMocks.getCapabilities.mockResolvedValue({
@@ -655,6 +767,56 @@ describe('DataPage', () => {
       instrumentMetadataVersion: null,
     })
     expect(wrapper.find('[data-test="market-data-platform-provenance"]').exists()).toBe(false)
+
+    // The explicit query button may still read the compatibility cache while
+    // v2 is disabled, but it must not turn that fallback into the old online
+    // refresh path.
+    apiMocks.lookupInstrument.mockClear()
+    const queryButton = wrapper.findAll('button').find((button) => button.text().includes('查询'))
+    await queryButton?.trigger('click')
+    await flushPromises()
+
+    expect(apiMocks.getQueryBundle).not.toHaveBeenCalled()
+    expect(apiMocks.getQueryContract).not.toHaveBeenCalled()
+    expect(apiMocks.queryLocalFirst).not.toHaveBeenCalled()
+    expect(apiMocks.lookupInstrument).toHaveBeenCalledWith(expect.objectContaining({
+      asset_type: 'stock',
+      symbol: '000001',
+      refresh_online: false,
+    }))
+  })
+
+  it('never turns an unavailable v2 contract into a legacy online refresh', async () => {
+    apiMocks.getCapabilities.mockResolvedValue({
+      version: 'market-data-capabilities-v1',
+      query_v2_enabled: true,
+      online_fetch_enabled: true,
+      research_cache_fill_enabled: false,
+      research_backtest_bridge_enabled: false,
+    })
+    apiMocks.getQueryBundle.mockRejectedValue({ response: { status: 404 } })
+    apiMocks.getQueryContract.mockRejectedValue({ response: { status: 404 } })
+
+    const wrapper = await mountPage()
+    apiMocks.getQueryBundle.mockClear()
+    apiMocks.getQueryContract.mockClear()
+    apiMocks.queryLocalFirst.mockClear()
+    apiMocks.lookupInstrument.mockClear()
+
+    const queryButton = wrapper.findAll('button').find((button) => button.text().includes('查询'))
+    await queryButton?.trigger('click')
+    await flushPromises()
+
+    expect(apiMocks.getQueryContract).toHaveBeenCalledWith({
+      asset_type: 'stock',
+      symbol: '000001',
+      period: 'daily',
+      family_id: 'stock.realtime',
+    })
+    expect(apiMocks.queryLocalFirst).not.toHaveBeenCalled()
+    expect(apiMocks.lookupInstrument).toHaveBeenCalledWith(expect.objectContaining({
+      refresh_online: false,
+    }))
   })
 
   it('uses the server capability even when the browser rollout variable is stale', async () => {
@@ -887,7 +1049,7 @@ describe('DataPage', () => {
     }), expect.any(Object))
   })
 
-  it('uses a server-proven contract for the first local-first query without legacy lookup', async () => {
+  it('uses a server-proven contract for the initial local-only query without legacy lookup', async () => {
     apiMocks.getQueryContract.mockResolvedValue({
       version: 'market-data-v2',
       request: {
@@ -963,12 +1125,90 @@ describe('DataPage', () => {
       dataset_code: 'market.bars',
       family_id: 'stock.realtime',
       family_contract_version: 'market-data-family-v1',
-      mode: 'local_first',
+      mode: 'local_only',
       purpose: 'display',
       consistency: 'display',
     }), expect.objectContaining({ suppressErrorMessage: true }))
     expect((wrapper.vm as any).result.history.rows).toHaveLength(1)
-    expect(wrapper.find('[data-test="market-data-platform-status"]').text()).toContain('本地优先')
+    expect((wrapper.vm as any).marketDataPlatformStatus.path).toBe('local_only')
+    expect(wrapper.find('[data-test="market-data-platform-status"]').text()).toContain('仅本地读取')
+  })
+
+  it('fails closed when an initial local-only response claims a provider receipt', async () => {
+    apiMocks.getQueryContract.mockResolvedValue(createV2ContractFixture())
+    apiMocks.queryLocalFirst.mockResolvedValue({
+      ...createV2ResponseFixture(),
+      fetches: [
+        {
+          route_id: 'akshare-stock-bars-v1',
+          provider_id: 'akshare',
+          source_snapshot_id: 'unexpected-provider-snapshot',
+          observation_revision_ids: ['revision-1'],
+          passing_observation_count: 1,
+          failed_observation_count: 0,
+        },
+      ],
+    })
+
+    const wrapper = await mountPage()
+
+    expect(apiMocks.queryLocalFirst).toHaveBeenCalledWith(expect.objectContaining({
+      mode: 'local_only',
+    }), expect.objectContaining({ suppressErrorMessage: true }))
+    expect(apiMocks.lookupInstrument).not.toHaveBeenCalled()
+    expect((wrapper.vm as any).result).toBeNull()
+    expect((wrapper.vm as any).marketDataPlatformStatus.path).toBe('error')
+  })
+
+  it('keeps route-tab lifecycle reads local-only after the initial page load', async () => {
+    apiMocks.getQueryContract.mockImplementation(({ asset_type, symbol }: {
+      asset_type: MarketAssetType
+      symbol: string
+    }) => {
+      const contract = createV2ContractFixture()
+      contract.request.identity.canonical_id = `instrument:${asset_type}:LOCAL:${symbol}`
+      contract.request.family_id = `${asset_type}.realtime`
+      return Promise.resolve(contract)
+    })
+    apiMocks.queryLocalFirst.mockImplementation((request: {
+      identity: { canonical_id: string }
+      family_id: string
+      family_contract_version: 'market-data-family-v1'
+    }) => {
+      const assetType = request.family_id.split('.')[0] as MarketAssetType
+      return Promise.resolve({
+        ...createV2ResponseFixture({
+          family_id: request.family_id,
+          family_contract_version: request.family_contract_version,
+        }),
+        asset_type: assetType,
+        canonical_id: request.identity.canonical_id,
+      })
+    })
+
+    const wrapper = await mountPage()
+    const vm = wrapper.vm as any
+    apiMocks.getQueryContract.mockClear()
+    apiMocks.queryLocalFirst.mockClear()
+
+    await vm.router.push('/data/market?tab=futures')
+    await flushPromises()
+    await flushPromises()
+
+    expect(apiMocks.getQueryContract).toHaveBeenCalledWith({
+      asset_type: 'futures',
+      symbol: 'IM2606',
+      period: 'daily',
+      family_id: 'futures.realtime',
+    })
+    expect(apiMocks.queryLocalFirst).toHaveBeenCalledWith(expect.objectContaining({
+      identity: { canonical_id: 'instrument:futures:LOCAL:IM2606' },
+      family_id: 'futures.realtime',
+      mode: 'local_only',
+      purpose: 'display',
+      consistency: 'display',
+    }), expect.objectContaining({ suppressErrorMessage: true }))
+    expect(vm.marketDataPlatformStatus.path).toBe('local_only')
   })
 
   it('fails closed when the unbundled crypto realtime family is unconfigured', async () => {
@@ -1121,6 +1361,124 @@ describe('DataPage', () => {
     expect(wrapper.find('[data-test="market-data-platform-status"]').text()).toContain('数据族未配置')
   })
 
+  it('does not label incomplete local-first coverage as a local cache hit when online fill is disabled', async () => {
+    apiMocks.getCapabilities.mockResolvedValue({
+      version: 'market-data-capabilities-v1',
+      query_v2_enabled: true,
+      online_fetch_enabled: false,
+      research_cache_fill_enabled: false,
+      research_backtest_bridge_enabled: false,
+    })
+    apiMocks.getQueryContract.mockResolvedValue(createV2ContractFixture())
+    apiMocks.queryLocalFirst.mockResolvedValue(createV2ResponseFixture())
+
+    const wrapper = await mountPage()
+    const incompleteResponse = createV2ResponseFixture()
+    incompleteResponse.coverage = {
+      status: 'incomplete',
+      expected_event_count: 2,
+      accepted_event_count: 1,
+      missing_event_count: 1,
+      coverage_ratio: 0.5,
+      gaps: [
+        {
+          position: 'tail',
+          event_at: ['2026-06-20T00:00:00Z'],
+          fetch_start: '2026-06-20T00:00:00Z',
+          fetch_end: '2026-06-21T00:00:00Z',
+        },
+      ],
+      rejection_counts: {},
+      calendar_reason: null,
+    }
+    incompleteResponse.warnings = [{ code: 'ONLINE_FETCH_DISABLED' }]
+    apiMocks.queryLocalFirst.mockClear()
+    apiMocks.queryLocalFirst.mockResolvedValue(incompleteResponse)
+
+    const queryButton = wrapper.findAll('button').find((button) => button.text().includes('查询'))
+    await queryButton?.trigger('click')
+    await flushPromises()
+
+    const vm = wrapper.vm as any
+    expect(apiMocks.queryLocalFirst).toHaveBeenCalledWith(expect.objectContaining({
+      mode: 'local_first',
+    }), expect.objectContaining({ suppressErrorMessage: true }))
+    expect(vm.marketDataPlatformStatus).toEqual(expect.objectContaining({
+      path: 'local_coverage_incomplete',
+      fallbackReason: 'ONLINE_FETCH_DISABLED',
+      coverageStatus: 'incomplete',
+      coverageRatio: 0.5,
+    }))
+    expect(vm.marketDataPlatformSourceText).toBe('本地覆盖不足；在线补齐已禁用')
+    expect(vm.marketDataPlatformCacheText).toBe('未命中完整本地可追溯缓存')
+    expect(wrapper.find('[data-test="market-data-platform-status"]').text())
+      .toContain('本地覆盖不足；在线补齐已禁用')
+    expect(apiMocks.lookupInstrument).not.toHaveBeenCalled()
+  })
+
+  it('keeps persisted provider receipts with incomplete coverage out of the success state', async () => {
+    apiMocks.getCapabilities.mockResolvedValue({
+      version: 'market-data-capabilities-v1',
+      query_v2_enabled: true,
+      online_fetch_enabled: true,
+      research_cache_fill_enabled: false,
+      research_backtest_bridge_enabled: false,
+    })
+    apiMocks.getQueryContract.mockResolvedValue(createV2ContractFixture())
+    apiMocks.queryLocalFirst.mockResolvedValue(createV2ResponseFixture())
+
+    const wrapper = await mountPage()
+    const incompleteResponse = createV2ResponseFixture()
+    incompleteResponse.coverage = {
+      status: 'incomplete',
+      expected_event_count: 2,
+      accepted_event_count: 1,
+      missing_event_count: 1,
+      coverage_ratio: 0.5,
+      gaps: [
+        {
+          position: 'tail',
+          event_at: ['2026-06-20T00:00:00Z'],
+          fetch_start: '2026-06-20T00:00:00Z',
+          fetch_end: '2026-06-21T00:00:00Z',
+        },
+      ],
+      rejection_counts: {},
+      calendar_reason: null,
+    }
+    incompleteResponse.fetches = [
+      {
+        route_id: 'akshare-stock-bars-v1',
+        provider_id: 'akshare',
+        source_snapshot_id: 'provider-snapshot-1',
+        observation_revision_ids: ['revision-1'],
+        passing_observation_count: 1,
+        failed_observation_count: 0,
+      },
+    ]
+    apiMocks.queryLocalFirst.mockClear()
+    apiMocks.queryLocalFirst.mockResolvedValue(incompleteResponse)
+
+    const queryButton = wrapper.findAll('button').find((button) => button.text().includes('查询'))
+    await queryButton?.trigger('click')
+    await flushPromises()
+
+    const vm = wrapper.vm as any
+    expect(vm.marketDataPlatformStatus).toEqual(expect.objectContaining({
+      path: 'provider_persisted_incomplete',
+      coverageStatus: 'incomplete',
+      coverageRatio: 0.5,
+      fetchedProviderCount: 1,
+    }))
+    expect(vm.marketDataPlatformSourceText).toBe('已记录 1 个来源回执；本地覆盖不足')
+    expect(vm.marketDataPlatformCacheText).toBe('已保存 1 个来源回执，但未形成完整本地可追溯缓存')
+    expect(vm.marketDataPlatformTagType).toBe('warning')
+    expect(wrapper.find('[data-test="market-data-platform-status"]').text())
+      .toContain('已记录 1 个来源回执；本地覆盖不足')
+    expect(wrapper.find('[data-test="market-data-platform-status"]').text())
+      .not.toContain('已获取并入库')
+  })
+
   it('uses an explicitly selected ready reference series contract and renders only its declared fields', async () => {
     vi.stubEnv('VITE_MARKET_DATA_QUERY_BUNDLE_ENABLED', 'true')
     apiMocks.getQueryBundle.mockResolvedValue(createStockLiquidityBundleFixture())
@@ -1210,6 +1568,111 @@ describe('DataPage', () => {
     vm.applyAssetType('fund', false)
     expect(vm.selectedFamilyId).toBe('fund.realtime')
     expect(vm.referenceSeriesResult).toBeNull()
+  })
+
+  it('renders fund NAV only from the declared market.fund_nav reference fields', async () => {
+    vi.stubEnv('VITE_MARKET_DATA_QUERY_BUNDLE_ENABLED', 'true')
+    const fundBundle = createFundNavBundleFixture()
+    apiMocks.getQueryBundle.mockImplementation(({ asset_type }: { asset_type: MarketAssetType }) => (
+      Promise.resolve(asset_type === 'fund'
+        ? fundBundle
+        : createQueryBundleFixture('stock', { 'stock.realtime': 'ready' }))
+    ))
+    apiMocks.getQueryContract.mockImplementation(({ family_id }: { family_id: string }) => (
+      Promise.resolve(
+        family_id === 'fund.nav'
+          ? createFundNavContractFixture()
+          : createFundRealtimeContractFixture(),
+      )
+    ))
+    apiMocks.queryLocalFirst.mockImplementation(({ family_id }: { family_id: string }) => (
+      Promise.resolve(
+        family_id === 'fund.nav'
+          ? createFundNavResponseFixture()
+          : createFundRealtimeResponseFixture(),
+      )
+    ))
+
+    const wrapper = await mountPage('/data/market?tab=fund')
+    const vm = wrapper.vm as any
+    expect(vm.selectedFamilyId).toBe('fund.realtime')
+    expect(vm.result.asset_type).toBe('fund')
+
+    vm.selectDataFamily('fund.nav')
+    await flushPromises()
+    apiMocks.getQueryContract.mockClear()
+    apiMocks.queryLocalFirst.mockClear()
+
+    await vm.lookupInstrument('local_first')
+    await flushPromises()
+
+    expect(apiMocks.getQueryContract).toHaveBeenCalledWith({
+      asset_type: 'fund',
+      symbol: '510300',
+      period: 'daily',
+      family_id: 'fund.nav',
+    })
+    expect(apiMocks.queryLocalFirst).toHaveBeenCalledWith(expect.objectContaining({
+      dataset_code: 'market.fund_nav',
+      data_kind: 'reference_series',
+      family_id: 'fund.nav',
+      required_fields: ['nav', 'cumulative_nav', 'daily_growth_rate'],
+      adjustment: 'source_reported',
+      price_basis: 'nav',
+      currency: 'CNY',
+      unit: 'fund_share',
+      mode: 'local_first',
+    }), expect.objectContaining({ suppressErrorMessage: true }))
+    expect(vm.isFundNavReferenceSeries).toBe(true)
+    expect(vm.referenceSeriesRows).toEqual([
+      { date: '2026-06-20', nav: 1.2425, cumulative_nav: 2.5886, daily_growth_rate: -0.18 },
+      { date: '2026-06-18', nav: 1.2345, cumulative_nav: 2.5678, daily_growth_rate: 0.65 },
+    ])
+    expect(vm.referenceSeriesTableColumns.map((column: { key: string }) => column.key)).toEqual([
+      'date', 'nav', 'cumulative_nav', 'daily_growth_rate',
+    ])
+    const dailyGrowthColumn = vm.referenceSeriesTableColumns.find(
+      (column: { key: string }) => column.key === 'daily_growth_rate',
+    )
+    expect(dailyGrowthColumn).toEqual(expect.objectContaining({ format: 'percent' }))
+    expect(vm.formatHistoryCell(vm.referenceSeriesRows[0], dailyGrowthColumn)).toBe('-0.18%')
+    expect(vm.formatHistoryCell(vm.referenceSeriesRows[1], dailyGrowthColumn)).toBe('+0.65%')
+    expect(vm.formatHistoryCell(vm.referenceSeriesRows[0], dailyGrowthColumn)).toBe(
+      vm.formatReferenceSeriesField('daily_growth_rate', -0.18),
+    )
+    expect(vm.result.snapshot).toEqual(expect.objectContaining({
+      nav: 1.2425,
+      cumulative_nav: 2.5886,
+      daily_growth_rate: -0.18,
+    }))
+    expect(vm.result.snapshot.price).toBeUndefined()
+    expect(vm.result.snapshot.previous_close).toBeUndefined()
+    expect(vm.result.snapshot.close).toBeUndefined()
+    expect(vm.result.snapshot.change_pct).toBeUndefined()
+    expect(vm.assetKpiCards.map((card: { label: string }) => card.label)).toEqual([
+      'nav', 'cumulative_nav', 'daily_growth_rate',
+    ])
+    expect(vm.assetDetailRows.map((row: { label: string }) => row.label)).toEqual([
+      'nav', 'cumulative_nav', 'daily_growth_rate',
+    ])
+    expect(vm.snapshotMetrics.map((metric: { key: string }) => metric.key)).toEqual([
+      'symbol', 'name', 'market', 'data_source_table',
+      'nav', 'cumulative_nav', 'daily_growth_rate', 'updated',
+    ])
+    expect(vm.marketOverviewPrimaryLabel).toBe('nav')
+    expect(vm.marketOverviewPrimaryValue).toBe('1.2425')
+    expect(vm.marketOverviewSecondaryText).toBe('daily_growth_rate -0.18%')
+    expect(wrapper.find('[data-test="market-reference-series-table"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="market-instrument-overview"]').text()).toContain('nav')
+    expect(wrapper.find('[data-test="market-instrument-overview"]').text()).not.toContain('最新价')
+
+    const navFamily = vm.assetDataFamilies.find((family: { familyId: string }) => family.familyId === 'fund.nav')
+    expect(navFamily).toEqual(expect.objectContaining({ readState: 'facts_loaded' }))
+    expect(navFamily.fields).toEqual([
+      expect.objectContaining({ name: 'nav', present: true }),
+      expect.objectContaining({ name: 'cumulative_nav', present: true }),
+      expect.objectContaining({ name: 'daily_growth_rate', present: true }),
+    ])
   })
 
   it('clears prior family facts from the select model update before a new family can be queried', async () => {

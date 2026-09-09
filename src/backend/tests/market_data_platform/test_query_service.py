@@ -1456,8 +1456,12 @@ def test_provider_request_binds_the_resolved_family_and_server_endpoint() -> Non
 
     assert provider_request.family_id == "stock.realtime"
     assert provider_request.provider_endpoint == "equity.price.historical"
+    assert provider_request.product_type == "EQUITY"
+    assert provider_request.fund_identity_kind is None
     assert provider_request.dto_payload["family_id"] == "stock.realtime"
     assert provider_request.dto_payload["provider_endpoint"] == "equity.price.historical"
+    assert provider_request.dto_payload["product_type"] == "EQUITY"
+    assert provider_request.dto_payload["fund_identity_kind"] is None
     with pytest.raises(MarketDataQueryServiceError, match="SOURCE_POLICY_ROUTE_FAMILY_MISMATCH"):
         _provider_request_for(
             family_bound_context,
@@ -1495,6 +1499,9 @@ def test_policy_descriptor_hash_binds_permit_family_and_endpoint() -> None:
     )
     assert baseline != _policy_descriptor_hash(
         policy_for(replace(route, provider_endpoint="etf.historical"))
+    )
+    assert baseline != _policy_descriptor_hash(
+        policy_for(replace(route, product_types=frozenset({"ETF"})))
     )
 
 

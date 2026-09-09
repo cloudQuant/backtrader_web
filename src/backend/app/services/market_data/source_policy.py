@@ -98,6 +98,11 @@ class MarketDataProviderRoute:
     # This is a server-owned adapter dispatch token. It is copied to the
     # signed provider DTO; callers never select it through a public request.
     provider_endpoint: str | None = None
+    # Product and fund-identity constraints are optional only for retained
+    # generic routes.  A route that declares them must match the frozen
+    # master-data identity before it can authorize a provider call.
+    product_types: frozenset[str] | None = None
+    fund_identity_kinds: frozenset[str] | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "route_id", _nonempty_text(self.route_id, field_name="route_id"))
@@ -167,12 +172,33 @@ class MarketDataProviderRoute:
                 "provider_endpoint",
                 _nonempty_text(self.provider_endpoint, field_name="provider_endpoint", maximum=256),
             )
+        if self.product_types is not None:
+            object.__setattr__(
+                self,
+                "product_types",
+                _nonempty_text_set(self.product_types, field_name="product_type"),
+            )
+        if self.fund_identity_kinds is not None:
+            if "fund" not in self.asset_types:
+                raise ValueError("fund_identity_kinds require a fund route")
+            object.__setattr__(
+                self,
+                "fund_identity_kinds",
+                _nonempty_text_set(
+                    self.fund_identity_kinds,
+                    field_name="fund_identity_kind",
+                ),
+            )
         if not hasattr(self.adapter, "fetch"):
             raise TypeError("adapter must implement fetch")
 
     def supports(self, context: ResolvedMarketDataQueryContext) -> bool:
         """Return whether the route explicitly authorizes this resolved query."""
         venue = context.identity.venue
+        frozen_identity = getattr(context.identity, "identity", None)
+        product_type = getattr(frozen_identity, "product_type", None)
+        details = getattr(frozen_identity, "details", None)
+        fund_identity_kind = getattr(details, "fund_identity_kind", None)
         return (
             venue is not None
             and context.identity.asset_type in self.asset_types
@@ -186,6 +212,11 @@ class MarketDataProviderRoute:
             and (
                 self.family_id is None
                 or getattr(context.query, "family_id", None) == self.family_id
+            )
+            and (self.product_types is None or product_type in self.product_types)
+            and (
+                self.fund_identity_kinds is None
+                or fund_identity_kind in self.fund_identity_kinds
             )
         )
 

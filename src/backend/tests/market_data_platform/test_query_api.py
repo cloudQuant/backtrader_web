@@ -1176,6 +1176,7 @@ def test_default_policy_selects_only_exact_unadjusted_liquidity_routes(
         context = SimpleNamespace(
             identity=SimpleNamespace(asset_type=asset_type, venue=venue),
             query=SimpleNamespace(
+                family_id=f"{asset_type}.liquidity",
                 data_kind="reference_series",
                 frequency="1d",
                 adjustment="unadjusted",
@@ -1192,6 +1193,7 @@ def test_default_policy_selects_only_exact_unadjusted_liquidity_routes(
             SimpleNamespace(
                 identity=context.identity,
                 query=SimpleNamespace(
+                    family_id=f"{asset_type}.liquidity",
                     data_kind="reference_series",
                     frequency="1d",
                     adjustment="qfq",
@@ -1210,12 +1212,52 @@ def test_default_policy_selects_only_exact_unadjusted_liquidity_routes(
                 query=context.query,
             )
         )
-        assert [route.route_id for route in other_routes] == [
-            (
-                "akshare-fund-liquidity-primary-v1"
-                if asset_type == "stock"
-                else "akshare-stock-liquidity-primary-v1"
-            )
+        assert other_routes == ()
+    finally:
+        _default_source_policy_registry.cache_clear()
+
+
+def test_default_policy_selects_the_exact_etf_nav_route() -> None:
+    """The fund NAV source route is distinct from the price and liquidity routes."""
+    _default_source_policy_registry.cache_clear()
+    try:
+        policy = _default_source_policy_registry("yfinance", ()).resolve("market-default-v1")
+        context = SimpleNamespace(
+            identity=SimpleNamespace(
+                asset_type="fund",
+                venue="CN-SZSE",
+                identity=SimpleNamespace(
+                    product_type="ETF",
+                    details=SimpleNamespace(fund_identity_kind="LISTING"),
+                ),
+            ),
+            query=SimpleNamespace(
+                family_id="fund.nav",
+                data_kind="reference_series",
+                frequency="1d",
+                adjustment="source_reported",
+                price_basis="nav",
+                currency="CNY",
+                unit="fund_share",
+            ),
+        )
+
+        assert [route.route_id for route in policy.routes_for(context)] == [
+            "akshare-fund-nav-primary-v1"
         ]
+        assert policy.routes_for(
+            SimpleNamespace(
+                identity=context.identity,
+                query=SimpleNamespace(
+                    family_id="fund.nav",
+                    data_kind="reference_series",
+                    frequency="1d",
+                    adjustment="unadjusted",
+                    price_basis="close",
+                    currency="CNY",
+                    unit="share",
+                ),
+            )
+        ) == ()
     finally:
         _default_source_policy_registry.cache_clear()

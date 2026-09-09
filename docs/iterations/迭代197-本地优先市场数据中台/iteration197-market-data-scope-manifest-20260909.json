@@ -86,7 +86,7 @@
         "monthly"
       ],
       "source_path": "src/frontend/src/views/data/useDataPage.ts",
-      "source_sha256": "1d2afcb1d51db74ba0b732d7253ce749d78ce4cd45a31cbe5f0fd5519feed6c9"
+      "source_sha256": "fc4d65341b25fa2c036e5529f593082702e09933c4e2ccd7c0e7a87f9f30c020"
     }
   },
   "iter196_baseline": {
@@ -98,7 +98,7 @@
     "schema_version": "iter196-market-data-baseline-v1",
     "status": "frozen"
   },
-  "manifest_sha256": "81f51a7477473b2fc1730e9b6bbe0f37df7fcb026c0d6b36a8c1e2bbf76dfb7f",
+  "manifest_sha256": "24f142337cf01f59e14afeb4401d97c0f2f45c750aedc1c3daa953681b94ec29",
   "rows": [
     {
       "api": {
@@ -478,7 +478,7 @@
         ]
       },
       "asset_type": "fund",
-      "contract_status": "unconfigured",
+      "contract_status": "ready",
       "coverage_model": "calendar_grid",
       "data_kind": "reference_series",
       "dataset_code": "market.fund_nav",
@@ -509,11 +509,13 @@
         ],
         "market_page_asset_supported": true,
         "market_page_family_declared": true,
-        "v2_query_periods": []
+        "v2_query_periods": [
+          "daily"
+        ]
       },
-      "reason_code": "DATASET_CONTRACT_UNCONFIGURED",
-      "row_sha256": "736e8bff9f9e6e84d82f2894189abdf259a7021fdd522c6ee9cd147b2bbc5223",
-      "source_policy_id": null,
+      "reason_code": null,
+      "row_sha256": "431a01e2f80cdc3c43a063d4ff5cb96545735dfd41ceb167a51b61531056a07d",
+      "source_policy_id": "market-default-v1",
       "strategy_page_production_status": "not_enabled_by_scope_manifest"
     },
     {
@@ -1261,22 +1263,22 @@
     {
       "path": "src/backend/app/services/market_data/dataset_contracts.py",
       "role": "backend_contract_registry",
-      "sha256": "c73a1624c21434437ae80e69c6ebb915278de58f43a490e876277a431ffad4ed"
+      "sha256": "3ec191a19a91ae087da94454a4cddb527a1334c21cacf3ffb6c0b73af25dd731"
     },
     {
       "path": "src/backend/app/schemas/market_data_platform.py",
       "role": "backend_query_schema",
-      "sha256": "5b2727a989eb9b4e64ac8ed9f8ab489289c088f66c9d314dcdaf0ab39b023993"
+      "sha256": "f91564973476ef145c694e372d3bc7a82470e8aad18d3ab7be5bb326e46bf0a2"
     },
     {
       "path": "src/backend/app/services/market_data/legacy_contract.py",
       "role": "backend_legacy_contract",
-      "sha256": "6a1665e19670fc846789208937374656443d394cdc8364ecb88dac98e4589e80"
+      "sha256": "64323e911e6941e5fa46baeb2bd1a8c3eccec7a56b7375b02597240843f4ec7c"
     },
     {
       "path": "src/frontend/src/views/data/useDataPage.ts",
       "role": "frontend_market_page",
-      "sha256": "1d2afcb1d51db74ba0b732d7253ce749d78ce4cd45a31cbe5f0fd5519feed6c9"
+      "sha256": "fc4d65341b25fa2c036e5529f593082702e09933c4e2ccd7c0e7a87f9f30c020"
     }
   ],
   "strategy_page_production_status": "not_enabled_by_scope_manifest"

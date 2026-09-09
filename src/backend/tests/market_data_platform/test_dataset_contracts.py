@@ -121,6 +121,7 @@ def test_ready_entries_are_only_explicitly_reviewed_product_contracts() -> None:
         "bond.realtime",
         "fund.realtime",
         "fund.liquidity",
+        "fund.nav",
         "option.realtime",
         "fx.realtime",
         "fx.range",
@@ -166,6 +167,17 @@ def test_ready_entries_are_only_explicitly_reviewed_product_contracts() -> None:
         "reference_series",
         ("1d",),
         ("volume", "turnover"),
+    )
+    assert (
+        by_id["fund.nav"].dataset_code,
+        by_id["fund.nav"].data_kind,
+        by_id["fund.nav"].frequencies,
+        by_id["fund.nav"].required_fields,
+    ) == (
+        "market.fund_nav",
+        "reference_series",
+        ("1d",),
+        ("nav", "cumulative_nav", "daily_growth_rate"),
     )
     assert (
         by_id["fx.range"].dataset_code,
@@ -454,6 +466,23 @@ def test_family_bound_query_requires_a_complete_exact_product_binding() -> None:
             ),
         },
         {
+            "family_id": "fund.nav",
+            "family_contract_version": "market-data-family-v1",
+            "asset_type": "fund",
+            "dataset_code": "market.fund_nav",
+            "data_kind": "reference_series",
+            "frequency": "1d",
+            "required_fields": ("cumulative_nav", "daily_growth_rate", "nav"),
+            "source_policy_id": "market-default-v1",
+            "adjustment": "source_reported",
+            "price_basis": "nav",
+            "currency": "CNY",
+            "unit": "fund_share",
+            "explicit_semantic_axis_names": frozenset(
+                {"adjustment", "price_basis", "currency", "unit"}
+            ),
+        },
+        {
             "family_id": "fx.range",
             "family_contract_version": "market-data-family-v1",
             "asset_type": "fx",
@@ -486,7 +515,7 @@ def test_registry_rejects_any_drift_from_a_bound_ready_family(
             {"unit": "contract"},
             {"explicit_semantic_axis_names": frozenset({"adjustment", "price_basis"})},
         )
-        if binding["family_id"] in {"stock.liquidity", "fund.liquidity", "fx.range"}
+        if binding["family_id"] in {"stock.liquidity", "fund.liquidity", "fund.nav", "fx.range"}
         else ()
     )
     for changes in (

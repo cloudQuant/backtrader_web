@@ -30,7 +30,7 @@
 | bond | fixed_income | 单记录 | `UNCONFIGURED` | 单记录产品工作包 |
 | fund | realtime | 单序列 bars | `READY` | 真实来源和数据库验收 |
 | fund | liquidity | 单记录参考序列 | `READY`（候选代码） | 真实来源、数据库与页面灰度验收 |
-| fund | nav | 单记录 | `UNCONFIGURED` | 单记录产品工作包 |
+| fund | nav | 单记录参考序列 | `READY`（候选代码） | 真实来源、数据库与页面灰度验收 |
 | option | realtime | 单序列 bars | `READY` | 真实来源和数据库验收 |
 | option | derivative | 多记录快照 | `UNCONFIGURED` | 多记录事实模型工作包 |
 | option | risk_surface | 多记录快照 | `UNCONFIGURED` | 多记录事实模型工作包 |
@@ -66,9 +66,9 @@
 
 候选已为 B1 建立六个惰性逻辑数据集：`market.valuation`、`market.liquidity`、`market.settlement`、`market.bond_reference`、`market.fund_nav` 和 `market.fx_reference`。它们与既有 `market.bars`、`market.quote_snapshot` 共用不可变 `md_observation_revisions` 的物理绑定，但各自保留独立 dataset code、字段 profile 和允许资产类型。
 
-family contract 的 `ready` 有两层防线：公共 DTO 仅接受受审核的单记录 `calendar_grid` 或 `snapshot_freshness` 形状；服务端 registry 再对 17 个现有/B1 单记录 family 的 dataset、data kind、频率、必需字段和 coverage model 做精确白名单绑定。`stock.liquidity`、`fund.liquidity` 和 `fx.range` 已完成候选代码 promotion：前两项各有独立的 `reference_series` AkShare route ID，且只接受 `unadjusted + close + CNY + share`；后者使用精确 FX OHLC 日线 route，并固定为 `unadjusted + close + null + null`。这四个语义轴均为精确合同值；包括 `null` 的值也必须由调用方显式传递，省略或变更均在 provider I/O 前失败关闭。server bundle 声明当前资产的受审核候选项；行情页选择器再只展示可显式执行的 `ready + calendar_grid + 无维度 + bars/reference_series` family，用户必须主动选择非默认 family。流动性以声明字段表呈现，FX range 才复用 K 线。`bond.orderbook`、`crypto.realtime` 等快照 profile 仍没有被误绑定到当前不足以表达其字段的 quote-snapshot schema。
+family contract 的 `ready` 有两层防线：公共 DTO 仅接受受审核的单记录 `calendar_grid` 或 `snapshot_freshness` 形状；服务端 registry 再对 17 个现有/B1 单记录 family 的 dataset、data kind、频率、必需字段和 coverage model 做精确白名单绑定。`stock.liquidity`、`fund.liquidity`、`fund.nav` 和 `fx.range` 已完成候选代码 promotion：前两项各有独立的 `reference_series` AkShare route ID，且只接受 `unadjusted + close + CNY + share`；`fund.nav` 仅接受 CN-SSE/CN-SZSE ETF 的 `fund_etf_fund_info_em(fund, start_date, end_date)`，固定为 `nav/cumulative_nav/daily_growth_rate` 和 `source_reported + nav + CNY + fund_share`，不从 ETF K 线重算 NAV；后者使用精确 FX OHLC 日线 route，并固定为 `unadjusted + close + null + null`。所有语义轴均为精确合同值；包括 `null` 的值也必须由调用方显式传递，省略或变更均在 provider I/O 前失败关闭。server bundle 声明当前资产的受审核候选项；行情页选择器再只展示可显式执行的 `ready + calendar_grid + 无维度 + bars/reference_series` family，用户必须主动选择非默认 family。流动性和 NAV 以声明字段表呈现，只有 FX range 复用 K 线。`bond.orderbook`、`crypto.realtime` 等快照 profile 仍没有被误绑定到当前不足以表达其字段的 quote-snapshot schema。
 
-这项 promotion 仍只消除了代码和离线契约缺口。其余八个 B1 contract 保持 `unconfigured`；三个已开通 family 也必须完成下面七项清单以及真实环境证据，才能称为完整覆盖。例如 AkShare 小窗口返回零行并不构成 `fx.range` 的真实来源通过证据。
+这项 promotion 仍只消除了代码和离线契约缺口。其余七个 B1 contract 保持 `unconfigured`；四个候选开通 family 也必须完成下面七项清单以及真实环境证据，才能称为完整覆盖。`fund.nav` 的 fixture 持久化与本地重读回归不能替代其真实 provider → store → `local_only` 证据；已有 `stock.liquidity` 实时小窗口零行失败记录也仍为 `FAIL`。
 
 每个单记录产品的实施清单：
 
@@ -78,7 +78,7 @@ family contract 的 `ready` 有两层防线：公共 DTO 仅接受受审核的�
 4. 选择覆盖模型：`calendar_grid`、`snapshot_freshness` 或明确的 `reference_series` 周期；不得把日线 bars 网格套给快照或估值；
 5. 增加 provider 结果身份、边界、字段质量、重复记录和来源载荷 hash 校验；
 6. 增加 `provider → store → local_only → strict PIT` 回归和每个已启用来源的真实小窗口证据；
-7. 最后才把 family contract 从 `unconfigured` 改为 `ready`，并更新页面字段展示。
+7. 在合同、精确 route 与离线闭环已通过后才可把 family contract 从 `unconfigured` 改为候选 `ready` 并更新页面字段展示；完整覆盖仍须完成真实来源、数据库和页面证据。
 
 ### 3.3 197-B2：4 个多记录产品
 
@@ -143,4 +143,4 @@ follower 不发起 primary 或 fallback provider 调用，先终止旧读取事�
 | XP-197-07 | 页面和策略工件消费 | 浏览器/API/数据库/工件四方一致，且通过 IG-196-01 至 IG-196-05 |
 | XP-197-08 | 真实运行环境 | 授权来源、OpenBB 隔离、MySQL/PostgreSQL UTC/PIT、恢复演练和唯一 Alembic head |
 
-在 XP-197-01 至 XP-197-08 对应产品全部通过前，产品台账必须保留 `UNCONFIGURED` 或 `NOT_ACCEPTED`，不能因其他 family 已通过而扩大声明。
+在 XP-197-01 至 XP-197-08 对应产品全部通过前，未配置产品必须保留 `UNCONFIGURED`，候选 `ready` 产品在正式验收台账中仍为 `NOT_ACCEPTED`；不能因其他 family 已通过而扩大声明。

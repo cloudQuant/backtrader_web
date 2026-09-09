@@ -172,6 +172,15 @@ async def _add_catalog(session: AsyncSession) -> None:
         primary_key=["canonical_id", "event_at"],
         is_active=True,
     )
+    fund_nav_dataset = DgDataset(
+        id="dataset-market-fund-nav",
+        dataset_code="market.fund_nav",
+        display_name="统一 ETF 净值",
+        domain="market",
+        canonical_schema={"asset_types": ["fund"]},
+        primary_key=["canonical_id", "event_at"],
+        is_active=True,
+    )
     target = DgStorageTarget(
         id="target-canonical-market",
         storage_id="canonical-market-data",
@@ -185,10 +194,19 @@ async def _add_catalog(session: AsyncSession) -> None:
         [
             bars_dataset,
             liquidity_dataset,
+            fund_nav_dataset,
             target,
             DgDatasetStorage(
                 id="binding-market-bars",
                 dataset_id=bars_dataset.id,
+                storage_target_id=target.id,
+                physical_table="md_observation_revisions",
+                write_mode="canonical_append_only",
+                is_primary=True,
+            ),
+            DgDatasetStorage(
+                id="binding-market-fund-nav",
+                dataset_id=fund_nav_dataset.id,
                 storage_target_id=target.id,
                 physical_table="md_observation_revisions",
                 write_mode="canonical_append_only",
@@ -382,6 +400,24 @@ async def test_legacy_bridge_binds_a_selected_ready_family_to_the_exact_contract
             },
         ),
         (
+            "fund",
+            "159915",
+            "CN-SZSE",
+            "instrument:fund:CN-SZSE:159915",
+            _fund_identity,
+            "fund.nav",
+            {
+                "dataset_code": "market.fund_nav",
+                "data_kind": "reference_series",
+                "frequency": "1d",
+                "required_fields": ["nav", "cumulative_nav", "daily_growth_rate"],
+                "adjustment": "source_reported",
+                "price_basis": "nav",
+                "currency": "CNY",
+                "unit": "fund_share",
+            },
+        ),
+        (
             "fx",
             "USDCNH",
             "CN-OTC",
@@ -448,6 +484,52 @@ async def test_legacy_bridge_issues_an_exact_b1_product_contract(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("product_type", ("LOF", "REIT", "OTHER", None))
+async def test_legacy_bridge_rejects_non_etf_listings_for_fund_nav(
+    db_session: AsyncSession,
+    product_type: str | None,
+) -> None:
+    """A listed fund with an ETF-like symbol cannot mint the ETF NAV contract."""
+    canonical_id = "instrument:fund:CN-SZSE:159915"
+    identity_payload = _fund_identity(
+        canonical_id=canonical_id,
+        symbol="159915",
+        venue="CN-SZSE",
+    )
+    identity_payload["product_type"] = product_type
+    await _add_catalog(db_session)
+    await _add_identity(
+        db_session,
+        canonical_id=canonical_id,
+        symbol="159915",
+        market="CN-SZSE",
+        identity_payload=identity_payload,
+    )
+
+    contract = await LegacyMarketDataQueryContractResolver(db_session).resolve(
+        asset_type="fund",
+        symbol="159915",
+        period="daily",
+        family_id="fund.nav",
+    )
+
+    assert contract is None
+
+
+def test_etf_nav_semantics_and_route_require_a_listing_identity_kind() -> None:
+    """The bridge must not derive listed-ETF NAV semantics from a share-class identity."""
+    semantics = _semantics_for(
+        family_id="fund.nav",
+        asset_type="fund",
+        venue="CN-SZSE",
+        product_type="ETF",
+        fund_identity_kind="SHARE_CLASS",
+    )
+
+    assert semantics is None
+
+
+@pytest.mark.asyncio
 async def test_legacy_bridge_rejects_an_unconfigured_or_cross_asset_selected_family(
     db_session: AsyncSession,
 ) -> None:
@@ -457,7 +539,6 @@ async def test_legacy_bridge_rejects_an_unconfigured_or_cross_asset_selected_fam
     for asset_type, family_id in (
         ("stock", ""),
         ("stock", "stock.valuation"),
-        ("fund", "fund.nav"),
         ("fx", "fx.macro_fx"),
         ("stock", "futures.realtime"),
         ("stock", "stock.unknown"),

@@ -39,6 +39,8 @@ def _request(
     unit: str | None = None,
     source_policy_id: str | None = "akshare-v2",
     route_id: str | None = None,
+    product_type: str | None = None,
+    fund_identity_kind: str | None = None,
 ) -> MarketDataProviderRequest:
     return MarketDataProviderRequest(
         query_fingerprint="b" * 64,
@@ -58,6 +60,8 @@ def _request(
         unit=unit,
         source_policy_id=source_policy_id,
         route_id=route_id,
+        product_type=product_type,
+        fund_identity_kind=fund_identity_kind,
     )
 
 
@@ -299,6 +303,127 @@ async def test_akshare_provider_fetches_exact_etf_liquidity_reference_series() -
     assert result.warnings == ("AKSHARE_IDENTITY_SOURCE_REQUEST_BOUND",)
     assert result.raw_payload["route"]["endpoint"] == "fund_etf_hist_em"
     assert result.raw_payload["request"]["route_id"] == "akshare-fund-liquidity-primary-v1"
+
+
+@pytest.mark.asyncio
+async def test_akshare_provider_fetches_exact_etf_nav_reference_series() -> None:
+    """ETF NAV uses its own source route and preserves source-reported NAV semantics."""
+    calls: list[dict[str, Any]] = []
+
+    def fake_fund_nav_route(**kwargs: Any) -> list[dict[str, Any]]:
+        calls.append(kwargs)
+        return [
+            {
+                "净值日期": "2026-01-02",
+                "单位净值": 1.2345,
+                "累计净值": 1.4567,
+                "日增长率": 0.98,
+                "申购状态": "开放申购",
+            }
+        ]
+
+    provider = AkShareMarketDataProvider(callable_resolver=lambda _: fake_fund_nav_route)
+    result = await provider.fetch(
+        _request(
+            asset_type="fund",
+            provider_symbol="159915",
+            market="CN-SZSE",
+            data_kind="reference_series",
+            required_fields=frozenset({"nav", "cumulative_nav", "daily_growth_rate"}),
+            adjustment="source_reported",
+            price_basis="nav",
+            currency="CNY",
+            unit="fund_share",
+            route_id="akshare-fund-nav-primary-v1",
+            product_type="ETF",
+            fund_identity_kind="LISTING",
+        )
+    )
+
+    assert calls == [
+        {
+            "fund": "159915",
+            "start_date": "20260102",
+            "end_date": "20260103",
+        }
+    ]
+    assert [item.event_at for item in result.observations] == [datetime(2026, 1, 2, tzinfo=UTC)]
+    assert result.observations[0].fields == {
+        "nav": 1.2345,
+        "cumulative_nav": 1.4567,
+        "daily_growth_rate": 0.98,
+        "申购状态": "开放申购",
+    }
+    assert result.warnings == ("AKSHARE_IDENTITY_SOURCE_REQUEST_BOUND",)
+    assert result.raw_payload["route"]["endpoint"] == "fund_etf_fund_info_em"
+    assert result.raw_payload["request"]["route_id"] == "akshare-fund-nav-primary-v1"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("product_type", "fund_identity_kind"),
+    (
+        ("LOF", "LISTING"),
+        ("REIT", "LISTING"),
+        ("ETF", "SHARE_CLASS"),
+        (None, "LISTING"),
+        ("ETF", None),
+    ),
+)
+async def test_akshare_provider_rejects_nav_requests_without_an_etf_listing_identity(
+    product_type: str | None,
+    fund_identity_kind: str | None,
+) -> None:
+    """The dedicated ETF NAV endpoint must reject every nearby fund product before I/O."""
+    provider = AkShareMarketDataProvider(
+        callable_resolver=lambda _: pytest.fail("invalid identity must not resolve a source callable")
+    )
+
+    with pytest.raises(AkShareProviderError) as rejected:
+        await provider.fetch(
+            _request(
+                asset_type="fund",
+                provider_symbol="159915",
+                market="CN-SZSE",
+                data_kind="reference_series",
+                required_fields=frozenset({"nav", "cumulative_nav", "daily_growth_rate"}),
+                adjustment="source_reported",
+                price_basis="nav",
+                currency="CNY",
+                unit="fund_share",
+                route_id="akshare-fund-nav-primary-v1",
+                product_type=product_type,
+                fund_identity_kind=fund_identity_kind,
+            )
+        )
+
+    assert rejected.value.code == "AKSHARE_PRODUCT_IDENTITY_UNSUPPORTED"
+
+
+@pytest.mark.asyncio
+async def test_akshare_provider_requires_a_policy_route_id_when_product_axes_overlap() -> None:
+    """Overlapping ETF reference products cannot select an endpoint by resemblance."""
+    provider = AkShareMarketDataProvider(
+        callable_resolver=lambda _: pytest.fail("ambiguous request must not fetch")
+    )
+
+    with pytest.raises(AkShareProviderError) as rejected:
+        await provider.fetch(
+            _request(
+                asset_type="fund",
+                provider_symbol="159915",
+                market="CN-SZSE",
+                data_kind="reference_series",
+                required_fields=frozenset({"nav", "cumulative_nav", "daily_growth_rate"}),
+                adjustment="source_reported",
+                price_basis="nav",
+                currency="CNY",
+                unit="fund_share",
+                route_id=None,
+            )
+        )
+
+    assert rejected.value.code == "AKSHARE_ROUTE_UNSUPPORTED"
 
 
 @pytest.mark.asyncio

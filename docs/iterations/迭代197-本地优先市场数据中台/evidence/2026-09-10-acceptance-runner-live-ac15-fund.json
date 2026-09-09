@@ -1,0 +1,260 @@
+{
+  "acceptance_spec_id": "iteration197-unified-data-platform-openbb-matrix-v1",
+  "acceptance_spec_path": "docs/iterations/迭代197-统一数据中台与OpenBB本地优先集成/ACCEPTANCE.md",
+  "candidate": {
+    "case_map_sha256": "787a980578eaad6aa4b5b096fc02030901ce62b640f6ac28934ef945263bf1dc",
+    "code": "CANDIDATE_CLEAN_OR_ALLOWLISTED",
+    "dependency_manifest_sha256": "4d3d948311eb5c039662f63018bf2aefce58dce88adb752fcba2fddd57f24c5b",
+    "dirty_allowlist": [
+      "docs/iterations/迭代197-本地优先市场数据中台",
+      "src/backend/app/api/data/queries.py",
+      "src/backend/app/services/market_data",
+      "src/backend/tests/market_data_platform",
+      "src/backend/scripts/acceptance",
+      "src/backend/tests/test_iteration197_acceptance_runner.py",
+      "src/frontend/src/__tests__/views/DataPage.test.ts",
+      "src/frontend/src/views/DataPage.vue",
+      "src/frontend/src/views/data/useDataPage.ts"
+    ],
+    "dirty_count": 28,
+    "dirty_paths": [
+      {
+        "allowlisted": true,
+        "content_sha256": "c3803194ba0458241e8e6d22876039876bd5ca2d1d2dab28bab280c86f92aeae",
+        "path": "docs/iterations/迭代197-本地优先市场数据中台/ACCEPTANCE.md",
+        "status": " M"
+      },
+      {
+        "allowlisted": true,
+        "content_sha256": "70ed8c23321f1e9f4f24550378430bceed2a45776baf98b39119ed664dcd87eb",
+        "path": "docs/iterations/迭代197-本地优先市场数据中台/IMPLEMENTATION_CANDIDATE.md",
+        "status": " M"
+      },
+      {
+        "allowlisted": true,
+        "content_sha256": "6e7c2434ed9078cad23271eaed7a32ea24899b2b72893432d3bc15ce223d0b52",
+        "path": "docs/iterations/迭代197-本地优先市场数据中台/PRODUCT_EXPANSION_PLAN.md",
+        "status": " M"
+      },
+      {
+        "allowlisted": true,
+        "content_sha256": "132f2d525ed865c0f539bdee747b406e5765f92a5036309477c503a3fa44bb43",
+        "path": "docs/iterations/迭代197-本地优先市场数据中台/README.md",
+        "status": " M"
+      },
+      {
+        "allowlisted": true,
+        "content_sha256": "3740cf6653c696503c12d8fd457072e7338f6967b43f4e72d84864490d24c2ad",
+        "path": "docs/iterations/迭代197-本地优先市场数据中台/SCOPE_MANIFEST.md",
+        "status": " M"
+      },
+      {
+        "allowlisted": true,
+        "content_sha256": "5c138dfaa160d6cc0061cd7eccc04fd4f050939d975fef35a8e6e0279db26395",
+        "path": "docs/iterations/迭代197-本地优先市场数据中台/iteration197-market-data-scope-manifest-20260909.json",
+        "status": " M"
+      },
+      {
+        "allowlisted": true,
+        "content_sha256": "216177664e45c63900e82b9b4abdb6863e284027780e6729109238a62e832ff5",
+        "path": "src/backend/app/api/data/queries.py",
+        "status": " M"
+      },
+      {
+        "allowlisted": true,
+        "content_sha256": "b21a238a71335b60fbb60f157f42e24d5776971d686b186845e50b36c321151c",
+        "path": "src/backend/app/services/market_data/akshare_provider.py",
+        "status": " M"
+      },
+      {
+        "allowlisted": true,
+        "content_sha256": "3ec191a19a91ae087da94454a4cddb527a1334c21cacf3ffb6c0b73af25dd731",
+        "path": "src/backend/app/services/market_data/dataset_contracts.py",
+        "status": " M"
+      },
+      {
+        "allowlisted": true,
+        "content_sha256": "64323e911e6941e5fa46baeb2bd1a8c3eccec7a56b7375b02597240843f4ec7c",
+        "path": "src/backend/app/services/market_data/legacy_contract.py",
+        "status": " M"
+      },
+      {
+        "allowlisted": true,
+        "content_sha256": "ff3bd624936a65a41a4110b72d603880fc48c8ccafccae9029d91978292682df",
+        "path": "src/backend/app/services/market_data/providers.py",
+        "status": " M"
+      },
+      {
+        "allowlisted": true,
+        "content_sha256": "85598cca9e5f3b72dd32c3d2f1c3f5af4f3a25a2f89676ae9f8de3fd5289e7d4",
+        "path": "src/backend/app/services/market_data/query_service.py",
+        "status": " M"
+      },
+      {
+        "allowlisted": true,
+        "content_sha256": "03e7274d7683cd415e5fd67be987981aa11cb2e717d7b7b849a60a108ec10e4b",
+        "path": "src/backend/app/services/market_data/source_policy.py",
+        "status": " M"
+      },
+      {
+        "allowlisted": true,
+        "content_sha256": "507667a5c43b3bcc080f81a3298e5b2f0012a7062f35610587cae0b36a165d79",
+        "path": "src/backend/tests/market_data_platform/test_akshare_provider.py",
+        "status": " M"
+      },
+      {
+        "allowlisted": true,
+        "content_sha256": "f9815f46e9aca4ed0c73be9318c512d120eb60c1ceeacd5a64058f71cec78778",
+        "path": "src/backend/tests/market_data_platform/test_dataset_contracts.py",
+        "status": " M"
+      },
+      {
+        "allowlisted": true,
+        "content_sha256": "2ad76edd5d024474a61d8fc239226da11b9cdc185d82d8db3d2a7f37f7f90764",
+        "path": "src/backend/tests/market_data_platform/test_legacy_contract.py",
+        "status": " M"
+      },
+      {
+        "allowlisted": true,
+        "content_sha256": "d77c656b66bfbdc48b6c539638472700473329f1c939fd844bc24981963151ec",
+        "path": "src/backend/tests/market_data_platform/test_local_first_persistence.py",
+        "status": " M"
+      },
+      {
+        "allowlisted": true,
+        "content_sha256": "96b1f334c868b6e111d864741377e59887343776027653e5dac529ddbdd5f601",
+        "path": "src/backend/tests/market_data_platform/test_query_api.py",
+        "status": " M"
+      },
+      {
+        "allowlisted": true,
+        "content_sha256": "1b88f900c23fcd4b1e8618296c213aca0466474d73d0f573f3188599f032dc92",
+        "path": "src/backend/tests/market_data_platform/test_query_service.py",
+        "status": " M"
+      },
+      {
+        "allowlisted": true,
+        "content_sha256": "13c19af9138ca1726ee9d0135b4097f6670793f953d616715841809b8419984e",
+        "path": "src/backend/tests/market_data_platform/test_source_policy.py",
+        "status": " M"
+      },
+      {
+        "allowlisted": true,
+        "content_sha256": "cc3390b431021d310dd2e43f8cd6a1949b5ae2b1b759983f26277e80925129ed",
+        "path": "src/frontend/src/__tests__/views/DataPage.test.ts",
+        "status": " M"
+      },
+      {
+        "allowlisted": true,
+        "content_sha256": "9bca35de6005cdc49a5183796c4ebaea4ff88a5d24296efffee6887c404e8bff",
+        "path": "src/frontend/src/views/DataPage.vue",
+        "status": " M"
+      },
+      {
+        "allowlisted": true,
+        "content_sha256": "fc4d65341b25fa2c036e5529f593082702e09933c4e2ccd7c0e7a87f9f30c020",
+        "path": "src/frontend/src/views/data/useDataPage.ts",
+        "status": " M"
+      },
+      {
+        "allowlisted": true,
+        "content_sha256": "18b264eaf422ca70230f70a2116d7a34d2eaee742ec8f6ab2e545a1134fcb2c8",
+        "path": "docs/iterations/迭代197-本地优先市场数据中台/evidence/2026-09-10-acceptance-runner-live-ac15-fund.json",
+        "status": "??"
+      },
+      {
+        "allowlisted": true,
+        "content_sha256": "462284473c9bc1826d9cb87ae4b2f80b1f6041a5ef1878a86450d2479202733d",
+        "path": "docs/iterations/迭代197-本地优先市场数据中台/evidence/2026-09-10-acceptance-runner-offline-ac01-fund.json",
+        "status": "??"
+      },
+      {
+        "allowlisted": true,
+        "content_sha256": "4dc48e50ba2cc2fccc1688c5723c899ad0be3664f11d63b00ecd2cc969144198",
+        "path": "src/backend/scripts/acceptance/__init__.py",
+        "status": "??"
+      },
+      {
+        "allowlisted": true,
+        "content_sha256": "879ef5fda0297e30db8e6639aae223aee74b0a4b5c8a856f073f80b3233c3bfc",
+        "path": "src/backend/scripts/acceptance/iteration197_data_platform.py",
+        "status": "??"
+      },
+      {
+        "allowlisted": true,
+        "content_sha256": "2612915685a10889e4fc17f826804f5df3e6530df0975087c1474e32749cf306",
+        "path": "src/backend/tests/test_iteration197_acceptance_runner.py",
+        "status": "??"
+      }
+    ],
+    "git_sha": "9d96667db6af66f664c941372151c42d670a18ff",
+    "python_executable": "/Users/yunjinqi/opt/anaconda3/bin/python",
+    "python_version": "3.11.8",
+    "runner_sha256": "879ef5fda0297e30db8e6639aae223aee74b0a4b5c8a856f073f80b3233c3bfc",
+    "unallowlisted_dirty_count": 0,
+    "valid": true
+  },
+  "case_mapping_version": "iteration197-unified-matrix-id-v1",
+  "cases": [
+    {
+      "asset_type": "fund",
+      "asset_types": [
+        "fund"
+      ],
+      "case_id": "AC-15",
+      "case_key": "AC-15:fund:G3",
+      "case_mapping_version": "iteration197-unified-matrix-id-v1",
+      "code": "ACCEPTANCE_EXTERNAL_APPROVAL_REQUIRED",
+      "evidence": [],
+      "formal_case_id": "AC-197-MATRIX-015",
+      "mode_gate": "G3",
+      "mode_slice_status": "BLOCKED",
+      "overall_case_status": "BLOCKED",
+      "remaining_gates": [
+        "G1",
+        "G2"
+      ],
+      "required": true,
+      "required_gates": [
+        "G1",
+        "G2",
+        "G3"
+      ],
+      "satisfied_gates": [],
+      "status": "BLOCKED"
+    }
+  ],
+  "dry_run": false,
+  "exit_code": 2,
+  "external_gate": {
+    "allowed": false,
+    "code": "ACCEPTANCE_EXTERNAL_APPROVAL_REQUIRED"
+  },
+  "generated_at": "2026-09-09T22:09:20.429495Z",
+  "mode": "live",
+  "mode_gate": "G3",
+  "overall_summary": {
+    "BLOCKED": 1,
+    "FAIL": 0,
+    "NOT_RUN": 0,
+    "PASS": 0
+  },
+  "run_id": "iteration197-7bad4be2445b4298adcaf110bbb36fa7",
+  "schema_version": "iteration197-data-platform-acceptance-result-v2",
+  "selection": {
+    "asset_types": [
+      "fund"
+    ],
+    "requested_matrix_case_ids": [
+      "AC-15"
+    ],
+    "requested_unknown_case_ids": [],
+    "selection_errors": []
+  },
+  "summary": {
+    "BLOCKED": 1,
+    "FAIL": 0,
+    "NOT_RUN": 0,
+    "PASS": 0
+  }
+}

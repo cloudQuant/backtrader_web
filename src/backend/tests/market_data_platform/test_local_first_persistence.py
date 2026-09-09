@@ -49,6 +49,7 @@ from app.services.market_data.store import MarketDataStore
 
 UTC: Final = timezone.utc
 CANONICAL_ID: Final = "instrument:stock:CN-SSE:600000"
+FUND_NAV_CANONICAL_ID: Final = "instrument:fund:CN-SZSE:159915"
 WINDOW_START: Final = datetime(2026, 9, 1, tzinfo=UTC)
 WINDOW_END: Final = datetime(2026, 9, 3, tzinfo=UTC)
 # Identity publication deliberately samples a post-commit real clock.  The
@@ -70,7 +71,12 @@ class _RecordingProvider:
                 event_at=event_at,
                 available_at=event_at + timedelta(hours=6),
                 fields={
-                    field_name: (10.0 if field_name == "close" else 1000)
+                    field_name: {
+                        "close": 10.0,
+                        "nav": 1.2345,
+                        "cumulative_nav": 1.4567,
+                        "daily_growth_rate": 0.98,
+                    }.get(field_name, 1000)
                     for field_name in request.required_fields
                 },
             )
@@ -143,25 +149,59 @@ def _liquidity_request() -> MarketDataQueryRequest:
     )
 
 
+def _fund_nav_request() -> MarketDataQueryRequest:
+    """Build the public ETF NAV contract with its own source semantics."""
+    return MarketDataQueryRequest.model_validate(
+        {
+            "identity": {"canonical_id": FUND_NAV_CANONICAL_ID},
+            "family_id": "fund.nav",
+            "family_contract_version": "market-data-family-v1",
+            "dataset_code": "market.fund_nav",
+            "data_kind": "reference_series",
+            "frequency": "1d",
+            "start": WINDOW_START.isoformat(),
+            "end": WINDOW_END.isoformat(),
+            "required_fields": ["nav", "cumulative_nav", "daily_growth_rate"],
+            "adjustment": "source_reported",
+            "price_basis": "nav",
+            "currency": "CNY",
+            "unit": "fund_share",
+            "source_policy_id": "market-default-v1",
+            "mode": "local_first",
+        }
+    )
+
+
 def _policy(
     provider: _RecordingProvider,
     *,
     data_kind: str = "bars",
     adjustment: str = "qfq",
+    asset_type: str = "stock",
+    market: str = "CN-SSE",
+    price_basis: str = "close",
+    unit: str = "share",
+    route_id: str = "fixture-akshare-stock-v1",
+    family_id: str | None = None,
+    product_types: frozenset[str] | None = None,
+    fund_identity_kinds: frozenset[str] | None = None,
 ) -> MarketDataSourcePolicyRegistry:
     route = MarketDataProviderRoute(
-        route_id="fixture-akshare-stock-v1",
+        route_id=route_id,
         request_provider="akshare",
         expected_result_provider_ids=frozenset({"akshare"}),
-        asset_types=frozenset({"stock"}),
+        asset_types=frozenset({asset_type}),
         data_kinds=frozenset({data_kind}),
         frequencies=frozenset({"1d"}),
-        markets=frozenset({"CN-SSE"}),
+        markets=frozenset({market}),
         adjustments=frozenset({adjustment}),
-        price_bases=frozenset({"close"}),
+        price_bases=frozenset({price_basis}),
         currencies=frozenset({"CNY"}),
-        units=frozenset({"share"}),
+        units=frozenset({unit}),
         adapter=provider,
+        family_id=family_id,
+        product_types=product_types,
+        fund_identity_kinds=fund_identity_kinds,
     )
     return MarketDataSourcePolicyRegistry(
         (
@@ -201,9 +241,11 @@ def _service(
 async def _seed_authoritative_prerequisites(
     *,
     calendar_data_kind: str = "bars",
+    identity: InstrumentIdentity | None = None,
+    calendar_code: str = "CN-SSE",
 ) -> str:
     """Create only operator-owned prerequisites before a public query begins."""
-    identity = InstrumentIdentity.model_validate(
+    identity = identity or InstrumentIdentity.model_validate(
         {
             "asset_type": "stock",
             "identity_level": "ASSET",
@@ -220,13 +262,14 @@ async def _seed_authoritative_prerequisites(
             "details": {"kind": "STOCK", "exchange_symbol": "600000.SH"},
         }
     )
+    assert identity.venue == calendar_code
     calendar = {
         "manifest_version": MANIFEST_VERSION,
         "approval_reference": "CAB-197-E2E-001",
-        "evidence_uri": "file:///approved/calendars/CN-SSE-2026-09.json",
+        "evidence_uri": f"file:///approved/calendars/{calendar_code}-2026-09.json",
         "evidence_content_hash": "a" * 64,
         "source_registry_id": "akshare",
-        "calendar_code": "CN-SSE",
+        "calendar_code": calendar_code,
         "calendar_version": "2026.09",
         "timezone_name": "Asia/Shanghai",
         "coverage_start_at": WINDOW_START.isoformat(),
@@ -271,7 +314,7 @@ async def _seed_authoritative_prerequisites(
         session.add(
             AssetDataSourceRegistry(
                 source_id="akshare",
-                asset_types=["stock"],
+                asset_types=[identity.asset_type],
                 jurisdictions=["CN"],
                 license_status="APPROVED",
                 allowed_uses=["DISPLAY"],
@@ -432,5 +475,101 @@ async def test_imported_reference_series_grid_supports_local_first_reread_withou
     assert len(provider.calls) == 1
     assert all(
         {"volume", "turnover", "turnover_rate"} <= set(observation.fields)
+        for observation in reread.observations
+    )
+
+
+@pytest.mark.asyncio
+async def test_imported_etf_nav_grid_persists_then_rereads_the_source_reported_facts() -> None:
+    """ETF NAV uses the canonical reference series store and never reuses price bars."""
+    fund_identity = InstrumentIdentity.model_validate(
+        {
+            "asset_type": "fund",
+            "identity_level": "PRODUCT",
+            "canonical_id": FUND_NAV_CANONICAL_ID,
+            "display_symbol": "159915",
+            "name": "创业板 ETF",
+            "venue": "CN-SZSE",
+            "currency": "CNY",
+            "timezone": "Asia/Shanghai",
+            "identifier_type": "EXCHANGE_SYMBOL",
+            "identifier_value": "159915",
+            "product_type": "ETF",
+            "metadata_version": "fund-nav-v1",
+            "details": {
+                "kind": "FUND",
+                "fund_identity_kind": "LISTING",
+                "fund_id": "fund:cn-etf:159915",
+                "share_class_id": "share-class:cn-etf:159915",
+                "nav_calendar_id": "CN-SZSE",
+            },
+        }
+    )
+    user_id = await _seed_authoritative_prerequisites(
+        calendar_data_kind="reference_series",
+        identity=fund_identity,
+        calendar_code="CN-SZSE",
+    )
+    provider = _RecordingProvider()
+    source_policies = _policy(
+        provider,
+        data_kind="reference_series",
+        adjustment="source_reported",
+        asset_type="fund",
+        market="CN-SZSE",
+        price_basis="nav",
+        unit="fund_share",
+        route_id="akshare-fund-nav-primary-v1",
+        family_id="fund.nav",
+        product_types=frozenset({"ETF"}),
+        fund_identity_kinds=frozenset({"LISTING"}),
+    )
+    request = _fund_nav_request()
+
+    async with async_session_maker() as first_session:
+        first = await _service(
+            first_session,
+            provider,
+            now=RECEIPT_AT,
+            source_policies=source_policies,
+        ).execute(
+            request,
+            access=await _access_for_session(
+                first_session,
+                user_id=user_id,
+                now=RECEIPT_AT,
+            ),
+        )
+        await first_session.commit()
+
+    async with async_session_maker() as reread_session:
+        reread = await _service(
+            reread_session,
+            provider,
+            now=RECEIPT_AT + timedelta(microseconds=2),
+            source_policies=source_policies,
+        ).execute(
+            request,
+            access=await _access_for_session(
+                reread_session,
+                user_id=user_id,
+                now=RECEIPT_AT + timedelta(microseconds=2),
+            ),
+        )
+
+    assert first.coverage.status.value == "complete"
+    assert len(first.fetches) == 1
+    assert first.fetches[0].route_id == "akshare-fund-nav-primary-v1"
+    assert provider.calls[0].product_type == "ETF"
+    assert provider.calls[0].fund_identity_kind == "LISTING"
+    assert reread.coverage.status.value == "complete"
+    assert reread.fetches == ()
+    assert len(provider.calls) == 1
+    assert all(
+        observation.fields == {
+            "nav": 1.2345,
+            "cumulative_nav": 1.4567,
+            "daily_growth_rate": 0.98,
+        }
         for observation in reread.observations
     )
