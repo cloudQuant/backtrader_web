@@ -13185,6 +13185,23 @@ async def test_direct_research_service_fails_closed_without_structural_market_da
     assert pipeline_called is False
 
 
+def test_market_data_binding_factory_is_inert_when_bridge_disabled(monkeypatch):
+    """Default legacy routes must not open a v2 database session just to check the gate."""
+    import app.api.strategy.base as strategy_api_module
+
+    monkeypatch.setattr(
+        strategy_api_module,
+        "get_settings",
+        lambda: SimpleNamespace(MARKET_DATA_RESEARCH_BACKTEST_BRIDGE_ENABLED=False),
+    )
+
+    def should_not_open_database():
+        raise AssertionError("disabled bridge must not open a market-data database session")
+
+    monkeypatch.setattr(strategy_api_module, "get_db", should_not_open_database)
+    assert get_ai_strategy_research_market_data_binding_service() is None
+
+
 @pytest.mark.asyncio
 async def test_ai_research_run_api_binds_server_request_and_rejects_client_data_config(
     client: AsyncClient,
