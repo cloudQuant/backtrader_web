@@ -1,0 +1,70 @@
+schema=iteration197-local-first-http-sqlite-receipt-v1
+recorded_at=2026-09-11
+
+[candidate]
+commit=2dfb691bf52ada3c707c8af4c4ae5f7b14b9413c
+worktree=/Users/yunjinqi/Downloads/backtrader_web/.worktrees/codex/iteration-197-l33-verification
+git_status_short=<empty; clean detached worktree>
+backend_cwd=/Users/yunjinqi/Downloads/backtrader_web/.worktrees/codex/iteration-197-l33-verification/src/backend
+
+[environment]
+python=3.11.8 | packaged by conda-forge | (main, Feb 16 2024, 20:49:36) [Clang 16.0.6 ]
+fastapi=0.136.3
+sqlalchemy=2.0.51
+database=isolated SQLite async test fixture
+
+[command]
+/Users/yunjinqi/opt/anaconda3/bin/conda run --no-capture-output -n base python -m pytest -q tests/market_data_platform/test_local_first_persistence.py -p no:cacheprovider --tb=short
+exit_code=0
+
+[stdout]
+....                                                                     [100%]
+=============================== warnings summary ===============================
+../../../../../../../Documents/new_projects/backtrader/backtrader/feeds/__init__.py:73
+  /Users/yunjinqi/Documents/new_projects/backtrader/backtrader/feeds/__init__.py:73: DeprecationWarning: backtrader.feeds.quandl is deprecated (Quandl free API sunset). Consider using Nasdaq Data Link or alternative data sources.
+    from .quandl import *
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+4 passed, 1 warning in 2.49s
+
+[full_market_data_regression]
+/Users/yunjinqi/opt/anaconda3/bin/conda run --no-capture-output -n base python -m pytest -q tests/market_data_platform -p no:cacheprovider --tb=short
+exit_code=0
+
+[full_market_data_regression_stdout]
+........................................................................ [  8%]
+........................................................................ [ 16%]
+........................................................................ [ 24%]
+........................................................................ [ 32%]
+........................................................................ [ 40%]
+........................................................................ [ 48%]
+........................................................................ [ 56%]
+........................................................................ [ 64%]
+........................................................................ [ 72%]
+........................................................................ [ 80%]
+........................................................................ [ 88%]
+........................................................................ [ 96%]
+..................................                                       [100%]
+=============================== warnings summary ===============================
+../../../../../../../Documents/new_projects/backtrader/backtrader/feeds/__init__.py:73
+  /Users/yunjinqi/Documents/new_projects/backtrader/backtrader/feeds/__init__.py:73: DeprecationWarning: backtrader.feeds.quandl is deprecated (Quandl free API sunset). Consider using Nasdaq Data Link or alternative data sources.
+    from .quandl import *
+
+market_data_platform/test_catalog.py: 18 warnings
+market_data_platform/test_deferred_publication_migration.py: 7 warnings
+market_data_platform/test_research_binding_migrations.py: 24 warnings
+market_data_platform/test_storage_models.py: 46 warnings
+  /Users/yunjinqi/opt/anaconda3/lib/python3.11/site-packages/alembic/config.py:612: DeprecationWarning: No path_separator found in configuration; falling back to legacy splitting on spaces, commas, and colons for prepend_sys_path.  Consider adding path_separator=os to Alembic config.
+    util.warn_deprecated(
+
+market_data_platform/test_query_api.py::test_v2_query_endpoint_rejects_every_unbound_family_before_catalog_identity_or_provider[request_changes0]
+market_data_platform/test_query_api.py::test_v2_query_endpoint_rejects_every_unbound_family_before_catalog_identity_or_provider[request_changes0]
+market_data_platform/test_query_api.py::test_v2_query_endpoint_rejects_every_unbound_family_before_catalog_identity_or_provider[request_changes1]
+market_data_platform/test_query_api.py::test_v2_query_endpoint_rejects_every_unbound_family_before_catalog_identity_or_provider[request_changes1]
+market_data_platform/test_query_api.py::test_v2_query_contract_rejects_invalid_public_input_before_service_execution
+market_data_platform/test_query_api.py::test_v2_query_contract_rejects_invalid_public_input_before_service_execution
+  /Users/yunjinqi/opt/anaconda3/lib/python3.11/site-packages/starlette/_exception_handler.py:59: DeprecationWarning: 'HTTP_422_UNPROCESSABLE_ENTITY' is deprecated. Use 'HTTP_422_UNPROCESSABLE_CONTENT' instead.
+    response = await handler(conn, exc)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+898 passed, 102 warnings in 278.74s (0:04:38)
