@@ -387,6 +387,10 @@ export function useStrategyPage() {
     workflow_mode: 'auto' as AIResearchWorkflowMode,
     symbol: '000001.SZ',
     symbol_name: '',
+    // A user can disambiguate symbols that cannot be inferred safely from
+    // their text alone. The server still resolves the exact instrument and
+    // family contract; this is only a minimal client-side asset intent.
+    market_data_asset_type: '' as '' | MarketAssetType,
     timeframe: '1d',
     timeframe_n: 1,
     start_date: DEFAULT_AI_RESEARCH_START_DATE,
@@ -439,6 +443,19 @@ export function useStrategyPage() {
     live_trading_workspace_id: '',
     live_gateway_config_json: '',
   })
+
+  const aiResearchMarketDataAssetTypeOptions: ReadonlyArray<{
+    value: MarketAssetType
+    label: string
+  }> = [
+    { value: 'stock', label: '股票' },
+    { value: 'futures', label: '期货' },
+    { value: 'bond', label: '债券' },
+    { value: 'fund', label: '基金 / ETF' },
+    { value: 'option', label: '期权' },
+    { value: 'fx', label: '外汇' },
+    { value: 'crypto', label: '加密资产' },
+  ]
 
   const aiResearchHeroSteps = computed(() => [
     { key: 'idea', index: '01', label: t('strategy.aiResearchHeroStepIdea') },
@@ -1259,16 +1276,27 @@ export function useStrategyPage() {
     return undefined
   }
 
-  function aiResearchPrecheckAssetType(): MarketAssetType | undefined {
-    return aiResearchAssetTypeForSymbol(aiResearchForm.symbol)
+  function isAIResearchMarketDataAssetType(value: unknown): value is MarketAssetType {
+    return aiResearchMarketDataAssetTypeOptions.some(option => option.value === value)
   }
 
-  function aiResearchMarketDataBridgeAssetType(symbol: string): MarketAssetType | undefined {
-    const assetType = aiResearchAssetTypeForSymbol(symbol)
-    if (assetType === 'stock' || assetType === 'futures' || assetType === 'crypto') {
-      return assetType
-    }
-    return undefined
+  function aiResearchSelectedMarketDataAssetType(): MarketAssetType | undefined {
+    const value = aiResearchForm.market_data_asset_type
+    return isAIResearchMarketDataAssetType(value) ? value : undefined
+  }
+
+  function aiResearchResolvedMarketDataAssetType(symbol: string): MarketAssetType | undefined {
+    return aiResearchSelectedMarketDataAssetType() ?? aiResearchAssetTypeForSymbol(symbol)
+  }
+
+  function aiResearchMarketDataAssetTypeFromDataConfig(value: unknown): '' | MarketAssetType {
+    if (!isRecord(value)) return ''
+    const assetType = value.market_data_asset_type
+    return isAIResearchMarketDataAssetType(assetType) ? assetType : ''
+  }
+
+  function aiResearchPrecheckAssetType(): MarketAssetType | undefined {
+    return aiResearchResolvedMarketDataAssetType(aiResearchForm.symbol)
   }
 
   function aiResearchLegacyPeriod(): 'daily' | 'weekly' | 'monthly' | null {
@@ -1301,7 +1329,7 @@ export function useStrategyPage() {
     if (!symbol) return null
     return {
       symbol,
-      assetType: aiResearchAssetTypeForSymbol(symbol),
+      assetType: aiResearchResolvedMarketDataAssetType(symbol),
       timeframe: aiResearchForm.timeframe,
       startDate: aiResearchForm.start_date || null,
       endDate: aiResearchForm.end_date || null,
@@ -1708,15 +1736,27 @@ export function useStrategyPage() {
   }
 
   function aiResearchAssetConstraintLine() {
-    const symbol = aiResearchForm.symbol.trim().toUpperCase()
-    if (isAIResearchFuturesSymbol(symbol)) {
+    const assetType = aiResearchResolvedMarketDataAssetType(aiResearchForm.symbol)
+    if (assetType === 'futures') {
       return '按期货/合约资产处理，必须使用交易所或本地资产规格中的合约乘数、保证金、杠杆、最小变动价位和真实手续费估算仓位与风险。'
     }
-    if (/(USDT|USDC|PERP|SWAP|BTC|ETH)/.test(symbol)) {
+    if (assetType === 'crypto') {
       return '按数字资产或永续合约处理，必须显式考虑资金费率、杠杆、滑点、交易费率和保证金约束。'
     }
-    if (/\.(SZ|SH|BJ)$/.test(symbol)) {
+    if (assetType === 'stock') {
       return '按股票资产处理，必须控制单票仓位、换手率、手续费和不可成交假设，避免过度交易。'
+    }
+    if (assetType === 'bond') {
+      return '按债券资产处理，必须使用久期、票息、应计利息、到期收益率、流动性和交易成本约束评估仓位与风险。'
+    }
+    if (assetType === 'fund') {
+      return '按基金或 ETF 资产处理，必须区分净值与二级市场价格，并考虑跟踪误差、申赎、流动性和交易成本。'
+    }
+    if (assetType === 'option') {
+      return '按期权资产处理，必须使用到期日、行权价、合约乘数、Greeks、隐含波动率、保证金和流动性约束评估风险。'
+    }
+    if (assetType === 'fx') {
+      return '按外汇资产处理，必须明确货币对方向、报价精度、点差、隔夜利息、交易时段和杠杆约束。'
     }
     return '必须从交易所或本地资产规格读取手续费、合约乘数、保证金、价格精度和最小下单量，并在仓位 sizing 中使用这些约束。'
   }
@@ -1846,6 +1886,8 @@ export function useStrategyPage() {
       workflow_mode: aiResearchForm.workflow_mode,
       symbol: aiResearchForm.symbol.trim(),
       symbol_name: aiResearchForm.symbol_name.trim(),
+      market_data_asset_type:
+        aiResearchResolvedMarketDataAssetType(aiResearchForm.symbol) ?? null,
       timeframe: aiResearchForm.timeframe,
       timeframe_n: aiResearchForm.timeframe_n,
       start_date: aiResearchForm.start_date || null,
@@ -1919,6 +1961,7 @@ export function useStrategyPage() {
     promptOrigin: 'explicit' | 'auto_generated'
     symbol: string | null
     symbolName: string | null
+    marketDataAssetType: MarketAssetType | undefined
     timeframe: string | null
     riskConstraints: Record<string, unknown>
     tradingConstraints: Record<string, unknown>
@@ -1928,6 +1971,7 @@ export function useStrategyPage() {
   interface AIResearchSubmissionSnapshot {
     request: AIStrategyResearchRunRequest
     mandate: AIResearchMandateSnapshot
+    marketDataAssetType: MarketAssetType | undefined
   }
 
   interface AIResearchMandateInput {
@@ -2063,11 +2107,13 @@ export function useStrategyPage() {
     input?: AIResearchMandateInput | null
   ): AIResearchMandateSnapshot {
     const prompt = aiResearchMandateInputPrompt(input)
+    const symbol = input?.symbol || aiResearchForm.symbol.trim() || null
     return {
       rawPrompt: prompt,
       promptOrigin: input?.shouldUseServerGeneratedPrompt ? 'auto_generated' : 'explicit',
-      symbol: input?.symbol || aiResearchForm.symbol.trim() || null,
+      symbol,
       symbolName: aiResearchForm.symbol_name.trim() || null,
+      marketDataAssetType: aiResearchResolvedMarketDataAssetType(symbol || ''),
       timeframe: aiResearchForm.timeframe || null,
       riskConstraints: {
         max_drawdown_limit: aiResearchForm.use_max_drawdown_limit
@@ -2093,6 +2139,7 @@ export function useStrategyPage() {
       prompt_origin: snapshot.promptOrigin,
       symbol: snapshot.symbol,
       symbol_name: snapshot.symbolName,
+      market_data_asset_type: snapshot.marketDataAssetType ?? null,
       timeframe: snapshot.timeframe,
       risk_constraints: snapshot.riskConstraints,
       trading_constraints: snapshot.tradingConstraints,
@@ -2108,6 +2155,7 @@ export function useStrategyPage() {
     aiResearchForm.prompt = snapshot.rawPrompt
     if (snapshot.symbol) aiResearchForm.symbol = snapshot.symbol
     aiResearchForm.symbol_name = snapshot.symbolName || ''
+    aiResearchForm.market_data_asset_type = snapshot.marketDataAssetType ?? ''
     if (snapshot.timeframe) aiResearchForm.timeframe = snapshot.timeframe
 
     const risk = snapshot.riskConstraints
@@ -2250,6 +2298,7 @@ export function useStrategyPage() {
     const timeframe = snapshot.timeframe || ''
     const mandateSymbol = stringFromUnknown(mandate.asset_scope.symbol).trim()
     const mandateSymbolName = stringFromUnknown(mandate.asset_scope.symbol_name).trim()
+    const mandateMarketDataAssetType = mandate.asset_scope.market_data_asset_type
     const mandateTimeframe = stringFromUnknown(mandate.timeframe || mandate.structured_goal.timeframe)
     const mandatePromptOrigin = stringFromUnknown(mandate.structured_goal.prompt_origin)
     return (
@@ -2257,6 +2306,10 @@ export function useStrategyPage() {
       && (snapshot.promptOrigin === 'auto_generated' || mandate.raw_prompt.trim() === prompt)
       && (!mandateSymbol || mandateSymbol === symbol)
       && (!mandateSymbolName || mandateSymbolName === symbolName)
+      && aiResearchMandateMarketDataAssetTypeMatches(
+        mandateMarketDataAssetType,
+        snapshot.marketDataAssetType,
+      )
       && (!mandateTimeframe || mandateTimeframe === timeframe)
       && aiResearchMandateRecordMatches(mandate.risk_constraints, snapshot.riskConstraints)
       && aiResearchMandateRecordMatches(
@@ -2265,6 +2318,16 @@ export function useStrategyPage() {
       )
       && aiResearchMandateRecordMatches(mandate.quality_gates, snapshot.qualityGates)
     )
+  }
+
+  function aiResearchMandateMarketDataAssetTypeMatches(
+    actual: unknown,
+    expected: MarketAssetType | undefined,
+  ): boolean {
+    if (expected) return actual === expected
+    // The only compatible legacy form has no client asset intent at all.
+    // A malformed or newly persisted type must never be treated as absent.
+    return actual === undefined || actual === null
   }
 
   function aiResearchMandateControlledTradingConstraints(
@@ -2363,6 +2426,11 @@ export function useStrategyPage() {
     aiResearchForm.workflow_mode = config.workflow_mode === 'prompt' ? 'prompt' : 'auto'
     aiResearchForm.symbol = stringFromUnknown(config.symbol, aiResearchForm.symbol)
     aiResearchForm.symbol_name = stringFromUnknown(config.symbol_name)
+    aiResearchForm.market_data_asset_type = isAIResearchMarketDataAssetType(
+      config.market_data_asset_type,
+    )
+      ? config.market_data_asset_type
+      : ''
     aiResearchForm.timeframe = stringFromUnknown(config.timeframe, aiResearchForm.timeframe)
     aiResearchForm.timeframe_n = optionalNumber(config.timeframe_n) ?? aiResearchForm.timeframe_n
     aiResearchForm.start_date = configStringValue(config, 'start_date', aiResearchForm.start_date)
@@ -3734,6 +3802,9 @@ export function useStrategyPage() {
     aiResearchForm.workflow_mode = record.workflow_mode === 'prompt' ? 'prompt' : 'auto'
     aiResearchForm.symbol = record.symbol
     aiResearchForm.symbol_name = record.symbol_name || ''
+    // Run summaries do not carry a signed client asset intent. Do not let a
+    // previous form selection alter a continuation or a newly captured run.
+    aiResearchForm.market_data_asset_type = ''
     aiResearchForm.timeframe = record.timeframe || '1d'
     aiResearchForm.timeframe_n = record.timeframe_n || 1
     aiResearchForm.start_date = record.start_date || ''
@@ -6321,6 +6392,7 @@ export function useStrategyPage() {
     return {
       request,
       mandate,
+      marketDataAssetType: mandate.marketDataAssetType,
     }
   }
 
@@ -6342,6 +6414,7 @@ export function useStrategyPage() {
   function applyAIResearchMarketDataBridgeIntent(
     request: AIStrategyResearchRunRequest,
     capabilities: MarketDataCapabilitiesResponse | null,
+    marketDataAssetType: MarketAssetType | undefined,
   ): AIStrategyResearchRunRequest {
     // Rebuild a marker only from this invocation's fresh, authenticated
     // capability decision. Do not read mutable page state here: concurrent
@@ -6353,11 +6426,10 @@ export function useStrategyPage() {
     ) {
       return requestWithoutBridgeIntent
     }
-    const assetType = aiResearchMarketDataBridgeAssetType(requestWithoutBridgeIntent.symbol)
-    if (!assetType) return requestWithoutBridgeIntent
+    if (!marketDataAssetType) return requestWithoutBridgeIntent
     return {
       ...requestWithoutBridgeIntent,
-      data_config: { market_data_asset_type: assetType },
+      data_config: { market_data_asset_type: marketDataAssetType },
     }
   }
 
@@ -6605,6 +6677,9 @@ export function useStrategyPage() {
     aiResearchForm.workflow_mode = snapshot.workflow_mode === 'prompt' ? 'prompt' : 'auto'
     if (symbol) aiResearchForm.symbol = symbol
     if (symbolName || snapshot.symbol_name !== undefined) aiResearchForm.symbol_name = symbolName
+    aiResearchForm.market_data_asset_type = aiResearchMarketDataAssetTypeFromDataConfig(
+      snapshot.data_config,
+    )
     if (timeframe) aiResearchForm.timeframe = timeframe
     aiResearchForm.timeframe_n = optionalNumber(snapshot.timeframe_n) ?? aiResearchForm.timeframe_n
     aiResearchForm.start_date = startDate
@@ -6945,7 +7020,11 @@ export function useStrategyPage() {
       mandate_id: mandate.id,
     }
     const capabilities = await resolveAIResearchMarketDataCapabilities({ forceRefresh: true })
-    request = applyAIResearchMarketDataBridgeIntent(request, capabilities)
+    request = applyAIResearchMarketDataBridgeIntent(
+      request,
+      capabilities,
+      submission.marketDataAssetType,
+    )
 
     prepareAIResearchOutputForRun()
     aiResearchRunning.value = true
@@ -7126,7 +7205,11 @@ export function useStrategyPage() {
       mandate_id: mandate.id,
     }
     const capabilities = await resolveAIResearchMarketDataCapabilities({ forceRefresh: true })
-    request = applyAIResearchMarketDataBridgeIntent(request, capabilities)
+    request = applyAIResearchMarketDataBridgeIntent(
+      request,
+      capabilities,
+      submission.marketDataAssetType,
+    )
 
     prepareAIResearchOutputForRun()
     aiResearchRunning.value = true
@@ -7200,7 +7283,11 @@ export function useStrategyPage() {
       mandate_id: mandate.id,
     }
     const capabilities = await resolveAIResearchMarketDataCapabilities({ forceRefresh: true })
-    request = applyAIResearchMarketDataBridgeIntent(request, capabilities)
+    request = applyAIResearchMarketDataBridgeIntent(
+      request,
+      capabilities,
+      submission.marketDataAssetType,
+    )
 
     prepareAIResearchOutputForRun()
     aiResearchRunning.value = true
@@ -7369,6 +7456,7 @@ export function useStrategyPage() {
   watch(
     () => [
       aiResearchForm.symbol,
+      aiResearchForm.market_data_asset_type,
       aiResearchForm.timeframe,
       aiResearchForm.start_date,
       aiResearchForm.end_date,
@@ -7503,6 +7591,7 @@ export function useStrategyPage() {
     AI_RESEARCH_CONFIG_ERROR_MESSAGES,
     form,
     aiResearchForm,
+    aiResearchMarketDataAssetTypeOptions,
     aiResearchHeroSteps,
     aiResearchHeroMetrics,
     aiResearchPrecheckTagType,

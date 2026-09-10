@@ -18,6 +18,7 @@ from app.schemas.ai_strategy_research import (
     AIStrategyResearchRunRequest,
     InvestmentMandateCreate,
     InvestmentMandateResponse,
+    normalize_market_data_asset_type,
 )
 
 _MANDATE_REQUEST_MISMATCH_CODE = "INVESTMENT_MANDATE_REQUEST_MISMATCH"
@@ -85,6 +86,7 @@ class InvestmentMandateService:
                 prompt_origin=self._request_prompt_origin(request),
                 symbol=request.symbol,
                 symbol_name=request.symbol_name,
+                market_data_asset_type=self._market_data_asset_type_from_request(request),
                 timeframe=request.timeframe,
                 risk_constraints=self._risk_constraints_from_request(request),
                 trading_constraints={
@@ -157,6 +159,13 @@ class InvestmentMandateService:
         prompt_basis = "" if data.prompt_origin == "auto_generated" else prompt
         symbol = (data.symbol or self._symbol_from_prompt(prompt_basis) or "").strip()
         asset_class = self._asset_class(symbol, prompt_basis)
+        asset_scope = {
+            "asset_class": asset_class,
+            "symbol": symbol,
+            "symbol_name": (data.symbol_name or "").strip(),
+        }
+        if data.market_data_asset_type is not None:
+            asset_scope["market_data_asset_type"] = data.market_data_asset_type
         timeframe = (
             data.timeframe or self._timeframe_from_prompt(prompt_basis) or ""
         ).strip() or None
@@ -183,11 +192,6 @@ class InvestmentMandateService:
         raw_prompt = prompt
         if data.prompt_origin == "auto_generated":
             structured_goal["auto_basis_schema_version"] = _AUTO_BASIS_SCHEMA_VERSION
-            asset_scope = {
-                "asset_class": asset_class,
-                "symbol": symbol,
-                "symbol_name": (data.symbol_name or "").strip(),
-            }
             auto_basis_digest = self._auto_basis_digest(
                 asset_scope=asset_scope,
                 timeframe=timeframe,
@@ -211,11 +215,7 @@ class InvestmentMandateService:
         return {
             "raw_prompt": raw_prompt,
             "structured_goal": structured_goal,
-            "asset_scope": {
-                "asset_class": asset_class,
-                "symbol": symbol,
-                "symbol_name": (data.symbol_name or "").strip(),
-            },
+            "asset_scope": asset_scope,
             "timeframe": timeframe,
             "objective": objective,
             "risk_constraints": risk_constraints,
@@ -309,6 +309,23 @@ class InvestmentMandateService:
         ):
             return False
 
+        try:
+            request_asset_type = self._market_data_asset_type_from_request(request)
+            mandate_asset_type = (
+                normalize_market_data_asset_type(asset_scope.get("market_data_asset_type"))
+                if "market_data_asset_type" in asset_scope
+                else None
+            )
+        except ValueError:
+            return False
+        # A final bridge marker is attached only after a fresh capability
+        # decision.  Until then, a confirmed mandate may use the Iter196
+        # fallback path without losing its recorded asset scope.  Once a
+        # marker is present, however, it must exactly match the confirmed
+        # scope; an old mandate without a scope cannot authorize a new family.
+        if request_asset_type is not None and mandate_asset_type != request_asset_type:
+            return False
+
         return (
             self._risk_constraints_match(
                 mandate.risk_constraints,
@@ -392,14 +409,27 @@ class InvestmentMandateService:
     def _request_prompt_origin(cls, request: AIStrategyResearchRunRequest) -> str:
         return "explicit" if cls._request_has_explicit_prompt(request) else "auto_generated"
 
-    def _auto_basis_digest_for_request(self, request: AIStrategyResearchRunRequest) -> str:
+    def _auto_basis_digest_for_request(
+        self,
+        request: AIStrategyResearchRunRequest,
+        *,
+        market_data_asset_type: str | None = None,
+    ) -> str:
         """Return the server-side auto mandate digest for one normalized request."""
+        asset_scope = {
+            "asset_class": self._asset_class(request.symbol, ""),
+            "symbol": self._normalized_asset_value(request.symbol),
+            "symbol_name": self._normalized_display_value(request.symbol_name),
+        }
+        resolved_market_data_asset_type = (
+            market_data_asset_type
+            if market_data_asset_type is not None
+            else self._market_data_asset_type_from_request(request)
+        )
+        if resolved_market_data_asset_type is not None:
+            asset_scope["market_data_asset_type"] = resolved_market_data_asset_type
         return self._auto_basis_digest(
-            asset_scope={
-                "asset_class": self._asset_class(request.symbol, ""),
-                "symbol": self._normalized_asset_value(request.symbol),
-                "symbol_name": self._normalized_display_value(request.symbol_name),
-            },
+            asset_scope=asset_scope,
             timeframe=self._normalized_asset_value(request.timeframe),
             risk_constraints=self._risk_constraints_from_request(request),
             trading_constraints=self._controlled_trading_constraints_from_request(request),
@@ -414,13 +444,25 @@ class InvestmentMandateService:
         """Return whether a mandate carries the current server-issued auto basis."""
         structured_goal = dict(mandate.structured_goal or {})
         stored_digest = structured_goal.get("auto_basis_digest")
+        asset_scope = dict(mandate.asset_scope or {})
+        try:
+            market_data_asset_type = (
+                normalize_market_data_asset_type(asset_scope.get("market_data_asset_type"))
+                if "market_data_asset_type" in asset_scope
+                else None
+            )
+        except ValueError:
+            return False
         return (
             structured_goal.get("prompt_origin") == "auto_generated"
             and structured_goal.get("auto_basis_schema_version") == _AUTO_BASIS_SCHEMA_VERSION
             and self._is_auto_basis_digest(stored_digest)
             and hmac.compare_digest(
                 stored_digest,
-                self._auto_basis_digest_for_request(request),
+                self._auto_basis_digest_for_request(
+                    request,
+                    market_data_asset_type=market_data_asset_type,
+                ),
             )
         )
 
@@ -531,6 +573,21 @@ class InvestmentMandateService:
     @staticmethod
     def _normalized_display_value(value: Any) -> str:
         return str(value or "").strip()
+
+    @staticmethod
+    def _market_data_asset_type_from_request(
+        request: AIStrategyResearchRunRequest,
+    ) -> str | None:
+        """Read the only permitted market-data intent from a research request.
+
+        ``data_config`` remains the existing bounded bridge input.  A mandate
+        does not accept a parallel unvalidated top-level field, and a supplied
+        value must pass the same seven-family whitelist as a direct mandate.
+        """
+        data_config = request.data_config
+        if not isinstance(data_config, dict) or "market_data_asset_type" not in data_config:
+            return None
+        return normalize_market_data_asset_type(data_config["market_data_asset_type"])
 
     @staticmethod
     def _controlled_trading_constraints_from_request(

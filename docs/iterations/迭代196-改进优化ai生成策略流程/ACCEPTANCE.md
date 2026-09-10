@@ -1,4 +1,4 @@
-2026-09-09 Git 候选冻结：实现候选 `3ebe7717f6f901932591f59e6f1bb8244827b493` 已由 `fec74728ad4469ae6481b134323a6dd7d1401d32` 合并至 `dev` 并推送。因此，**G0 repository provenance / implementation-candidate seal=PASS**；该 PASS 只代表 Git 候选身份，不等同于 research/promotion candidate PASS。`IMPLEMENTATION_ACCEPTED=NO-GO`、`PROTOCOL_PRODUCTION_ENABLED=NO-GO` 与 candidate research/promotion=`BLOCKED/NO-GO` 保持不变。见 [2026-09-09 Git 候选冻结收据](CANDIDATE_FREEZE_20260909.md)。
+2026-09-10 Git 候选冻结更正：实现候选为 `3ebe7717a0bfe7ebf1cde2dfc501d6842034c253`，且是合并提交 `fec74728ad4469ae6481b134323a6dd7d1401d32` 的第二父；原收据中的完整 SHA 是不可解析的笔误，原文保持不变。见 [2026-09-10 候选冻结收据更正](CANDIDATE_FREEZE_CORRECTION_20260910.md)。因此，**G0 repository provenance / implementation-candidate seal=PASS**；该 PASS 只代表 Git 候选身份，不等同于 research/promotion candidate PASS。`IMPLEMENTATION_ACCEPTED=NO-GO`、`PROTOCOL_PRODUCTION_ENABLED=NO-GO` 与 candidate research/promotion=`BLOCKED/NO-GO` 保持不变。
 
 # 迭代 196 验收文档：可信 AI 策略研究流程
 

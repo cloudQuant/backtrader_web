@@ -4,13 +4,17 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.schemas.strategy import StrategyCopilotRunResult, StrategyResponse
 from app.schemas.workspace import StrategyUnitResponse, UnitStatusResponse, WorkspaceResponse
 
 AIStrategyResearchWorkflowMode = Literal["auto", "prompt"]
 AIStrategyResearchWorkflowStepsSemantics = Literal["prompt_display_only"]
+MarketDataAssetType = Literal["stock", "futures", "bond", "fund", "option", "fx", "crypto"]
+MARKET_DATA_ASSET_TYPES = frozenset(
+    {"stock", "futures", "bond", "fund", "option", "fx", "crypto"}
+)
 AIStrategyResearchWorkflowStep = Literal[
     "ideation",
     "generation",
@@ -55,6 +59,25 @@ AI_STRATEGY_RESEARCH_WORKFLOW_STEP_DESCRIPTIONS: dict[AIStrategyResearchWorkflow
     "robustness": "执行过拟合、参数扰动和 Monte Carlo 等稳健性验证，未通过不得晋级。",
     "paper_trading": "达标后进入模拟交易，复核滑点、费用、估值置信度和滚动表现。",
 }
+
+
+def normalize_market_data_asset_type(value: Any) -> str | None:
+    """Return a canonical asset type, treating an empty selection as absent.
+
+    The same contract is used for direct mandate creation and for a later
+    research request.  It deliberately does not infer an asset class from a
+    symbol: a declared data-family intent must be explicit and auditable.
+    """
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError("INVESTMENT_MANDATE_MARKET_DATA_ASSET_TYPE_INVALID")
+    normalized = value.strip().lower()
+    if not normalized:
+        return None
+    if normalized not in MARKET_DATA_ASSET_TYPES:
+        raise ValueError("INVESTMENT_MANDATE_MARKET_DATA_ASSET_TYPE_INVALID")
+    return normalized
 
 
 class AIStrategyResearchConfigProfile(BaseModel):
@@ -168,11 +191,24 @@ class InvestmentMandateCreate(BaseModel):
     symbol_name: str | None = Field(
         None, max_length=200, description="Optional symbol display name"
     )
+    market_data_asset_type: MarketDataAssetType | None = Field(
+        None,
+        description=(
+            "Optional local-first market-data asset type. When supplied, it becomes part of "
+            "the confirmed mandate asset scope and must match a later research request."
+        ),
+    )
     timeframe: str | None = Field(None, max_length=20, description="Optional target timeframe")
     objective: str | None = Field(None, max_length=500, description="Optional user-edited goal")
     risk_constraints: dict[str, Any] = Field(default_factory=dict)
     trading_constraints: dict[str, Any] = Field(default_factory=dict)
     quality_gates: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("market_data_asset_type", mode="before")
+    @classmethod
+    def normalize_market_data_asset_type(cls, value: Any) -> str | None:
+        """Accept only a canonical Iteration 197 asset type or an empty selection."""
+        return normalize_market_data_asset_type(value)
 
 
 class InvestmentMandateResponse(BaseModel):

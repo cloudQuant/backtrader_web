@@ -1,8 +1,8 @@
 # MD-197-SCOPE-MANIFEST：冻结基线后的范围证据工具
 
-> 状态：已为当前 `dev` 候选生成并验证范围清单（2026-09-10；manifest SHA-256：`e06de85ea5a48a265c7737cba9ec1ebdd1b583b45699ec3e9873fca1bf2b1265`）。
+> 状态：已为当前 `dev` 候选生成并验证范围清单（2026-09-10；manifest SHA-256：`2950d1ac6f05d3a468060d07d4b2289363f21413d026e20ef844f9c8018961df`）。
 >
-> 冻结输入：[iter196-market-data-baseline-20260909.json](iter196-market-data-baseline-20260909.json)；生成结果：[iteration197-market-data-scope-manifest-20260909.json](iteration197-market-data-scope-manifest-20260909.json)。基线引用迭代 196 的冻结候选和收据 SHA-256，而不是当前工作树或测试夹具。该 artifact 只覆盖 21 个公开 family 与 UI/API 输入；不覆盖私有估值 collector、`md_source_payloads` / `md_source_snapshot_payload_refs` 迁移、shared BLOB 完整性或完整 receipt 重建。
+> 冻结输入：[iter196-market-data-baseline-20260909.json](iter196-market-data-baseline-20260909.json)；生成结果：[iteration197-market-data-scope-manifest-20260909.json](iteration197-market-data-scope-manifest-20260909.json)。基线引用迭代 196 的冻结候选与不可变 [更正收据](../迭代196-改进优化ai生成策略流程/CANDIDATE_FREEZE_CORRECTION_20260910.md) SHA-256，而不是当前工作树或测试夹具。该 artifact 只覆盖 21 个公开 family 与 UI/API 输入；不覆盖私有估值 collector、`md_source_payloads` / `md_source_snapshot_payload_refs` 迁移、shared BLOB 完整性或完整 receipt 重建。
 
 ## 目的
 
