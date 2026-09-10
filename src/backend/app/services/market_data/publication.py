@@ -32,6 +32,7 @@ from app.models.market_data_platform import (
     MdCalendarSnapshot,
     MdInstrumentIdentityRevision,
     MdPublication,
+    MdPublicationReleaseHold,
     MdSourceSnapshot,
     MdVisibilitySequenceAllocator,
 )
@@ -45,12 +46,20 @@ UTC = timezone.utc
 PUBLICATION_SOURCE_SNAPSHOT = "source_snapshot"
 PUBLICATION_CALENDAR_SNAPSHOT = "calendar_snapshot"
 PUBLICATION_INSTRUMENT_IDENTITY = "instrument_identity_revision"
+PUBLICATION_RELEASE_HOLD_WORKFLOW_LEGACY_STOCK_DAILY_IMPORT = "legacy_stock_daily_import"
+PUBLICATION_RELEASE_HOLD_STATE_DEFERRED = "DEFERRED"
+PUBLICATION_RELEASE_HOLD_STATE_QUARANTINED = "QUARANTINED"
+PUBLICATION_RELEASE_HOLD_STATE_PROMOTED = "PROMOTED"
 _ENTITY_TYPES = frozenset(
     {
         PUBLICATION_SOURCE_SNAPSHOT,
         PUBLICATION_CALENDAR_SNAPSHOT,
         PUBLICATION_INSTRUMENT_IDENTITY,
     }
+)
+_RELEASE_HOLD_WORKFLOWS = frozenset({PUBLICATION_RELEASE_HOLD_WORKFLOW_LEGACY_STOCK_DAILY_IMPORT})
+_ACTIVE_RELEASE_HOLD_STATES = frozenset(
+    {PUBLICATION_RELEASE_HOLD_STATE_DEFERRED, PUBLICATION_RELEASE_HOLD_STATE_QUARANTINED}
 )
 
 
@@ -60,6 +69,49 @@ class MarketDataPublicationError(ValueError):
     def __init__(self, code: str) -> None:
         self.code = code
         super().__init__(code)
+
+
+@dataclass(frozen=True, slots=True)
+class MarketDataDeferredPublicationIntent:
+    """Immutable binding for evidence that cannot become visible automatically.
+
+    The concrete legacy adapter owns construction of ``intent_sha256`` from its
+    sealed batch, scope, target, authorization and lease evidence.  This
+    generic publication layer only preserves and compares the digest; it never
+    treats an arbitrary digest as authorization.
+    """
+
+    workflow_kind: str
+    intent_sha256: str
+
+    def __post_init__(self) -> None:
+        if self.workflow_kind not in _RELEASE_HOLD_WORKFLOWS:
+            raise ValueError("deferred publication workflow is not supported")
+        if not _is_sha256(self.intent_sha256):
+            raise ValueError("deferred publication intent must be a sha256")
+
+
+@dataclass(frozen=True, slots=True)
+class MarketDataDeferredPublicationPromotion:
+    """The explicit, post-verification request that can seal one held receipt."""
+
+    publication_id: str
+    source_snapshot_id: str
+    workflow_kind: str
+    intent_sha256: str
+    promotion_evidence_sha256: str
+
+    def __post_init__(self) -> None:
+        for field_name in ("publication_id", "source_snapshot_id"):
+            value = getattr(self, field_name)
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"deferred publication {field_name} is invalid")
+        if self.workflow_kind not in _RELEASE_HOLD_WORKFLOWS:
+            raise ValueError("deferred publication workflow is not supported")
+        if not _is_sha256(self.intent_sha256):
+            raise ValueError("deferred publication intent must be a sha256")
+        if not _is_sha256(self.promotion_evidence_sha256):
+            raise ValueError("deferred publication evidence must be a sha256")
 
 
 @dataclass(frozen=True, slots=True)
@@ -173,6 +225,83 @@ class MarketDataPublicationManager:
             raise MarketDataPublicationError("PUBLICATION_WRITE_CONFLICT") from exc
         return receipt
 
+    async def hold_staged_source_snapshot(
+        self,
+        *,
+        publication: MdPublication,
+        source_snapshot_id: str,
+        intent: MarketDataDeferredPublicationIntent,
+    ) -> MdPublicationReleaseHold:
+        """Attach a durable release hold inside the still-uncommitted fact transaction.
+
+        A hold is deliberately a separate child record instead of another
+        ``MdPublication`` state.  This keeps normal pending-receipt recovery
+        semantics intact while making every generic publisher prove it is not
+        releasing a candidate that still needs legacy-import verification.
+        """
+        if not isinstance(publication, MdPublication):
+            raise TypeError("publication must be an MdPublication")
+        if not isinstance(source_snapshot_id, str) or not source_snapshot_id.strip():
+            raise MarketDataPublicationError("PUBLICATION_DEFERRED_SOURCE_INVALID")
+        if not isinstance(intent, MarketDataDeferredPublicationIntent):
+            raise TypeError("intent must be a MarketDataDeferredPublicationIntent")
+
+        # The caller normally supplies the receipt it just staged in this
+        # fact transaction. It may also hold an old ORM instance, so never
+        # trust its in-memory pending fields. A late hold on a receipt another
+        # session already published would violate the active-hold invariant.
+        locked_publication = await self._db.scalar(
+            select(MdPublication)
+            .where(MdPublication.id == publication.id)
+            .execution_options(populate_existing=True)
+            .with_for_update()
+        )
+        if locked_publication is None:
+            raise MarketDataPublicationError("PUBLICATION_DEFERRED_RECEIPT_INVALID")
+        if (
+            locked_publication.entity_type != PUBLICATION_SOURCE_SNAPSHOT
+            or locked_publication.entity_id != source_snapshot_id
+            or locked_publication.published_at is not None
+            or locked_publication.visibility_sequence is not None
+        ):
+            raise MarketDataPublicationError("PUBLICATION_DEFERRED_RECEIPT_INVALID")
+
+        locked_source_snapshot_id = await self._db.scalar(
+            select(MdSourceSnapshot.id)
+            .where(MdSourceSnapshot.id == source_snapshot_id)
+            .with_for_update()
+        )
+        if locked_source_snapshot_id is None:
+            raise MarketDataPublicationError("PUBLICATION_DEFERRED_SOURCE_INVALID")
+
+        existing = await self._db.scalar(
+            select(MdPublicationReleaseHold).where(
+                MdPublicationReleaseHold.publication_id == locked_publication.id
+            )
+        )
+        if existing is not None:
+            if (
+                existing.source_snapshot_id != source_snapshot_id
+                or existing.workflow_kind != intent.workflow_kind
+                or existing.intent_sha256 != intent.intent_sha256
+            ):
+                raise MarketDataPublicationError("PUBLICATION_DEFERRED_HOLD_CONFLICT")
+            return existing
+
+        hold = MdPublicationReleaseHold(
+            publication_id=locked_publication.id,
+            source_snapshot_id=source_snapshot_id,
+            workflow_kind=intent.workflow_kind,
+            state=PUBLICATION_RELEASE_HOLD_STATE_DEFERRED,
+            intent_sha256=intent.intent_sha256,
+        )
+        self._db.add(hold)
+        try:
+            await self._db.flush()
+        except IntegrityError as exc:
+            raise MarketDataPublicationError("PUBLICATION_DEFERRED_HOLD_WRITE_CONFLICT") from exc
+        return hold
+
     async def publish_staged(
         self,
         publication_ids: Iterable[str],
@@ -220,7 +349,10 @@ class MarketDataPublicationManager:
             rows = list(
                 (
                     await self._db.execute(
-                        select(MdPublication).where(MdPublication.id.in_(ids)).with_for_update()
+                        select(MdPublication)
+                        .where(MdPublication.id.in_(ids))
+                        .execution_options(populate_existing=True)
+                        .with_for_update()
                     )
                 )
                 .scalars()
@@ -231,6 +363,7 @@ class MarketDataPublicationManager:
             by_id = {row.id: row for row in rows}
             if set(by_id) != set(ids):
                 raise MarketDataPublicationError("PUBLICATION_NOT_FOUND")
+            await self._assert_no_active_release_holds(rows)
             await self._assert_publish_fence_binding(
                 rows,
                 fetch_lease=fetch_lease,
@@ -296,6 +429,12 @@ class MarketDataPublicationManager:
             .correlate(MdPublication)
             .exists()
         )
+        release_hold_exists = (
+            select(MdPublicationReleaseHold.publication_id)
+            .where(MdPublicationReleaseHold.publication_id == MdPublication.id)
+            .correlate(MdPublication)
+            .exists()
+        )
         await self._db.begin()
         try:
             rows = list(
@@ -304,6 +443,7 @@ class MarketDataPublicationManager:
                         select(MdPublication)
                         .where(
                             MdPublication.published_at.is_(None),
+                            ~release_hold_exists,
                             or_(
                                 MdPublication.entity_type != PUBLICATION_SOURCE_SNAPSHOT,
                                 ~fenced_source_receipt,
@@ -311,12 +451,20 @@ class MarketDataPublicationManager:
                         )
                         .order_by(MdPublication.created_at, MdPublication.id)
                         .limit(limit)
+                        .execution_options(populate_existing=True)
                         .with_for_update()
                     )
                 )
                 .scalars()
                 .all()
             )
+            # The anti-join above avoids taking candidate rows that already
+            # have a hold. Recheck it first under the receipt lock before
+            # fetching source evidence, returning a dry-run result, or
+            # allocating visibility: another transaction may have committed a
+            # hold after the selection snapshot was taken. This retains the
+            # common publication lock order (receipt, hold, source).
+            await self._assert_no_active_release_holds(rows)
             await self._assert_pending_entity_integrity(rows)
             ids = tuple(row.id for row in rows)
             if dry_run:
@@ -330,6 +478,315 @@ class MarketDataPublicationManager:
             if self._db.in_transaction():
                 await self._db.rollback()
             raise
+
+    async def promote_deferred_after_attestation(
+        self,
+        promotions: Iterable[MarketDataDeferredPublicationPromotion],
+        *,
+        not_before: datetime,
+        pre_publish_guard: Callable[[], Awaitable[None]],
+        fetch_lease: MarketDataFetchLeaseHandle | None = None,
+    ) -> datetime:
+        """Seal held source receipts only after an adapter proves its candidate.
+
+        A generic publisher cannot call this method without supplying an async
+        guard.  The concrete adapter will use that guard to reauthorize the
+        exact route and recheck its source-batch/permit evidence while this
+        transaction still owns the receipt, hold, source snapshot and lease
+        fence.  The hold is marked ``PROMOTED`` in the same transaction as the
+        visibility receipt, so a crash cannot create a visible-but-unpromoted
+        candidate or a promotable generic pending receipt.
+        """
+        items = tuple(promotions)
+        if not items:
+            raise MarketDataPublicationError("PUBLICATION_DEFERRED_PROMOTIONS_EMPTY")
+        if not all(isinstance(item, MarketDataDeferredPublicationPromotion) for item in items):
+            raise TypeError("promotions must contain MarketDataDeferredPublicationPromotion values")
+        ids = tuple(item.publication_id for item in items)
+        if len(set(ids)) != len(ids):
+            raise MarketDataPublicationError("PUBLICATION_DEFERRED_PROMOTION_DUPLICATE")
+        if self._db.in_transaction():
+            raise MarketDataPublicationError("PUBLICATION_REQUIRES_COMMITTED_TRANSACTION")
+        if not callable(pre_publish_guard):
+            raise TypeError("pre_publish_guard must be callable")
+        if fetch_lease is not None and not _is_fetch_lease_handle(fetch_lease):
+            raise TypeError("fetch_lease must be a MarketDataFetchLeaseHandle")
+        lower_bound = _as_utc(not_before, field_name="deferred publication not_before")
+
+        publication_transaction = await self._db.begin()
+        try:
+            rows = list(
+                (
+                    await self._db.execute(
+                        select(MdPublication)
+                        .where(MdPublication.id.in_(ids))
+                        .execution_options(populate_existing=True)
+                        .with_for_update()
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            if len(rows) != len(ids):
+                raise MarketDataPublicationError("PUBLICATION_NOT_FOUND")
+            holds = list(
+                (
+                    await self._db.execute(
+                        select(MdPublicationReleaseHold)
+                        .where(MdPublicationReleaseHold.publication_id.in_(ids))
+                        .execution_options(populate_existing=True)
+                        .with_for_update()
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            self._assert_deferred_promotion_integrity(rows=rows, holds=holds, promotions=items)
+            await self._assert_pending_entity_integrity(rows)
+            await self._assert_publish_fence_binding(
+                rows,
+                fetch_lease=fetch_lease,
+                pre_publish_guard=pre_publish_guard,
+            )
+            # The concrete adapter's private authorization and provenance
+            # proof runs only after this transaction owns the receipt, hold,
+            # and source evidence. Revalidate afterwards because the callback
+            # is application code and must not be allowed to invalidate the
+            # state that this publication transaction is about to seal.
+            await pre_publish_guard()
+            current_transaction = self._db.get_transaction()
+            if (
+                current_transaction is None
+                or current_transaction.sync_transaction
+                is not publication_transaction.sync_transaction
+                or not publication_transaction.is_active
+            ):
+                raise MarketDataPublicationError("PUBLICATION_DEFERRED_GUARD_TRANSACTION_LOST")
+            # A trusted guard may inspect evidence through raw SQL. Never
+            # revalidate ORM identities captured before that callback: a raw
+            # UPDATE does not necessarily synchronize the session identity
+            # map, and could otherwise be overwritten by this promotion.
+            rows = list(
+                (
+                    await self._db.execute(
+                        select(MdPublication)
+                        .where(MdPublication.id.in_(ids))
+                        .execution_options(populate_existing=True)
+                        .with_for_update()
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            if len(rows) != len(ids):
+                raise MarketDataPublicationError("PUBLICATION_NOT_FOUND")
+            holds = list(
+                (
+                    await self._db.execute(
+                        select(MdPublicationReleaseHold)
+                        .where(MdPublicationReleaseHold.publication_id.in_(ids))
+                        .execution_options(populate_existing=True)
+                        .with_for_update()
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            self._assert_deferred_promotion_integrity(rows=rows, holds=holds, promotions=items)
+            await self._assert_pending_entity_integrity(rows)
+            await self._assert_publish_fence_binding(
+                rows,
+                fetch_lease=fetch_lease,
+                pre_publish_guard=pre_publish_guard,
+            )
+            if fetch_lease is not None:
+                await assert_fetch_lease_held_in_transaction(
+                    self._db,
+                    fetch_lease,
+                    clock=self._fetch_lease_clock,
+                )
+            published_at = await self._publish_locked_rows(rows, lower_bound=lower_bound)
+            promotions_by_id = {item.publication_id: item for item in items}
+            for hold in holds:
+                promotion = promotions_by_id[hold.publication_id]
+                hold.state = PUBLICATION_RELEASE_HOLD_STATE_PROMOTED
+                hold.promotion_evidence_sha256 = promotion.promotion_evidence_sha256
+                hold.promoted_at = published_at
+            await self._db.flush()
+            await self._db.commit()
+            return published_at
+        except Exception:
+            if self._db.in_transaction():
+                await self._db.rollback()
+            raise
+
+    async def quarantine_deferred(
+        self,
+        *,
+        publication_id: str,
+        source_snapshot_id: str,
+        intent: MarketDataDeferredPublicationIntent,
+        quarantine_code: str,
+    ) -> None:
+        """Make a rejected held candidate permanently non-promotable and hidden."""
+        if not isinstance(publication_id, str) or not publication_id.strip():
+            raise MarketDataPublicationError("PUBLICATION_DEFERRED_RECEIPT_INVALID")
+        if not isinstance(source_snapshot_id, str) or not source_snapshot_id.strip():
+            raise MarketDataPublicationError("PUBLICATION_DEFERRED_SOURCE_INVALID")
+        if not isinstance(intent, MarketDataDeferredPublicationIntent):
+            raise TypeError("intent must be a MarketDataDeferredPublicationIntent")
+        if (
+            not isinstance(quarantine_code, str)
+            or not quarantine_code.strip()
+            or len(quarantine_code) > 128
+        ):
+            raise MarketDataPublicationError("PUBLICATION_DEFERRED_QUARANTINE_CODE_INVALID")
+        if self._db.in_transaction():
+            raise MarketDataPublicationError("PUBLICATION_REQUIRES_COMMITTED_TRANSACTION")
+
+        await self._db.begin()
+        try:
+            publication = await self._db.scalar(
+                select(MdPublication)
+                .where(MdPublication.id == publication_id)
+                .execution_options(populate_existing=True)
+                .with_for_update()
+            )
+            hold = await self._db.scalar(
+                select(MdPublicationReleaseHold)
+                .where(MdPublicationReleaseHold.publication_id == publication_id)
+                .execution_options(populate_existing=True)
+                .with_for_update()
+            )
+            if publication is None or hold is None:
+                raise MarketDataPublicationError("PUBLICATION_DEFERRED_NOT_FOUND")
+            self._assert_deferred_hold_matches(
+                publication=publication,
+                hold=hold,
+                publication_id=publication_id,
+                source_snapshot_id=source_snapshot_id,
+                intent=intent,
+            )
+            if hold.state == PUBLICATION_RELEASE_HOLD_STATE_QUARANTINED:
+                if hold.quarantine_code != quarantine_code:
+                    raise MarketDataPublicationError("PUBLICATION_DEFERRED_QUARANTINE_CONFLICT")
+                await self._db.commit()
+                return
+            if hold.state != PUBLICATION_RELEASE_HOLD_STATE_DEFERRED:
+                raise MarketDataPublicationError("PUBLICATION_DEFERRED_STATE_INVALID")
+            if publication.published_at is not None or publication.visibility_sequence is not None:
+                raise MarketDataPublicationError("PUBLICATION_DEFERRED_RECEIPT_INVALID")
+            hold.state = PUBLICATION_RELEASE_HOLD_STATE_QUARANTINED
+            hold.quarantine_code = quarantine_code
+            hold.quarantined_at = _as_utc(self._clock(), field_name="deferred quarantine clock")
+            await self._db.flush()
+            await self._db.commit()
+        except Exception:
+            if self._db.in_transaction():
+                await self._db.rollback()
+            raise
+
+    async def _assert_no_active_release_holds(self, rows: Iterable[MdPublication]) -> None:
+        """Reject generic publication when any receipt still has an active hold."""
+        materialized = tuple(rows)
+        if not materialized:
+            return
+        ids = tuple(row.id for row in materialized)
+        publications_by_id = {row.id: row for row in materialized}
+        holds = list(
+            (
+                await self._db.execute(
+                    select(MdPublicationReleaseHold)
+                    .where(MdPublicationReleaseHold.publication_id.in_(ids))
+                    .execution_options(populate_existing=True)
+                    .with_for_update()
+                )
+            )
+            .scalars()
+            .all()
+        )
+        for hold in holds:
+            publication = publications_by_id.get(hold.publication_id)
+            if publication is None:
+                raise MarketDataPublicationError("PUBLICATION_DEFERRED_HOLD_INTEGRITY")
+            if hold.state in _ACTIVE_RELEASE_HOLD_STATES:
+                raise MarketDataPublicationError("PUBLICATION_DEFERRED_RELEASE_REQUIRED")
+            if hold.state != PUBLICATION_RELEASE_HOLD_STATE_PROMOTED:
+                raise MarketDataPublicationError("PUBLICATION_DEFERRED_HOLD_INTEGRITY")
+            if (
+                publication.published_at is None
+                or not _is_visibility_sequence(publication.visibility_sequence)
+                or hold.promoted_at is None
+                or not _is_sha256(hold.promotion_evidence_sha256)
+            ):
+                raise MarketDataPublicationError("PUBLICATION_DEFERRED_HOLD_INTEGRITY")
+
+    def _assert_deferred_promotion_integrity(
+        self,
+        *,
+        rows: Iterable[MdPublication],
+        holds: Iterable[MdPublicationReleaseHold],
+        promotions: Iterable[MarketDataDeferredPublicationPromotion],
+    ) -> None:
+        """Bind every explicit promotion to exactly one still-held source receipt."""
+        rows_by_id = {row.id: row for row in rows}
+        holds_by_publication_id = {hold.publication_id: hold for hold in holds}
+        promotions_by_id = {item.publication_id: item for item in promotions}
+        if (
+            len(rows_by_id) != len(promotions_by_id)
+            or len(holds_by_publication_id) != len(promotions_by_id)
+            or set(rows_by_id) != set(promotions_by_id)
+            or set(holds_by_publication_id) != set(promotions_by_id)
+        ):
+            raise MarketDataPublicationError("PUBLICATION_DEFERRED_NOT_FOUND")
+        for publication_id, promotion in promotions_by_id.items():
+            publication = rows_by_id[publication_id]
+            hold = holds_by_publication_id[publication_id]
+            intent = MarketDataDeferredPublicationIntent(
+                workflow_kind=promotion.workflow_kind,
+                intent_sha256=promotion.intent_sha256,
+            )
+            self._assert_deferred_hold_matches(
+                publication=publication,
+                hold=hold,
+                publication_id=promotion.publication_id,
+                source_snapshot_id=promotion.source_snapshot_id,
+                intent=intent,
+            )
+            if hold.state == PUBLICATION_RELEASE_HOLD_STATE_QUARANTINED:
+                raise MarketDataPublicationError("PUBLICATION_DEFERRED_QUARANTINED")
+            if hold.state != PUBLICATION_RELEASE_HOLD_STATE_DEFERRED:
+                raise MarketDataPublicationError("PUBLICATION_DEFERRED_STATE_INVALID")
+            if (
+                publication.published_at is not None
+                or publication.visibility_sequence is not None
+                or hold.quarantine_code is not None
+                or hold.quarantined_at is not None
+                or hold.promotion_evidence_sha256 is not None
+                or hold.promoted_at is not None
+            ):
+                raise MarketDataPublicationError("PUBLICATION_DEFERRED_HOLD_INTEGRITY")
+
+    @staticmethod
+    def _assert_deferred_hold_matches(
+        *,
+        publication: MdPublication,
+        hold: MdPublicationReleaseHold,
+        publication_id: str,
+        source_snapshot_id: str,
+        intent: MarketDataDeferredPublicationIntent,
+    ) -> None:
+        """Check the immutable receipt, source, workflow and intent bindings."""
+        if (
+            publication.id != publication_id
+            or publication.entity_type != PUBLICATION_SOURCE_SNAPSHOT
+            or publication.entity_id != source_snapshot_id
+            or hold.publication_id != publication_id
+            or hold.source_snapshot_id != source_snapshot_id
+            or hold.workflow_kind != intent.workflow_kind
+            or hold.intent_sha256 != intent.intent_sha256
+        ):
+            raise MarketDataPublicationError("PUBLICATION_DEFERRED_HOLD_CONFLICT")
 
     async def _assert_publish_fence_binding(
         self,
@@ -346,9 +803,7 @@ class MarketDataPublicationManager:
         which lease generation was allowed to materialize it, so a later owner
         must not seal it by passing a different or absent guard.
         """
-        source_rows = tuple(
-            row for row in rows if row.entity_type == PUBLICATION_SOURCE_SNAPSHOT
-        )
+        source_rows = tuple(row for row in rows if row.entity_type == PUBLICATION_SOURCE_SNAPSHOT)
         if not source_rows:
             if fetch_lease is not None:
                 raise MarketDataPublicationError("PUBLICATION_FETCH_LEASE_MISMATCH")
@@ -497,7 +952,9 @@ class MarketDataPublicationManager:
                 )
                 candidate = MdVisibilitySequenceAllocator(
                     singleton_id=1,
-                    next_visibility_sequence=(int(max_sequence) + 1 if max_sequence is not None else 1),
+                    next_visibility_sequence=(
+                        int(max_sequence) + 1 if max_sequence is not None else 1
+                    ),
                     last_visible_at=latest_visible_at,
                 )
                 try:

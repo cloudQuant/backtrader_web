@@ -34,6 +34,7 @@ from app.models.market_data_platform import (
     MdInstrumentLookupKey,
     MdObservationRevision,
     MdPublication,
+    MdPublicationReleaseHold,
     MdSourceSnapshot,
     MdVisibilitySequenceAllocator,
 )
@@ -212,6 +213,7 @@ _REQUIRED_MARKET_TABLES: Mapping[str, _MarketTableRequirement] = {
     model.__tablename__: _market_table_requirement(model.__table__)
     for model in (
         MdPublication,
+        MdPublicationReleaseHold,
         MdVisibilitySequenceAllocator,
         MdInstrumentIdentityRevision,
         MdCalendarImportLock,

@@ -170,9 +170,7 @@ async def test_bootstrap_registers_b1_logical_datasets_without_routes() -> None:
     assert set(datasets) == set(CANONICAL_DATASET_CODES)
     bars_dataset = datasets[CANONICAL_DATASET_CODE]
     quote_dataset = datasets[CANONICAL_QUOTE_SNAPSHOT_DATASET_CODE]
-    captured_valuation_dataset = datasets[
-        CANONICAL_STOCK_VALUATION_CAPTURED_SNAPSHOT_DATASET_CODE
-    ]
+    captured_valuation_dataset = datasets[CANONICAL_STOCK_VALUATION_CAPTURED_SNAPSHOT_DATASET_CODE]
     assert bars_dataset.canonical_schema["supported_asset_types"] == list(SUPPORTED_ASSET_TYPES)
     assert bars_dataset.primary_key == [
         "semantic_key_sha256",
@@ -249,6 +247,7 @@ def test_bootstrap_schema_contract_covers_every_iteration197_market_table() -> N
     """A future table cannot be omitted from the pre-bootstrap readiness gate."""
     assert set(bootstrap_module._REQUIRED_MARKET_TABLES) == {
         "md_publications",
+        "md_publication_release_holds",
         "md_visibility_sequence_allocator",
         "md_instrument_identity_revisions",
         "md_calendar_import_locks",
@@ -262,10 +261,16 @@ def test_bootstrap_schema_contract_covers_every_iteration197_market_table() -> N
 
 
 @pytest.mark.asyncio
-async def test_bootstrap_refuses_when_a_noncanonical_market_table_is_missing() -> None:
+@pytest.mark.parametrize(
+    "drop_statement",
+    ("DROP TABLE md_calendar_events", "DROP TABLE md_publication_release_holds"),
+)
+async def test_bootstrap_refuses_when_a_noncanonical_market_table_is_missing(
+    drop_statement: str,
+) -> None:
     """A partial md_* migration cannot register a catalog that later readers cannot use."""
     async with async_session_maker() as session:
-        await session.execute(text("DROP TABLE md_calendar_events"))
+        await session.execute(text(drop_statement))
         await session.commit()
 
         with pytest.raises(MarketDataBootstrapError) as blocked:

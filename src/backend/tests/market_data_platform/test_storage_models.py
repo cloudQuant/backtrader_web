@@ -39,7 +39,8 @@ RESEARCH_BINDINGS_REVISION = "20260909_market_data_research_bindings"
 RESEARCH_BINDING_CONSUMERS_REVISION = "20260909_market_data_research_binding_consumers"
 SHARED_SOURCE_PAYLOADS_REVISION = "20260910_market_data_shared_source_payloads"
 CAPABILITY_LEDGER_REVISION = "20260910_market_data_capability_ledger"
-INTEGRATED_HEAD_REVISION = CAPABILITY_LEDGER_REVISION
+DEFERRED_PUBLICATIONS_REVISION = "20260911_market_data_deferred_publications"
+INTEGRATED_HEAD_REVISION = DEFERRED_PUBLICATIONS_REVISION
 OBSERVATION_STORAGE_TABLES = {
     "md_instrument_lookup_keys",
     "md_data_series",
@@ -1293,8 +1294,8 @@ def test_observation_revision_is_linear_child_of_catalog_revision() -> None:
     assert len(script.get_heads()) == 1
 
 
-def test_constraint_name_portability_revision_extends_the_integrated_storage_graph() -> None:
-    """The integrated evidence graph retains its single capability-ledger head."""
+def test_deferred_publications_revision_extends_the_integrated_storage_graph() -> None:
+    """The release-hold child table extends the single integrated evidence graph."""
     script = ScriptDirectory.from_config(_config("sqlite://"))
 
     shared_revision = script.get_revision(SHARED_DATASET_BINDINGS_REVISION)
@@ -1309,6 +1310,7 @@ def test_constraint_name_portability_revision_extends_the_integrated_storage_gra
     research_binding_consumers_revision = script.get_revision(RESEARCH_BINDING_CONSUMERS_REVISION)
     shared_source_payloads_revision = script.get_revision(SHARED_SOURCE_PAYLOADS_REVISION)
     capability_ledger_revision = script.get_revision(CAPABILITY_LEDGER_REVISION)
+    deferred_publications_revision = script.get_revision(DEFERRED_PUBLICATIONS_REVISION)
     integrated_head_revision = script.get_revision(INTEGRATED_HEAD_REVISION)
     assert shared_revision is not None
     assert shared_revision.down_revision == OBSERVATIONS_REVISION
@@ -1337,8 +1339,10 @@ def test_constraint_name_portability_revision_extends_the_integrated_storage_gra
     assert shared_source_payloads_revision.down_revision == RESEARCH_BINDING_CONSUMERS_REVISION
     assert capability_ledger_revision is not None
     assert capability_ledger_revision.down_revision == SHARED_SOURCE_PAYLOADS_REVISION
+    assert deferred_publications_revision is not None
+    assert deferred_publications_revision.down_revision == CAPABILITY_LEDGER_REVISION
     assert integrated_head_revision is not None
-    assert integrated_head_revision.down_revision == SHARED_SOURCE_PAYLOADS_REVISION
+    assert integrated_head_revision.down_revision == CAPABILITY_LEDGER_REVISION
     assert script.get_heads() == [INTEGRATED_HEAD_REVISION]
 
 

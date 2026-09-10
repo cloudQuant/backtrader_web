@@ -131,6 +131,103 @@ class MdPublication(Base):
     visibility_sequence = Column(BigInteger, nullable=True)
     created_at = Column(PITDateTime, default=_utcnow, nullable=False)
 
+    release_hold = relationship(
+        "MdPublicationReleaseHold",
+        back_populates="publication",
+        passive_deletes=True,
+        uselist=False,
+    )
+
+
+class MdPublicationReleaseHold(Base):
+    """Durable control-plane hold for one unpublished legacy-import receipt.
+
+    A hold is deliberately a child of both the immutable publication receipt
+    and its immutable source snapshot. It records the mutable verification
+    workflow without changing either evidence parent or making an unverified
+    receipt visible to normal local-first readers.
+    """
+
+    __tablename__ = "md_publication_release_holds"
+    __table_args__ = (
+        UniqueConstraint(
+            "publication_id",
+            name="uq_md_publication_release_hold_publication",
+        ),
+        UniqueConstraint(
+            "source_snapshot_id",
+            name="uq_md_publication_release_hold_source_snapshot",
+        ),
+        CheckConstraint(
+            "workflow_kind = 'legacy_stock_daily_import'",
+            name="ck_md_publication_release_hold_workflow_kind",
+        ),
+        CheckConstraint(
+            "state IN ('DEFERRED', 'QUARANTINED', 'PROMOTED')",
+            name="ck_md_publication_release_hold_state",
+        ),
+        CheckConstraint(
+            f"length(intent_sha256) = {_SHA256_LENGTH}",
+            name="ck_md_publication_release_hold_intent_sha256_length",
+        ),
+        CheckConstraint(
+            "promotion_evidence_sha256 IS NULL OR "
+            f"length(promotion_evidence_sha256) = {_SHA256_LENGTH}",
+            name="ck_md_publication_release_hold_promotion_evidence_sha256_length",
+        ),
+        CheckConstraint(
+            "state <> 'DEFERRED' OR "
+            "(quarantine_code IS NULL AND quarantined_at IS NULL AND "
+            "promotion_evidence_sha256 IS NULL AND promoted_at IS NULL)",
+            name="ck_md_publication_release_hold_deferred_state_fields",
+        ),
+        CheckConstraint(
+            "state <> 'QUARANTINED' OR "
+            "(quarantine_code IS NOT NULL AND length(quarantine_code) > 0 AND "
+            "quarantined_at IS NOT NULL AND "
+            "promotion_evidence_sha256 IS NULL AND promoted_at IS NULL)",
+            name="ck_md_publication_release_hold_quarantined_state_fields",
+        ),
+        CheckConstraint(
+            "state <> 'PROMOTED' OR "
+            "(quarantine_code IS NULL AND quarantined_at IS NULL AND "
+            "promotion_evidence_sha256 IS NOT NULL AND promoted_at IS NOT NULL)",
+            name="ck_md_publication_release_hold_promoted_state_fields",
+        ),
+        Index("ix_md_publication_release_hold_state_created", "state", "created_at"),
+    )
+
+    id = Column(String(36), primary_key=True, default=_uuid)
+    publication_id = Column(
+        String(36),
+        ForeignKey(
+            "md_publications.id",
+            name="fk_md_publication_release_hold_publication",
+            ondelete="RESTRICT",
+        ),
+        nullable=False,
+    )
+    source_snapshot_id = Column(
+        String(36),
+        ForeignKey(
+            "md_source_snapshots.id",
+            name="fk_md_publication_release_hold_source_snapshot",
+            ondelete="RESTRICT",
+        ),
+        nullable=False,
+    )
+    workflow_kind = Column(String(64), nullable=False)
+    state = Column(String(16), nullable=False)
+    intent_sha256 = Column(String(_SHA256_LENGTH), nullable=False)
+    quarantine_code = Column(String(128), nullable=True)
+    quarantined_at = Column(PITDateTime, nullable=True)
+    promotion_evidence_sha256 = Column(String(_SHA256_LENGTH), nullable=True)
+    promoted_at = Column(PITDateTime, nullable=True)
+    created_at = Column(PITDateTime, default=_utcnow, nullable=False)
+
+    publication = relationship("MdPublication", back_populates="release_hold")
+    source_snapshot = relationship("MdSourceSnapshot", back_populates="release_hold")
+
 
 class MdVisibilitySequenceAllocator(Base):
     """The locked singleton that allocates globally ordered visibility receipts.
@@ -670,6 +767,12 @@ class MdSourceSnapshot(Base):
         "MdObservationRevision",
         back_populates="source_snapshot",
         passive_deletes=True,
+    )
+    release_hold = relationship(
+        "MdPublicationReleaseHold",
+        back_populates="source_snapshot",
+        passive_deletes=True,
+        uselist=False,
     )
 
 

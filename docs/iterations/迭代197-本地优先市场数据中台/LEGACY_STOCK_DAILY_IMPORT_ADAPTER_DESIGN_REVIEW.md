@@ -1,7 +1,7 @@
 # A 股历史日线受控适配器：延期发布设计与审查包
 
 > 记录日期：2026-09-11  
-> 状态：`PREREQUISITE_IMPLEMENTATION / NO-GO`  
+> 状态：`FOUNDATION_IMPLEMENTED / NO-GO`
 > 关联：`L-197-32`、`AC-197-032`、[受控导入边界](LEGACY_STOCK_DAILY_IMPORT_GUARD.md)
 
 ## 1. 决策和范围
@@ -111,13 +111,23 @@ sequenceDiagram
 
 | 验收 ID | 本地自动化断言 | 本次状态 |
 | --- | --- | --- |
-| DP-197-01 | `DEFERRED` provider receipt 的 source snapshot/revision/hold 已持久化，但普通 local read 为空。 | `PENDING` |
-| DP-197-02 | `publish_staged()` 拒绝 active hold；`recover_pending()` 跳过 hold，同时仍可恢复普通 receipt。 | `PENDING` |
-| DP-197-03 | 通过有效 guarded promotion 后，新的 visibility anchor 才能读到对应 revision。 | `PENDING` |
-| DP-197-04 | promotion guard/lease/revision proof 失败时，receipt 没有 visible time/sequence，普通读仍为空。 | `PENDING` |
-| DP-197-05 | SQLite migration upgrade、ORM schema、Alembic 单 head、Ruff 与目标 pytest 通过。 | `PENDING` |
+| DP-197-01 | `DEFERRED` provider receipt 的 source snapshot/revision/hold 已持久化，但未经 source-authorization 筛选的规范化 Store read 为空。 | `PASS`（本地开发回归） |
+| DP-197-02 | `publish_staged()` 拒绝 active hold；`recover_pending()` 跳过所有 hold；并发 session 的 stale pending receipt 也不能在另一 session 已 seal 后附加 hold。 | `PASS`（本地开发回归） |
+| DP-197-03 | 通过有效 guarded promotion 后，新的 visibility anchor 才能读到对应 revision；断言范围限于未经 source-authorization 筛选的规范化 Store read。 | `PASS`（本地开发回归） |
+| DP-197-04 | attestation guard 失败、guard 私自结束已锁事务、或 hold 已被 quarantine 时，receipt 没有 visible time/sequence，普通 Store read 仍为空。 | `PASS`（本地开发回归） |
+| DP-197-05 | SQLite migration upgrade、ORM schema、bootstrap 必需表检查、Alembic 单 head、Ruff 与目标 pytest 通过。 | `PASS`（本地开发回归） |
 | AC-197-032 | 真实表、MySQL/PostgreSQL、来源/许可、页面、策略、真实 receipt 验收。 | `NOT_RUN / NO-GO` |
+
+本地开发回归只覆盖隔离发布控制面的 SQLite/fixture 行为。测试数据以 `UNVERIFIED_COMPATIBILITY` 写入；没有提供 `allowed_source_registry_ids` 的 raw Store read 能证明 receipt seal 的可见性语义，但不能证明来源已获验证，更不能证明 v2、`/data/market`、`/investment/strategies` 或策略工件可读取候选事实。
+
+本次本地开发收据如下：
+
+- `/Users/yunjinqi/opt/anaconda3/bin/conda run --no-capture-output -n base python -m pytest -q tests/market_data_platform`：`897 passed, 102 warnings`（278.13 秒）。
+- 延期发布、迁移、bootstrap 与迁移图的复审焦点组合：`32 passed, 9 warnings`；普通 Store 与 publication recovery 组合：`49 passed, 1 warning`。
+- 受影响 Python 文件的 `ruff check`、`ruff format --check`、`compileall` 与 `git diff --check` 均通过；`alembic heads` 只有 `20260911_market_data_deferred_publications`。
+
+这些证据不替代真实数据库、真实表或真实来源的验收，`AC-197-032` 的总体状态继续是 `NOT_RUN / NO-GO`。
 
 ## 6. 审查结论
 
-该设计只允许开始实现隔离发布基础设施。任何把 `STOCK_ZH_A_HIST` 直接接入 reader、把 attestation 当作授权、让 recovery promotion quarantine、或把 fixture 结果写成真实 AkShare/OpenBB/页面通过的变更，均不符合本审查包。完成本增量后仍须单独审查 concrete gate、reader、canonical writer、private staged reread、MySQL/PostgreSQL 演练和浏览器验收，才可重新评估 `AC-197-032`。
+该设计的隔离发布基础设施已实现并通过本地开发回归，但没有取得真实来源或产品读取授权。任何把 `STOCK_ZH_A_HIST` 直接接入 reader、把 attestation 当作授权、让 recovery promotion quarantine、或把 fixture 结果写成真实 AkShare/OpenBB/页面通过的变更，均不符合本审查包。后续仍须单独审查 concrete gate、reader、canonical writer、private staged reread、MySQL/PostgreSQL 演练和浏览器验收，才可重新评估 `AC-197-032`。

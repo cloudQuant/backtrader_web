@@ -10,7 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from decimal import Decimal
@@ -65,6 +65,8 @@ from app.services.market_data.providers import (
 from app.services.market_data.publication import (
     PUBLICATION_CALENDAR_SNAPSHOT,
     PUBLICATION_SOURCE_SNAPSHOT,
+    MarketDataDeferredPublicationIntent,
+    MarketDataDeferredPublicationPromotion,
     MarketDataPublicationError,
     MarketDataPublicationManager,
     MarketDataVisibilityAnchor,
@@ -178,6 +180,26 @@ class PersistedProviderFetch:
     passing_observation_count: int
     failed_observation_count: int
     received_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class DeferredProviderFetch:
+    """A durable-but-hidden provider write awaiting explicit attestation.
+
+    This DTO intentionally does not expose a publication/visibility time.  A
+    future legacy adapter must validate the staged candidate and ask the
+    publication manager for a guarded promotion before it can obtain a normal
+    ``PersistedProviderFetch`` usable by any local-first query path.
+    """
+
+    series_id: str
+    source_snapshot_id: str
+    publication_id: str
+    observation_revision_ids: tuple[str, ...]
+    passing_observation_count: int
+    failed_observation_count: int
+    local_received_at: datetime
+    intent: MarketDataDeferredPublicationIntent
 
 
 @dataclass(frozen=True, slots=True)
@@ -477,7 +499,8 @@ class MarketDataStore:
         source_authorization: MarketDataSourceAuthorization | None = None,
         unverified_compatibility_reason: str | None = None,
         fetch_lease: MarketDataFetchLeaseHandle | None = None,
-    ) -> PersistedProviderFetch:
+        deferred_intent: MarketDataDeferredPublicationIntent | None = None,
+    ) -> PersistedProviderFetch | DeferredProviderFetch:
         """Append one provider receipt and its normalized observation revisions.
 
         Input validation completes before any evidence row is added. The
@@ -495,10 +518,20 @@ class MarketDataStore:
         is renewed in both the immutable-fact transaction and the separate
         publication transaction.  The provider call has already completed by
         this point, so neither short database transaction spans external I/O.
+
+        ``deferred_intent`` is a deliberately narrow legacy-import seam.  It
+        stores the facts and a durable release hold in transaction A, then
+        returns without creating a visibility receipt.  Generic recovery and
+        generic publishing reject the held receipt; callers must use the
+        explicit guarded promotion API after their private verification.
         """
         _assert_writable_context(context)
         if fetch_lease is not None and not isinstance(fetch_lease, MarketDataFetchLeaseHandle):
             raise TypeError("fetch_lease must be a MarketDataFetchLeaseHandle")
+        if deferred_intent is not None and not isinstance(
+            deferred_intent, MarketDataDeferredPublicationIntent
+        ):
+            raise TypeError("deferred_intent must be a MarketDataDeferredPublicationIntent")
         local_received_at = _require_aware_utc(
             received_at or self._clock(),
             field_name="local receipt timestamp",
@@ -579,6 +612,12 @@ class MarketDataStore:
                 ]
                 self._db.add_all(revisions)
                 await self._db.flush()
+                if deferred_intent is not None:
+                    await self._publications.hold_staged_source_snapshot(
+                        publication=publication,
+                        source_snapshot_id=source_snapshot.id,
+                        intent=deferred_intent,
+                    )
         except MarketDataFetchLeaseError as exc:
             if self._db.in_transaction():
                 await self._db.rollback()
@@ -606,6 +645,22 @@ class MarketDataStore:
             if self._db.in_transaction():
                 await self._db.rollback()
             raise MarketDataStoreError("OBSERVATION_PUBLICATION_FAILED") from exc
+
+        if deferred_intent is not None:
+            return DeferredProviderFetch(
+                series_id=series.id,
+                source_snapshot_id=source_snapshot.id,
+                publication_id=publication.id,
+                observation_revision_ids=tuple(revision.id for revision in revisions),
+                passing_observation_count=sum(
+                    item.quality is ObservationQuality.PASS for item in validated.observations
+                ),
+                failed_observation_count=sum(
+                    item.quality is ObservationQuality.FAILED for item in validated.observations
+                ),
+                local_received_at=local_received_at,
+                intent=deferred_intent,
+            )
 
         async def assert_publish_fence() -> None:
             if fetch_lease is not None:
@@ -643,6 +698,106 @@ class MarketDataStore:
             ),
             received_at=published_at,
         )
+
+    async def stage_provider_result_for_deferred_release(
+        self,
+        context: ResolvedMarketDataQueryContext,
+        result: ProviderFetchResult,
+        *,
+        deferred_intent: MarketDataDeferredPublicationIntent,
+        received_at: datetime | None = None,
+        source_authorization: MarketDataSourceAuthorization | None = None,
+        unverified_compatibility_reason: str | None = None,
+        fetch_lease: MarketDataFetchLeaseHandle | None = None,
+    ) -> DeferredProviderFetch:
+        """Persist one legacy-import candidate without making it query-visible."""
+        staged = await self.persist_provider_result(
+            context,
+            result,
+            received_at=received_at,
+            source_authorization=source_authorization,
+            unverified_compatibility_reason=unverified_compatibility_reason,
+            fetch_lease=fetch_lease,
+            deferred_intent=deferred_intent,
+        )
+        if not isinstance(staged, DeferredProviderFetch):
+            raise AssertionError("deferred provider write returned a visible receipt")
+        return staged
+
+    async def promote_deferred_provider_result(
+        self,
+        staged: DeferredProviderFetch,
+        *,
+        promotion_evidence_sha256: str,
+        pre_publish_guard: Callable[[], Awaitable[None]],
+        fetch_lease: MarketDataFetchLeaseHandle | None = None,
+    ) -> PersistedProviderFetch:
+        """Turn one verified staged candidate into an ordinary sealed receipt.
+
+        The caller must provide the private verification/reauthorization guard.
+        This Store method deliberately has no default guard and never offers a
+        route-level shortcut for promotion.
+        """
+        if not isinstance(staged, DeferredProviderFetch):
+            raise TypeError("staged must be a DeferredProviderFetch")
+        if not callable(pre_publish_guard):
+            raise TypeError("pre_publish_guard must be callable")
+        promotion = MarketDataDeferredPublicationPromotion(
+            publication_id=staged.publication_id,
+            source_snapshot_id=staged.source_snapshot_id,
+            workflow_kind=staged.intent.workflow_kind,
+            intent_sha256=staged.intent.intent_sha256,
+            promotion_evidence_sha256=promotion_evidence_sha256,
+        )
+        try:
+            published_at = await self._publications.promote_deferred_after_attestation(
+                (promotion,),
+                not_before=staged.local_received_at,
+                pre_publish_guard=pre_publish_guard,
+                fetch_lease=fetch_lease,
+            )
+        except MarketDataFetchLeaseError as exc:
+            if self._db.in_transaction():
+                await self._db.rollback()
+            raise MarketDataStoreError(exc.code) from exc
+        except (MarketDataPublicationError, OperationalError) as exc:
+            if self._db.in_transaction():
+                await self._db.rollback()
+            code = (
+                exc.code
+                if isinstance(exc, MarketDataPublicationError)
+                else "OBSERVATION_PUBLICATION_FAILED"
+            )
+            raise MarketDataStoreError(code) from exc
+        return PersistedProviderFetch(
+            series_id=staged.series_id,
+            source_snapshot_id=staged.source_snapshot_id,
+            observation_revision_ids=staged.observation_revision_ids,
+            passing_observation_count=staged.passing_observation_count,
+            failed_observation_count=staged.failed_observation_count,
+            received_at=published_at,
+        )
+
+    async def quarantine_deferred_provider_result(
+        self,
+        staged: DeferredProviderFetch,
+        *,
+        quarantine_code: str,
+    ) -> None:
+        """Record that a staged candidate failed verification without exposing it."""
+        if not isinstance(staged, DeferredProviderFetch):
+            raise TypeError("staged must be a DeferredProviderFetch")
+        try:
+            await self._publications.quarantine_deferred(
+                publication_id=staged.publication_id,
+                source_snapshot_id=staged.source_snapshot_id,
+                intent=staged.intent,
+                quarantine_code=quarantine_code,
+            )
+        except MarketDataPublicationError as exc:
+            if self._db.in_transaction():
+                await self._db.rollback()
+            raise MarketDataStoreError(exc.code) from exc
 
     async def resolve_visibility_anchor(
         self,
