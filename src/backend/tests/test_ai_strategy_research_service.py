@@ -88,6 +88,7 @@ from app.services.ai_strategy_research_task_manager import (
     _continuation_request_from_task,
 )
 from app.services.investment_mandate_service import InvestmentMandateService
+from app.services.market_data.research_binding import MarketDataResearchBindingError
 from app.services.research.continuation import _continuation_request_from_run_record
 from app.services.research.pipeline_audit import _pipeline_summary
 from app.services.research.run_records import _research_run_record_with_pipeline
@@ -15147,6 +15148,438 @@ def test_market_data_binding_factory_is_inert_until_a_request_has_binding_intent
     factory = get_ai_strategy_research_market_data_binding_service()
     assert factory is not None
     assert hasattr(factory, "bind_request")
+
+
+@pytest.mark.asyncio
+async def test_market_data_binding_factory_uses_durable_effective_bridge_before_data_read(
+    monkeypatch,
+):
+    """An effective durable bridge rejects legacy input without asking for ``data:read``."""
+    import app.api.data.queries as data_queries
+    import app.config as config_module
+    import app.services.market_data.research_binding as research_binding_module
+
+    evaluations: list[Any] = []
+
+    async def effective_capabilities(db, *, settings):
+        del settings
+        evaluations.append(db)
+        return SimpleNamespace(
+            response=SimpleNamespace(
+                query_v2_enabled=True,
+                research_backtest_bridge_enabled=True,
+                capability_states=(),
+            )
+        )
+
+    async def data_read_must_not_run(*_args, **_kwargs):
+        raise AssertionError("legacy bridge preflight must not require data:read")
+
+    monkeypatch.setattr(data_queries, "evaluate_market_data_capabilities", effective_capabilities)
+    monkeypatch.setattr(
+        config_module,
+        "get_settings",
+        lambda: SimpleNamespace(
+            MARKET_DATA_QUERY_V2_ENABLED=True,
+            MARKET_DATA_RESEARCH_BACKTEST_BRIDGE_ENABLED=True,
+        ),
+    )
+    monkeypatch.setattr(
+        research_binding_module.MarketDataAccessAuthorizer,
+        "principal_for_user",
+        data_read_must_not_run,
+    )
+    factory = get_ai_strategy_research_market_data_binding_service()
+
+    with pytest.raises(MarketDataResearchBindingError, match="MARKET_DATA_BINDING_REQUIRED"):
+        await factory.require_binding_intent_if_enabled(
+            request=AIStrategyResearchRunRequest(
+                prompt="当前 bridge 生效时旧 CSV 不能绕过绑定",
+                symbol="000001.SZ",
+                data_config={"csv_path": "/legacy/000001.csv"},
+            )
+        )
+
+    assert len(evaluations) == 1
+
+
+@pytest.mark.asyncio
+async def test_market_data_binding_factory_keeps_legacy_request_when_durable_bridge_disabled(
+    monkeypatch,
+):
+    """A durable disabled result retains legacy behavior without ``data:read`` authorization."""
+    import app.api.data.queries as data_queries
+    import app.config as config_module
+    import app.db.database as database_module
+    import app.services.market_data.research_binding as research_binding_module
+
+    evaluations: list[Any] = []
+
+    async def disabled_capabilities(db, *, settings):
+        del settings
+        evaluations.append(db)
+        return SimpleNamespace(
+            response=SimpleNamespace(
+                query_v2_enabled=False,
+                research_backtest_bridge_enabled=False,
+                capability_states=(),
+            )
+        )
+
+    async def data_read_must_not_run(*_args, **_kwargs):
+        raise AssertionError("disabled bridge must not require data:read")
+
+    def session_must_not_open():
+        raise AssertionError("disabled bridge must not acquire a database session")
+
+    monkeypatch.setattr(data_queries, "evaluate_market_data_capabilities", disabled_capabilities)
+    monkeypatch.setattr(
+        config_module,
+        "get_settings",
+        lambda: SimpleNamespace(
+            MARKET_DATA_QUERY_V2_ENABLED=False,
+            MARKET_DATA_RESEARCH_BACKTEST_BRIDGE_ENABLED=True,
+        ),
+    )
+    monkeypatch.setattr(
+        research_binding_module.MarketDataAccessAuthorizer,
+        "principal_for_user",
+        data_read_must_not_run,
+    )
+    monkeypatch.setattr(database_module, "async_session_maker", session_must_not_open)
+    factory = get_ai_strategy_research_market_data_binding_service()
+
+    await factory.require_binding_intent_if_enabled(
+        request=AIStrategyResearchRunRequest(
+            prompt="关闭 bridge 时保留传统 CSV 研究",
+            symbol="000001.SZ",
+            data_config={"csv_path": "/legacy/000001.csv"},
+        )
+    )
+
+    assert evaluations == []
+
+
+@pytest.mark.asyncio
+async def test_market_data_binding_factory_fails_closed_when_ledger_state_is_unavailable(
+    monkeypatch,
+):
+    """An unreadable durable ledger is not silently treated as a disabled bridge."""
+    import app.api.data.queries as data_queries
+    import app.config as config_module
+
+    async def unavailable_capabilities(_db, *, settings):
+        del settings
+        return SimpleNamespace(
+            response=SimpleNamespace(
+                query_v2_enabled=False,
+                research_backtest_bridge_enabled=False,
+                capability_states=(
+                    SimpleNamespace(reason_code="CAPABILITY_LEDGER_UNAVAILABLE"),
+                ),
+            )
+        )
+
+    monkeypatch.setattr(data_queries, "evaluate_market_data_capabilities", unavailable_capabilities)
+    monkeypatch.setattr(
+        config_module,
+        "get_settings",
+        lambda: SimpleNamespace(
+            MARKET_DATA_QUERY_V2_ENABLED=True,
+            MARKET_DATA_RESEARCH_BACKTEST_BRIDGE_ENABLED=True,
+        ),
+    )
+    factory = get_ai_strategy_research_market_data_binding_service()
+
+    with pytest.raises(
+        MarketDataResearchBindingError,
+        match="MARKET_DATA_BINDING_CAPABILITY_CONTEXT_UNAVAILABLE",
+    ):
+        await factory.require_binding_intent_if_enabled(
+            request=AIStrategyResearchRunRequest(
+                prompt="账本不可用时不能放行旧路径",
+                symbol="000001.SZ",
+                data_config={"csv_path": "/legacy/000001.csv"},
+            )
+        )
+
+
+@pytest.mark.asyncio
+async def test_ai_research_sync_and_task_routes_reject_legacy_request_when_durable_bridge_effective(
+    client: AsyncClient,
+    auth_headers: dict,
+    monkeypatch,
+):
+    """The shared preflight prevents both fresh paths from reaching work or snapshots."""
+    import app.config as config_module
+    import app.services.market_data.research_binding as research_binding_module
+
+    class NoResearchWork:
+        def __init__(self) -> None:
+            self.run_calls: list[tuple[Any, ...]] = []
+
+        async def run(self, *args, **kwargs):
+            self.run_calls.append((args, kwargs))
+            raise AssertionError("legacy request must not reach research execution")
+
+    class NoMandateWork:
+        def __init__(self) -> None:
+            self.calls: list[tuple[Any, ...]] = []
+
+        async def ensure_for_request(self, *args, **kwargs):
+            self.calls.append((args, kwargs))
+            raise AssertionError("legacy request must fail before mandate work")
+
+    class RecordingSnapshotStore:
+        def __init__(self) -> None:
+            self.saved: list[AIStrategyResearchTaskResponse] = []
+
+        async def save_task(self, _user_id: str, response: AIStrategyResearchTaskResponse) -> None:
+            self.saved.append(response)
+
+    async def bridge_effective(_db, *, settings):
+        del settings
+        return True
+
+    service = NoResearchWork()
+    mandate_service = NoMandateWork()
+    snapshot_store = RecordingSnapshotStore()
+    task_manager = AIStrategyResearchTaskManager(task_snapshot_store=snapshot_store)
+    monkeypatch.setattr(
+        research_binding_module,
+        "market_data_research_bridge_is_effective",
+        bridge_effective,
+    )
+    monkeypatch.setattr(
+        config_module,
+        "get_settings",
+        lambda: SimpleNamespace(
+            MARKET_DATA_QUERY_V2_ENABLED=True,
+            MARKET_DATA_RESEARCH_BACKTEST_BRIDGE_ENABLED=True,
+        ),
+    )
+    app.dependency_overrides[get_ai_strategy_research_service] = lambda: service
+    app.dependency_overrides[get_ai_strategy_research_tasks] = lambda: task_manager
+    app.dependency_overrides[get_investment_mandate_service] = lambda: mandate_service
+    payload = {
+        "prompt": "桥接生效时传统 CSV 不能启动新研究",
+        "symbol": "000001.SZ",
+        "data_config": {"csv_path": "/legacy/000001.csv"},
+    }
+    try:
+        sync_response = await client.post(
+            "/api/v1/strategy/ai-research/run",
+            headers=auth_headers,
+            json=payload,
+        )
+        task_response = await client.post(
+            "/api/v1/strategy/ai-research/tasks",
+            headers=auth_headers,
+            json=payload,
+        )
+    finally:
+        app.dependency_overrides.pop(get_ai_strategy_research_service, None)
+        app.dependency_overrides.pop(get_ai_strategy_research_tasks, None)
+        app.dependency_overrides.pop(get_investment_mandate_service, None)
+
+    for response in (sync_response, task_response):
+        assert response.status_code == 400, response.text
+        assert response.json()["details"] == {"code": "MARKET_DATA_BINDING_REQUIRED"}
+    assert service.run_calls == []
+    assert mandate_service.calls == []
+    assert task_manager._tasks == {}
+    assert snapshot_store.saved == []
+
+
+@pytest.mark.asyncio
+async def test_ai_research_task_continuation_rejects_legacy_snapshot_when_durable_bridge_effective(
+    client: AsyncClient,
+    auth_headers: dict,
+    monkeypatch,
+):
+    """A legacy task snapshot cannot create a continuation task after bridge activation."""
+    import app.config as config_module
+    import app.services.market_data.research_binding as research_binding_module
+
+    access_token = auth_headers["Authorization"].removeprefix("Bearer ").strip()
+    user_id = str((decode_access_token(access_token) or {}).get("sub") or "")
+    assert user_id
+    source_task = sign_ai_research_task_snapshot(
+        AIStrategyResearchTaskResponse(
+            task_id="legacy-source-task",
+            status="failed",
+            submitted_at="2026-09-11T00:00:00+00:00",
+            run_id="legacy-source-run",
+            research_workspace_id="legacy-source-workspace",
+            request_snapshot={
+                "prompt": "旧任务继续研究",
+                "symbol": "000001.SZ",
+                "data_config": {"csv_path": "/legacy/000001.csv"},
+            },
+            current_stage="failed",
+            message="failed",
+        ),
+        user_id=user_id,
+        workspace_id="legacy-source-workspace",
+    )
+
+    class RecordingSnapshotStore:
+        def __init__(self) -> None:
+            self.saved: list[AIStrategyResearchTaskResponse] = []
+
+        async def get_task(
+            self,
+            _user_id: str,
+            task_id: str,
+        ) -> AIStrategyResearchTaskResponse | None:
+            return source_task if task_id == source_task.task_id else None
+
+        async def save_task(self, _user_id: str, response: AIStrategyResearchTaskResponse) -> None:
+            self.saved.append(response)
+
+    class NoResearchWork:
+        async def run(self, *_args, **_kwargs):
+            raise AssertionError("legacy continuation must not reach research execution")
+
+    class NoMandateWork:
+        def __init__(self) -> None:
+            self.calls: list[tuple[Any, ...]] = []
+
+        async def ensure_for_request(self, *args, **kwargs):
+            self.calls.append((args, kwargs))
+            raise AssertionError("legacy continuation must fail before mandate work")
+
+    async def bridge_effective(_db, *, settings):
+        del settings
+        return True
+
+    snapshot_store = RecordingSnapshotStore()
+    task_manager = AIStrategyResearchTaskManager(task_snapshot_store=snapshot_store)
+    mandate_service = NoMandateWork()
+    monkeypatch.setattr(
+        research_binding_module,
+        "market_data_research_bridge_is_effective",
+        bridge_effective,
+    )
+    monkeypatch.setattr(
+        config_module,
+        "get_settings",
+        lambda: SimpleNamespace(
+            MARKET_DATA_QUERY_V2_ENABLED=True,
+            MARKET_DATA_RESEARCH_BACKTEST_BRIDGE_ENABLED=True,
+        ),
+    )
+    app.dependency_overrides[get_ai_strategy_research_service] = NoResearchWork
+    app.dependency_overrides[get_ai_strategy_research_tasks] = lambda: task_manager
+    app.dependency_overrides[get_investment_mandate_service] = lambda: mandate_service
+    try:
+        response = await client.post(
+            "/api/v1/strategy/ai-research/tasks/legacy-source-task/continue",
+            headers=auth_headers,
+        )
+    finally:
+        app.dependency_overrides.pop(get_ai_strategy_research_service, None)
+        app.dependency_overrides.pop(get_ai_strategy_research_tasks, None)
+        app.dependency_overrides.pop(get_investment_mandate_service, None)
+
+    assert response.status_code == 400, response.text
+    assert response.json()["details"] == {"code": "MARKET_DATA_BINDING_REQUIRED"}
+    assert task_manager._tasks == {}
+    assert snapshot_store.saved == []
+    assert mandate_service.calls == []
+
+
+@pytest.mark.asyncio
+async def test_ai_research_run_continuation_rejects_legacy_request_when_durable_bridge_effective(
+    client: AsyncClient,
+    auth_headers: dict,
+    monkeypatch,
+):
+    """A recovered legacy run cannot enqueue a new continuation task after activation."""
+    import app.config as config_module
+    import app.services.market_data.research_binding as research_binding_module
+
+    class LegacyRunSourceService:
+        def __init__(self) -> None:
+            self.build_calls: list[tuple[Any, ...]] = []
+            self.record_calls: list[tuple[Any, ...]] = []
+            self.run_calls: list[tuple[Any, ...]] = []
+
+        async def build_continuation_request_from_run_record(self, *args, **kwargs):
+            self.build_calls.append((args, kwargs))
+            return AIStrategyResearchRunRequest(
+                prompt="旧运行继续研究",
+                symbol="000001.SZ",
+                research_workspace_id="legacy-run-workspace",
+                data_config={"csv_path": "/legacy/000001.csv"},
+            )
+
+        async def get_run_record(self, *args, **kwargs):
+            self.record_calls.append((args, kwargs))
+            return None
+
+        async def run(self, *args, **kwargs):
+            self.run_calls.append((args, kwargs))
+            raise AssertionError("legacy continuation must not reach research execution")
+
+    class RecordingSnapshotStore:
+        def __init__(self) -> None:
+            self.saved: list[AIStrategyResearchTaskResponse] = []
+
+        async def save_task(self, _user_id: str, response: AIStrategyResearchTaskResponse) -> None:
+            self.saved.append(response)
+
+    class NoMandateWork:
+        def __init__(self) -> None:
+            self.calls: list[tuple[Any, ...]] = []
+
+        async def ensure_for_request(self, *args, **kwargs):
+            self.calls.append((args, kwargs))
+            raise AssertionError("legacy continuation must fail before mandate work")
+
+    async def bridge_effective(_db, *, settings):
+        del settings
+        return True
+
+    service = LegacyRunSourceService()
+    snapshot_store = RecordingSnapshotStore()
+    task_manager = AIStrategyResearchTaskManager(task_snapshot_store=snapshot_store)
+    mandate_service = NoMandateWork()
+    monkeypatch.setattr(
+        research_binding_module,
+        "market_data_research_bridge_is_effective",
+        bridge_effective,
+    )
+    monkeypatch.setattr(
+        config_module,
+        "get_settings",
+        lambda: SimpleNamespace(
+            MARKET_DATA_QUERY_V2_ENABLED=True,
+            MARKET_DATA_RESEARCH_BACKTEST_BRIDGE_ENABLED=True,
+        ),
+    )
+    app.dependency_overrides[get_ai_strategy_research_service] = lambda: service
+    app.dependency_overrides[get_ai_strategy_research_tasks] = lambda: task_manager
+    app.dependency_overrides[get_investment_mandate_service] = lambda: mandate_service
+    try:
+        response = await client.post(
+            "/api/v1/strategy/ai-research/runs/legacy-source-run/continue",
+            headers=auth_headers,
+            params={"research_workspace_id": "legacy-run-workspace"},
+        )
+    finally:
+        app.dependency_overrides.pop(get_ai_strategy_research_service, None)
+        app.dependency_overrides.pop(get_ai_strategy_research_tasks, None)
+        app.dependency_overrides.pop(get_investment_mandate_service, None)
+
+    assert response.status_code == 400, response.text
+    assert response.json()["details"] == {"code": "MARKET_DATA_BINDING_REQUIRED"}
+    assert len(service.build_calls) == 1
+    assert len(service.record_calls) == 1
+    assert service.run_calls == []
+    assert task_manager._tasks == {}
+    assert snapshot_store.saved == []
+    assert mandate_service.calls == []
 
 
 @pytest.mark.asyncio

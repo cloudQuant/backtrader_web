@@ -1022,9 +1022,18 @@
                   {{ aiResearchContinuationLabel }}
                 </el-tag>
               </div>
+              <p
+                v-if="aiResearchStrictMarketDataRunBlocked"
+                class="text-sm text-red-600"
+                data-test="ai-research-strict-market-data-block"
+                role="alert"
+              >
+                {{ aiResearchStrictMarketDataRunBlockReason }}
+              </p>
               <el-button
                 type="primary"
                 :loading="aiResearchRunning"
+                :disabled="aiResearchStrictMarketDataRunBlocked"
                 data-test="ai-research-run"
                 @click="runAIResearchLoop"
               >
@@ -3042,6 +3051,8 @@ const {
   aiResearchMarketDataPlatformStatus,
   aiResearchMarketDataPlatformBridgeEnabled,
   aiResearchMarketDataCacheFillEnabled,
+  aiResearchStrictMarketDataRunBlocked,
+  aiResearchStrictMarketDataRunBlockReason,
   PAPER_GATEWAY_CONFIG_PLACEHOLDER,
   LIVE_GATEWAY_CONFIG_PLACEHOLDER,
   form,

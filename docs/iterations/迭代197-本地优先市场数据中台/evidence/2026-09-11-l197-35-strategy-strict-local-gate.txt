@@ -1,0 +1,85 @@
+L-197-35 — strategy strict-local research gate
+===============================================
+
+Status
+------
+Local development evidence only. This receipt does not mark an Iteration 197
+release, browser/API/database E2E, deployment, OpenBB/AkShare provider route,
+durable capability ledger, MySQL/PostgreSQL, or real market-data validation as
+PASS.
+
+Candidate
+---------
+worktree: /Users/yunjinqi/Downloads/backtrader_web/.worktrees/codex/iteration-197-strategy-strict-run-gate
+branch: codex/iteration-197-strategy-strict-run-gate
+base dev commit: c7e6164568d6e0255adf409192bd62dd266b11da
+candidate commit: CANDIDATE_COMMIT_SHA
+
+Changed scope
+-------------
+- The Strategy page forces a fresh capability decision before new research,
+  run-record continuation, and task-snapshot continuation.
+- With an effective bridge it issues an exact frozen-submission
+  local_only/research/strict precheck and permits only strict_local coverage.
+- Contract errors, v2 fallback, query errors, incomplete coverage, response
+  mismatch, aborted precheck, and known-enabled capability-read failure stop
+  the action before its submit/continue API.
+- The backend applies a durable bridge preflight to sync run, async task
+  submit, task continuation, and run continuation. An effective bridge
+  rejects a request without binding intent before mandate validation, task
+  materialization, snapshots, research execution, or artifact binding.
+- If either operator kill switch is disabled, the legacy route remains
+  unchanged and does not open a capability-ledger session or require data:read.
+
+Commands and results
+--------------------
+1. Backend targeted regression (exit 0):
+   cwd: src/backend
+   /Users/yunjinqi/opt/anaconda3/bin/conda run --no-capture-output -n base python -m pytest -q tests/test_ai_strategy_research_service.py -k 'market_data_binding_factory or ai_research_sync_and_task_routes_reject_legacy_request_when_durable_bridge_effective or ai_research_task_continuation_rejects_legacy_snapshot_when_durable_bridge_effective or ai_research_run_continuation_rejects_legacy_request_when_durable_bridge_effective or task_snapshot_continuation_fails_closed_when_durable_binding_is_unavailable or ai_research_apis_report_durable_bridge_failure_before_sync_or_async_work' -p no:cacheprovider --tb=short
+   result: 9 passed, 207 deselected, 1 warning in 4.97s
+
+2. Full backend research-service regression (exit 0):
+   cwd: src/backend
+   /Users/yunjinqi/opt/anaconda3/bin/conda run --no-capture-output -n base python -m pytest -q tests/test_ai_strategy_research_service.py
+   result: 216 passed, 21 warnings in 374.00s
+
+3. Frontend component and type regression (exit 0):
+   cwd: src/frontend
+   temporary node_modules symlink to the Iteration 197 data-platform worktree,
+   removed on command exit
+   node_modules/.bin/vitest run src/__tests__/views/StrategyPage.test.ts
+   result: 158 passed
+   node_modules/.bin/vue-tsc --noEmit
+   result: exit 0
+
+4. Frontend production build (exit 0):
+   cwd: src/frontend
+   npm run build -- --outDir /tmp/iteration-197-strategy-strict-run-gate-final-build-verified
+   result: approval-error contract verified; Vite production build completed
+   in 28.36s. The temporary node_modules symlink was removed on exit.
+   Warnings: stale Browserslist database and existing chunk-size notices only.
+
+5. Static verification (exit 0):
+   cwd: src/backend
+   /Users/yunjinqi/opt/anaconda3/bin/conda run --no-capture-output -n base python -m ruff check app/api/strategy/base.py app/services/market_data/research_binding.py tests/test_ai_strategy_research_service.py
+   result: All checks passed.
+   cwd: repository root
+   git diff --check
+   result: exit 0
+
+Independent review
+------------------
+A separate full cross-stack review found no Critical or Important blocker. It
+confirmed the four shared backend entry paths and all three front-end action
+paths are guarded. It also confirmed the data:read authorization is not
+weakened and bridge-disabled legacy behavior is retained.
+
+Residual boundary
+-----------------
+A bridge transition from disabled to effective can linearize an already-started
+legacy request before the preflight observes the new durable state. Deployment
+must drain or fence requests around that transition. Under a stable effective
+bridge, the reviewed routes have no legacy no-intent bypass.
+
+No external provider, production-like database, real capability-ledger
+lifecycle, browser/API/database triad, deployment, or user data was accessed.

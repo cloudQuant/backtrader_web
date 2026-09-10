@@ -115,7 +115,40 @@ def get_ai_strategy_research_tasks() -> typing.Any:
 
 
 class _MarketDataResearchBindingRequestFactory:
-    """Build a request-scoped binding service only for a binding-intent request."""
+    """Evaluate the durable bridge before optionally issuing a request binding."""
+
+    async def require_binding_intent_if_enabled(
+        self,
+        *,
+        request: AIStrategyResearchRunRequest,
+    ) -> None:
+        """Reject a legacy request only when the durable bridge is effective.
+
+        The control-plane evaluation intentionally precedes any market-data
+        authorization.  A disabled bridge must leave legacy AI-research
+        callers alone, including callers without the separate ``data:read``
+        permission.  An effective bridge, conversely, cannot allow a request
+        to reach the research service, task manager, or artifact binder before
+        it declares the server-owned binding intent.
+        """
+        from app.config import get_settings
+        from app.db.database import async_session_maker
+        from app.services.market_data.research_binding import (
+            MarketDataResearchBindingError,
+            market_data_research_bridge_evaluation_required,
+            market_data_research_bridge_is_effective,
+        )
+
+        settings = get_settings()
+        if not market_data_research_bridge_evaluation_required(settings):
+            return
+        async with async_session_maker() as db:
+            bridge_effective = await market_data_research_bridge_is_effective(
+                db,
+                settings=settings,
+            )
+        if bridge_effective and not _request_has_market_data_research_binding_intent(request):
+            raise MarketDataResearchBindingError("MARKET_DATA_BINDING_REQUIRED")
 
     async def bind_request(
         self,
@@ -146,9 +179,10 @@ def get_ai_strategy_research_market_data_binding_service() -> typing.Any:
     """Return a factory whose request path reads durable capability evidence.
 
     Constructing this small object does not enable a feature or open a
-    database session.  A request with a market-data binding intent performs
-    authorization and ledger evaluation inside ``bind_request``; legacy
-    requests remain entirely off that path.
+    database session.  Each research request first performs a control-plane
+    bridge check; only an effective bridge requires a binding intent.  The
+    data-read authorization and artifact binding stay limited to requests
+    that carry that intent.
     """
     return _MarketDataResearchBindingRequestFactory()
 
@@ -175,12 +209,13 @@ def _market_data_research_request_preparer(
     trusted_auto_mandate_id: str | None = None,
     allow_server_continuation: bool = False,
 ) -> typing.Callable[[str, AIStrategyResearchRunRequest], typing.Any]:
-    """Return the fail-closed mandate validator and optional server-side binder.
+    """Return the bridge preflight, mandate validator, and server-side binder.
 
     The task manager invokes this hook before it creates observable task state
-    or writes a workspace snapshot.  Keeping mandate validation ahead of the
-    market-data binder also prevents a rejected request from materializing an
-    artifact or a ``MdResearchDataBinding`` record.
+    or writes a workspace snapshot.  The durable bridge preflight runs before
+    mandate validation, and mandate validation remains ahead of the binder;
+    together they prevent a rejected request from materializing task state,
+    an artifact, or a ``MdResearchDataBinding`` record.
     """
 
     async def prepare(
@@ -189,6 +224,13 @@ def _market_data_research_request_preparer(
     ) -> AIStrategyResearchRunRequest:
         if not allow_server_continuation:
             _reject_client_continuation_fields(request)
+        require_binding_intent = getattr(
+            binding_service,
+            "require_binding_intent_if_enabled",
+            None,
+        )
+        if callable(require_binding_intent):
+            await require_binding_intent(request=request)
         if trusted_auto_prompt is not None or trusted_auto_mandate_id is not None:
             request = await mandate_service.restore_auto_continuation_request(
                 user_id,

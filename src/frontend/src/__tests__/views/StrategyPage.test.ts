@@ -1032,6 +1032,15 @@ vi.mock('@/api/marketData', () => ({
 }))
 
 describe('StrategyPage', () => {
+  const strictBarsFamilyByAssetType: Record<string, string> = {
+    stock: 'stock.realtime',
+    futures: 'futures.realtime',
+    bond: 'bond.realtime',
+    fund: 'fund.realtime',
+    option: 'option.realtime',
+    fx: 'fx.realtime',
+    crypto: 'crypto.range',
+  }
   const marketDataCapabilities = (overrides: Record<string, boolean> = {}) => ({
     version: 'market-data-capabilities-v1' as const,
     query_v2_enabled: true,
@@ -1040,8 +1049,71 @@ describe('StrategyPage', () => {
     research_backtest_bridge_enabled: true,
     ...overrides,
   })
+
+  const installStrictLocalMarketData = (coverageStatus: 'complete' | 'incomplete' = 'complete') => {
+    getQueryContract.mockImplementation(({ asset_type, symbol, period }) => {
+      const frequency = period === 'weekly' ? '1w' : period === 'monthly' ? '1mo' : '1d'
+      return Promise.resolve({
+        version: 'market-data-v2',
+        request: {
+          identity: { canonical_id: `instrument:${asset_type}:test:${symbol}` },
+          dataset_code: `market.${asset_type}_${period}`,
+          data_kind: 'bars',
+          frequency,
+          required_fields: ['close', 'volume'],
+          source_policy_id: 'market-default-v1',
+          family_id: strictBarsFamilyByAssetType[asset_type],
+          family_contract_version: 'market-data-family-v1',
+          mode: 'local_first',
+        },
+      })
+    })
+    queryLocalFirst.mockImplementation((request: Record<string, any>) => {
+      const familyId = String(request.family_id || '')
+      const assetType = Object.entries(strictBarsFamilyByAssetType)
+        .find(([, family]) => family === familyId)?.[0] || 'stock'
+      return Promise.resolve({
+        query_id: `strict-${request.identity?.canonical_id || 'query'}`,
+        canonical_id: request.identity?.canonical_id,
+        dataset_code: request.dataset_code,
+        asset_type: assetType,
+        instrument_metadata_version: `${assetType}-v1`,
+        data_kind: request.data_kind,
+        frequency: request.frequency,
+        source_policy_id: request.source_policy_id,
+        family_id: familyId,
+        family_contract_version: request.family_contract_version,
+        knowledge_cutoff: '2026-06-19T16:00:00Z',
+        identity_knowledge_cutoff: '2026-06-19T16:00:00Z',
+        observations: [],
+        next_cursor: null,
+        coverage: {
+          status: coverageStatus,
+          expected_event_count: coverageStatus === 'complete' ? 1 : 2,
+          accepted_event_count: 1,
+          missing_event_count: coverageStatus === 'complete' ? 0 : 1,
+          coverage_ratio: coverageStatus === 'complete' ? 1 : 0.5,
+          gaps: [],
+          rejection_counts: {},
+          calendar_reason: null,
+        },
+        fetches: [],
+        warnings: [],
+        refresh_status: null,
+        historical_status: null,
+      })
+    })
+  }
+
+  const installCompleteStrictLocalMarketData = () => installStrictLocalMarketData()
+  const installIncompleteStrictLocalMarketData = () => installStrictLocalMarketData('incomplete')
+
   const enableMarketDataBridge = (overrides: Record<string, boolean> = {}) => {
-    getCapabilities.mockResolvedValue(marketDataCapabilities(overrides))
+    const capabilities = marketDataCapabilities(overrides)
+    getCapabilities.mockResolvedValue(capabilities)
+    if (capabilities.query_v2_enabled && capabilities.research_backtest_bridge_enabled) {
+      installCompleteStrictLocalMarketData()
+    }
   }
 
   beforeEach(() => {
@@ -1102,10 +1174,16 @@ describe('StrategyPage', () => {
   const trustedResearchWorkbenchStub = {
     template: '<section data-test="trusted-research-workbench-stub" />',
   }
+  const buttonWithDisabledStub = {
+    props: ['type', 'size', 'loading', 'nativeType', 'circle', 'disabled'],
+    emits: ['click'],
+    template: '<button class="el-button" :disabled="loading || disabled" :type="nativeType || \'button\'" @click="$emit(\'click\')"><slot /></button>',
+  }
   const doMount = () => mount(StrategyPage, {
     global: {
       stubs: {
         ...elStubs,
+        'el-button': buttonWithDisabledStub,
         'el-timeline': { template: '<ol class="el-timeline"><slot /></ol>' },
         'el-timeline-item': { template: '<li class="el-timeline-item"><slot /></li>' },
         TrustedResearchWorkbench: trustedResearchWorkbenchStub,
@@ -8542,6 +8620,7 @@ describe('StrategyPage', () => {
 
   it('keeps the full submitted request snapshot when capability resolution is delayed', async () => {
     const { strategyApi } = await import('@/api/strategy')
+    installCompleteStrictLocalMarketData()
     let resolvePageCapabilities: ((value: ReturnType<typeof marketDataCapabilities>) => void) | undefined
     let resolveSubmitCapabilities: ((value: ReturnType<typeof marketDataCapabilities>) => void) | undefined
     getCapabilities.mockImplementationOnce(
@@ -8559,6 +8638,8 @@ describe('StrategyPage', () => {
       vm.aiResearchForm.end_date = '2024-12-31'
       await setConfirmedAIResearchMandate(wrapper)
       vi.mocked(strategyApi.runAIResearchLoop).mockClear()
+      getQueryContract.mockClear()
+      queryLocalFirst.mockClear()
 
       const running = vm.runAIResearchLoop()
       await flushPromises()
@@ -8579,6 +8660,22 @@ describe('StrategyPage', () => {
       await flushPromises()
 
       expect(getCapabilities).toHaveBeenCalledTimes(2)
+      expect(getQueryContract).toHaveBeenCalledWith({
+        asset_type: 'stock',
+        symbol: '000001.SZ',
+        period: 'daily',
+        family_id: 'stock.realtime',
+      })
+      expect(queryLocalFirst).toHaveBeenCalledWith(expect.objectContaining({
+        identity: { canonical_id: 'instrument:stock:test:000001.SZ' },
+        dataset_code: 'market.stock_daily',
+        family_id: 'stock.realtime',
+        mode: 'local_only',
+        purpose: 'research',
+        consistency: 'strict',
+        start: '2024-01-01T00:00:00.000Z',
+        end: '2025-01-01T00:00:00.000Z',
+      }), expect.any(Object))
       expect(strategyApi.runAIResearchLoop).toHaveBeenCalledWith(expect.objectContaining({
         symbol: '000001.SZ',
         data_config: { market_data_asset_type: 'stock' },
@@ -8618,6 +8715,7 @@ describe('StrategyPage', () => {
 
   it('binds each concurrent submission to its own fresh capability response', async () => {
     const { strategyApi } = await import('@/api/strategy')
+    installCompleteStrictLocalMarketData()
     let resolveFirstSubmit: ((value: ReturnType<typeof marketDataCapabilities>) => void) | undefined
     let resolveSecondSubmit: ((value: ReturnType<typeof marketDataCapabilities>) => void) | undefined
     const wrapper = doMount()
@@ -9173,8 +9271,7 @@ describe('StrategyPage', () => {
   it.each([
     ['the server disables v2', { query_v2_enabled: false }, '000001.SZ'],
     ['the server disables the strategy bridge', { research_backtest_bridge_enabled: false }, '000001.SZ'],
-    ['the symbol cannot be classified', {}, 'UNKNOWN-SYMBOL'],
-  ])('omits Iteration 197 bridge intent when %s', async (
+  ])('preserves the existing run path without Iteration 197 bridge intent when %s', async (
     _description,
     overrides,
     symbol,
@@ -9192,7 +9289,34 @@ describe('StrategyPage', () => {
 
       await vm.runAIResearchLoop()
       const request = vi.mocked(strategyApi.runAIResearchLoop).mock.calls.at(-1)?.[0]
+      expect(request).toBeDefined()
       expect(request).not.toHaveProperty('data_config')
+    } finally {
+      wrapper.unmount()
+    }
+  })
+
+  it('blocks a bridge-enabled run when the symbol has no strict local data contract', async () => {
+    enableMarketDataBridge()
+    const wrapper = doMount()
+    try {
+      const vm = wrapper.vm as any
+      await flushPromises()
+      vm.aiResearchForm.symbol = 'UNKNOWN-SYMBOL'
+      vm.aiResearchForm.prompt = '未分类标的必须在前端阻断'
+      await setConfirmedAIResearchMandate(wrapper)
+      const { strategyApi } = await import('@/api/strategy')
+      vi.mocked(strategyApi.runAIResearchLoop).mockClear()
+      getQueryContract.mockClear()
+      queryLocalFirst.mockClear()
+
+      await vm.runAIResearchLoop()
+
+      expect(getQueryContract).not.toHaveBeenCalled()
+      expect(queryLocalFirst).not.toHaveBeenCalled()
+      expect(strategyApi.runAIResearchLoop).not.toHaveBeenCalled()
+      expect(vm.aiResearchStrictMarketDataRunBlocked).toBe(true)
+      expect(vm.aiResearchStrictMarketDataRunBlockReason).toContain('严格本地市场数据预检被阻断')
     } finally {
       wrapper.unmount()
     }
@@ -9868,6 +9992,450 @@ describe('StrategyPage', () => {
     }
   })
 
+  it('hard-blocks an AI research run when strict local market-data coverage is incomplete', async () => {
+    enableMarketDataBridge()
+    const { strategyApi } = await import('@/api/strategy')
+    getQueryContract.mockResolvedValue({
+      version: 'market-data-v2',
+      request: {
+        identity: { canonical_id: 'instrument:stock:CN-SZSE:000001' },
+        dataset_code: 'market.stock_daily',
+        data_kind: 'bars',
+        frequency: '1d',
+        required_fields: ['close', 'volume'],
+        source_policy_id: 'market-default-v1',
+        family_id: 'stock.realtime',
+        family_contract_version: 'market-data-family-v1',
+        mode: 'local_first',
+      },
+    })
+    queryLocalFirst.mockResolvedValue({
+      query_id: 'research-run-incomplete',
+      canonical_id: 'instrument:stock:CN-SZSE:000001',
+      dataset_code: 'market.stock_daily',
+      asset_type: 'stock',
+      instrument_metadata_version: 'stock-v1',
+      data_kind: 'bars',
+      frequency: '1d',
+      source_policy_id: 'market-default-v1',
+      family_id: 'stock.realtime',
+      family_contract_version: 'market-data-family-v1',
+      knowledge_cutoff: '2026-06-19T16:00:00Z',
+      identity_knowledge_cutoff: '2026-06-19T16:00:00Z',
+      observations: [],
+      next_cursor: null,
+      coverage: {
+        status: 'incomplete',
+        expected_event_count: 2,
+        accepted_event_count: 1,
+        missing_event_count: 1,
+        coverage_ratio: 0.5,
+        gaps: [],
+        rejection_counts: {},
+        calendar_reason: null,
+      },
+      fetches: [],
+      warnings: [],
+      refresh_status: null,
+      historical_status: null,
+    })
+    const wrapper = doMount()
+    try {
+      const vm = wrapper.vm as any
+      await flushPromises()
+      vm.aiResearchForm.prompt = '严格本地数据不完整时不允许发起投研'
+      await setConfirmedAIResearchMandate(wrapper)
+      ;(strategyApi as any).submitAIResearchTask = vi.fn()
+      ;(strategyApi as any).getAIResearchTask = vi.fn()
+      vi.mocked(strategyApi.runAIResearchLoop).mockClear()
+      getQueryContract.mockClear()
+      queryLocalFirst.mockClear()
+
+      await vm.runAIResearchLoop()
+      await flushPromises()
+
+      expect(queryLocalFirst).toHaveBeenCalledWith(expect.objectContaining({
+        mode: 'local_only',
+        purpose: 'research',
+        consistency: 'strict',
+      }), expect.any(Object))
+      expect(strategyApi.runAIResearchLoop).not.toHaveBeenCalled()
+      expect((strategyApi as any).submitAIResearchTask).not.toHaveBeenCalled()
+      expect(vm.aiResearchStrictMarketDataRunBlocked).toBe(true)
+      expect(vm.aiResearchStrictMarketDataRunBlockReason).toContain('严格本地市场数据')
+      expect(wrapper.find('[data-test="ai-research-strict-market-data-block"]').text()).toContain('严格本地市场数据')
+      expect(wrapper.find('[data-test="ai-research-run"]').attributes('disabled')).toBeDefined()
+    } finally {
+      delete (strategyApi as any).submitAIResearchTask
+      delete (strategyApi as any).getAIResearchTask
+      wrapper.unmount()
+    }
+  })
+
+  it.each([
+    ['is unavailable', () => getQueryContract.mockResolvedValue(null)],
+    ['returns a legacy fallback error', () => getQueryContract.mockRejectedValue({ response: { status: 404 } })],
+  ])('hard-blocks a classified new research run when its strict v2 contract %s', async (
+    _reason,
+    configureContract,
+  ) => {
+    enableMarketDataBridge()
+    const { strategyApi } = await import('@/api/strategy')
+    const wrapper = doMount()
+    try {
+      const vm = wrapper.vm as any
+      await flushPromises()
+      vm.aiResearchForm.symbol = '600000.SH'
+      vm.aiResearchForm.prompt = '分类标的必须持有严格本地数据契约'
+      vm.aiResearchForm.timeframe = '1d'
+      vm.aiResearchForm.start_date = '2024-01-01'
+      vm.aiResearchForm.end_date = '2024-12-31'
+      await setConfirmedAIResearchMandate(wrapper)
+      ;(strategyApi as any).submitAIResearchTask = vi.fn()
+      ;(strategyApi as any).getAIResearchTask = vi.fn()
+      vi.mocked(strategyApi.runAIResearchLoop).mockClear()
+      getQueryContract.mockClear()
+      queryLocalFirst.mockClear()
+      configureContract()
+
+      await vm.runAIResearchLoop()
+      await flushPromises()
+
+      expect(getQueryContract).toHaveBeenCalledWith({
+        asset_type: 'stock',
+        symbol: '600000.SH',
+        period: 'daily',
+        family_id: 'stock.realtime',
+      })
+      expect(queryLocalFirst).not.toHaveBeenCalled()
+      expect(strategyApi.runAIResearchLoop).not.toHaveBeenCalled()
+      expect((strategyApi as any).submitAIResearchTask).not.toHaveBeenCalled()
+      expect(vm.aiResearchStrictMarketDataRunBlocked).toBe(true)
+    } finally {
+      delete (strategyApi as any).submitAIResearchTask
+      delete (strategyApi as any).getAIResearchTask
+      wrapper.unmount()
+    }
+  })
+
+  it('blocks a new research run when a forced capability refresh fails after a prior enabled authorization', async () => {
+    installCompleteStrictLocalMarketData()
+    getCapabilities
+      .mockResolvedValueOnce(marketDataCapabilities())
+      .mockRejectedValueOnce(new Error('capability endpoint unavailable'))
+    const { strategyApi } = await import('@/api/strategy')
+    const wrapper = doMount()
+    try {
+      const vm = wrapper.vm as any
+      await flushPromises()
+      expect(vm.aiResearchMarketDataPlatformBridgeEnabled).toBe(true)
+      vm.aiResearchForm.prompt = '能力读取失败时不得静默降级执行'
+      await setConfirmedAIResearchMandate(wrapper)
+      ;(strategyApi as any).submitAIResearchTask = vi.fn()
+      ;(strategyApi as any).getAIResearchTask = vi.fn()
+      vi.mocked(strategyApi.runAIResearchLoop).mockClear()
+      getQueryContract.mockClear()
+      queryLocalFirst.mockClear()
+
+      await vm.runAIResearchLoop()
+      await flushPromises()
+
+      expect(getCapabilities).toHaveBeenCalledTimes(2)
+      expect(getQueryContract).not.toHaveBeenCalled()
+      expect(queryLocalFirst).not.toHaveBeenCalled()
+      expect(strategyApi.runAIResearchLoop).not.toHaveBeenCalled()
+      expect((strategyApi as any).submitAIResearchTask).not.toHaveBeenCalled()
+      expect(vm.aiResearchMarketDataPlatformStatus).toMatchObject({
+        path: 'error',
+        detail: 'MARKET_DATA_CAPABILITIES_UNAVAILABLE',
+      })
+      expect(vm.aiResearchStrictMarketDataRunBlocked).toBe(true)
+    } finally {
+      delete (strategyApi as any).submitAIResearchTask
+      delete (strategyApi as any).getAIResearchTask
+      wrapper.unmount()
+    }
+  })
+
+  it('keeps an earlier enabled action blocked when a later action disables the bridge before its refresh fails', async () => {
+    installCompleteStrictLocalMarketData()
+    let rejectFirstActionCapability: ((reason?: unknown) => void) | undefined
+    getCapabilities
+      .mockResolvedValueOnce(marketDataCapabilities())
+      .mockImplementationOnce(() => new Promise((_resolve, reject) => {
+        rejectFirstActionCapability = reject
+      }))
+      .mockResolvedValueOnce(marketDataCapabilities({ research_backtest_bridge_enabled: false }))
+    const { strategyApi } = await import('@/api/strategy')
+    const wrapper = doMount()
+    try {
+      const vm = wrapper.vm as any
+      await flushPromises()
+      vm.aiResearchForm.prompt = '并发能力刷新不得降级已知严格本地门槛'
+      await setConfirmedAIResearchMandate(wrapper)
+      vi.mocked(strategyApi.runAIResearchLoop).mockClear()
+      getQueryContract.mockClear()
+      queryLocalFirst.mockClear()
+
+      const earlierAction = vm.runAIResearchLoop()
+      await flushPromises()
+      const laterAction = vm.runAIResearchLoop()
+      await laterAction
+      expect(strategyApi.runAIResearchLoop).toHaveBeenCalledTimes(1)
+
+      rejectFirstActionCapability?.(new Error('earlier capability refresh failed'))
+      await earlierAction
+      await flushPromises()
+
+      expect(getCapabilities).toHaveBeenCalledTimes(3)
+      expect(strategyApi.runAIResearchLoop).toHaveBeenCalledTimes(1)
+      expect(vm.aiResearchMarketDataPlatformStatus).toMatchObject({
+        path: 'error',
+        detail: 'MARKET_DATA_CAPABILITIES_UNAVAILABLE',
+      })
+    } finally {
+      wrapper.unmount()
+    }
+  })
+
+  it('blocks a previously disabled action when a concurrent refresh establishes the strict gate before it fails', async () => {
+    installCompleteStrictLocalMarketData()
+    let rejectFirstActionCapability: ((reason?: unknown) => void) | undefined
+    getCapabilities
+      .mockResolvedValueOnce(marketDataCapabilities({
+        query_v2_enabled: false,
+        research_cache_fill_enabled: false,
+        research_backtest_bridge_enabled: false,
+      }))
+      .mockImplementationOnce(() => new Promise((_resolve, reject) => {
+        rejectFirstActionCapability = reject
+      }))
+      .mockResolvedValueOnce(marketDataCapabilities())
+    const { strategyApi } = await import('@/api/strategy')
+    const wrapper = doMount()
+    try {
+      const vm = wrapper.vm as any
+      await flushPromises()
+      expect(vm.aiResearchMarketDataPlatformBridgeEnabled).toBe(false)
+      vm.aiResearchForm.prompt = '并发能力建立严格本地门槛后失败请求不得执行'
+      await setConfirmedAIResearchMandate(wrapper)
+      ;(strategyApi as any).submitAIResearchTask = vi.fn()
+      ;(strategyApi as any).getAIResearchTask = vi.fn()
+      vi.mocked(strategyApi.runAIResearchLoop).mockClear()
+      getQueryContract.mockClear()
+      queryLocalFirst.mockClear()
+
+      const firstAction = vm.runAIResearchLoop()
+      await flushPromises()
+      const concurrentCapabilityRefresh = vm.warmAIResearchLocalCache()
+      await concurrentCapabilityRefresh
+      await flushPromises()
+
+      expect(vm.aiResearchMarketDataPlatformBridgeEnabled).toBe(true)
+      expect(strategyApi.runAIResearchLoop).not.toHaveBeenCalled()
+      expect((strategyApi as any).submitAIResearchTask).not.toHaveBeenCalled()
+
+      rejectFirstActionCapability?.(new Error('first capability refresh failed'))
+      await firstAction
+      await flushPromises()
+
+      expect(getCapabilities).toHaveBeenCalledTimes(3)
+      expect(strategyApi.runAIResearchLoop).not.toHaveBeenCalled()
+      expect((strategyApi as any).submitAIResearchTask).not.toHaveBeenCalled()
+      expect(vm.aiResearchMarketDataPlatformStatus).toMatchObject({
+        path: 'error',
+        detail: 'MARKET_DATA_CAPABILITIES_UNAVAILABLE',
+      })
+      expect(vm.aiResearchStrictMarketDataRunBlocked).toBe(true)
+    } finally {
+      delete (strategyApi as any).submitAIResearchTask
+      delete (strategyApi as any).getAIResearchTask
+      wrapper.unmount()
+    }
+  })
+
+  it('strictly re-reads frozen local data before a run-record continuation executes', async () => {
+    enableMarketDataBridge()
+    const { strategyApi } = await import('@/api/strategy')
+    const baseResult = await strategyApi.runAIResearchLoop({ prompt: 'seed', symbol: '600000.SH' })
+    const record = {
+      ...baseResult.run_record,
+      run_id: 'strict-local-record-success',
+      prompt: '严格本地数据通过后才能继续投研',
+      symbol: '600000.SH',
+      symbol_name: '浦发银行',
+      timeframe: '1d',
+      timeframe_n: 1,
+      start_date: '2024-01-01',
+      end_date: '2024-12-31',
+      status: 'backtest_submission_failed',
+      achieved: false,
+      best_strategy_id: 's1',
+      research_workspace_id: 'research-ws',
+    }
+    const wrapper = doMount()
+    try {
+      const vm = wrapper.vm as any
+      await flushPromises()
+      vm.useAIResearchRecord(record)
+      await setConfirmedAIResearchMandate(wrapper)
+      ;(strategyApi as any).continueAIResearchRun = vi.fn().mockResolvedValue({
+        task_id: 'strict-local-record-success-task',
+        status: 'completed',
+        submitted_at: '2026-09-11T00:00:00Z',
+        current_stage: 'completed',
+        progress: 100,
+        max_iterations: 3,
+        message: 'completed',
+        result: baseResult,
+      })
+      getQueryContract.mockClear()
+      queryLocalFirst.mockClear()
+
+      await vm.continueResearchFromRecord(record)
+      await flushPromises()
+
+      expect(getQueryContract).toHaveBeenCalledWith({
+        asset_type: 'stock',
+        symbol: '600000.SH',
+        period: 'daily',
+        family_id: 'stock.realtime',
+      })
+      expect(queryLocalFirst).toHaveBeenCalledWith(expect.objectContaining({
+        identity: { canonical_id: 'instrument:stock:test:600000.SH' },
+        family_id: 'stock.realtime',
+        mode: 'local_only',
+        purpose: 'research',
+        consistency: 'strict',
+        start: '2024-01-01T00:00:00.000Z',
+        end: '2025-01-01T00:00:00.000Z',
+      }), expect.any(Object))
+      expect((strategyApi as any).continueAIResearchRun).toHaveBeenCalledWith(
+        'strict-local-record-success',
+        expect.objectContaining({
+          overrides: expect.objectContaining({ symbol: '600000.SH' }),
+        }),
+        'research-ws',
+      )
+    } finally {
+      delete (strategyApi as any).continueAIResearchRun
+      wrapper.unmount()
+    }
+  })
+
+  it('hard-blocks a run-record continuation when strict local coverage is incomplete', async () => {
+    enableMarketDataBridge()
+    installIncompleteStrictLocalMarketData()
+    const { strategyApi } = await import('@/api/strategy')
+    const baseResult = await strategyApi.runAIResearchLoop({ prompt: 'seed', symbol: '600000.SH' })
+    const record = {
+      ...baseResult.run_record,
+      run_id: 'strict-local-record-incomplete',
+      prompt: '继续投研前本地数据必须完整',
+      symbol: '600000.SH',
+      symbol_name: '浦发银行',
+      timeframe: '1d',
+      timeframe_n: 1,
+      start_date: '2024-01-01',
+      end_date: '2024-12-31',
+      status: 'backtest_submission_failed',
+      achieved: false,
+      best_strategy_id: 's1',
+      research_workspace_id: 'research-ws',
+    }
+    const wrapper = doMount()
+    try {
+      const vm = wrapper.vm as any
+      await flushPromises()
+      vm.useAIResearchRecord(record)
+      await setConfirmedAIResearchMandate(wrapper)
+      ;(strategyApi as any).continueAIResearchRun = vi.fn()
+      getQueryContract.mockClear()
+      queryLocalFirst.mockClear()
+
+      await vm.continueResearchFromRecord(record)
+      await flushPromises()
+
+      expect(queryLocalFirst).toHaveBeenCalledWith(expect.objectContaining({
+        mode: 'local_only',
+        purpose: 'research',
+        consistency: 'strict',
+      }), expect.any(Object))
+      expect((strategyApi as any).continueAIResearchRun).not.toHaveBeenCalled()
+      expect(vm.aiResearchStrictMarketDataRunBlocked).toBe(true)
+    } finally {
+      delete (strategyApi as any).continueAIResearchRun
+      wrapper.unmount()
+    }
+  })
+
+  it('hard-blocks a task continuation when strict local coverage is incomplete', async () => {
+    enableMarketDataBridge()
+    installIncompleteStrictLocalMarketData()
+    const { strategyApi } = await import('@/api/strategy')
+    const wrapper = doMount()
+    try {
+      const vm = wrapper.vm as any
+      await flushPromises()
+      const sourceTask = {
+        task_id: 'strict-local-task-incomplete',
+        status: 'failed',
+        submitted_at: '2026-09-11T00:00:00Z',
+        mandate_id: 'test-mandate',
+        request_snapshot: {
+          prompt: '任务继续前本地数据必须完整',
+          workflow_mode: 'prompt',
+          symbol: '600000.SH',
+          symbol_name: '浦发银行',
+          timeframe: '1d',
+          timeframe_n: 1,
+          start_date: '2024-01-01',
+          end_date: '2024-12-31',
+          target_sharpe: 1,
+          min_total_trades: 1,
+          max_iterations: 3,
+          market_data_asset_type: 'stock',
+          mandate_id: 'test-mandate',
+        },
+        request_explicit_fields: [
+          'prompt',
+          'symbol',
+          'symbol_name',
+          'timeframe',
+          'start_date',
+          'end_date',
+        ],
+        request_explicit_fields_persisted: true,
+        current_stage: 'failed',
+        progress: 50,
+        iteration_count: 1,
+        max_iterations: 3,
+        message: 'failed',
+      }
+      vm.applyAIResearchTaskStatus(sourceTask)
+      vm.applyAIResearchTaskSnapshotToForm(sourceTask)
+      await setConfirmedAIResearchMandate(wrapper)
+      vm.applyAIResearchTaskSnapshotToForm(sourceTask)
+      ;(strategyApi as any).continueAIResearchTask = vi.fn()
+      getQueryContract.mockClear()
+      queryLocalFirst.mockClear()
+
+      await vm.continueAIResearchFromTaskSnapshot()
+      await flushPromises()
+
+      expect(queryLocalFirst).toHaveBeenCalledWith(expect.objectContaining({
+        mode: 'local_only',
+        purpose: 'research',
+        consistency: 'strict',
+      }), expect.any(Object))
+      expect((strategyApi as any).continueAIResearchTask).not.toHaveBeenCalled()
+      expect(vm.aiResearchStrictMarketDataRunBlocked).toBe(true)
+    } finally {
+      delete (strategyApi as any).continueAIResearchTask
+      wrapper.unmount()
+    }
+  })
+
   it('keeps a v2 execution failure after contract issuance out of the legacy fallback path', async () => {
     enableMarketDataBridge()
     getQueryContract.mockResolvedValue({
@@ -9900,6 +10468,64 @@ describe('StrategyPage', () => {
         detail: 'MARKET_DATA_QUERY_V2_PRECHECK_FAILED',
       })
     } finally {
+      wrapper.unmount()
+    }
+  })
+
+  it('hard-blocks a new research action when its strict local query fails after contract issuance', async () => {
+    installCompleteStrictLocalMarketData()
+    getCapabilities
+      .mockResolvedValueOnce(marketDataCapabilities({
+        query_v2_enabled: false,
+        research_cache_fill_enabled: false,
+        research_backtest_bridge_enabled: false,
+      }))
+      .mockResolvedValueOnce(marketDataCapabilities())
+    queryLocalFirst.mockRejectedValue({ response: { status: 404 } })
+    const { strategyApi } = await import('@/api/strategy')
+    const wrapper = doMount()
+    try {
+      const vm = wrapper.vm as any
+      await flushPromises()
+      vm.aiResearchForm.symbol = '600000.SH'
+      vm.aiResearchForm.prompt = '严格本地查询失败后不得提交投研任务'
+      vm.aiResearchForm.timeframe = '1d'
+      vm.aiResearchForm.start_date = '2024-01-01'
+      vm.aiResearchForm.end_date = '2024-12-31'
+      await setConfirmedAIResearchMandate(wrapper)
+      ;(strategyApi as any).submitAIResearchTask = vi.fn()
+      ;(strategyApi as any).getAIResearchTask = vi.fn()
+      vi.mocked(strategyApi.runAIResearchLoop).mockClear()
+      getQueryContract.mockClear()
+      queryLocalFirst.mockClear()
+      queryLocalFirst.mockRejectedValue({ response: { status: 404 } })
+
+      await vm.runAIResearchLoop()
+      await flushPromises()
+
+      expect(getCapabilities).toHaveBeenCalledTimes(2)
+      expect(getQueryContract).toHaveBeenCalledWith({
+        asset_type: 'stock',
+        symbol: '600000.SH',
+        period: 'daily',
+        family_id: 'stock.realtime',
+      })
+      expect(queryLocalFirst).toHaveBeenCalledWith(expect.objectContaining({
+        identity: { canonical_id: 'instrument:stock:test:600000.SH' },
+        mode: 'local_only',
+        purpose: 'research',
+        consistency: 'strict',
+      }), expect.any(Object))
+      expect(strategyApi.runAIResearchLoop).not.toHaveBeenCalled()
+      expect((strategyApi as any).submitAIResearchTask).not.toHaveBeenCalled()
+      expect(vm.aiResearchMarketDataPlatformStatus).toMatchObject({
+        path: 'error',
+        detail: 'MARKET_DATA_QUERY_V2_PRECHECK_FAILED',
+      })
+      expect(vm.aiResearchStrictMarketDataRunBlocked).toBe(true)
+    } finally {
+      delete (strategyApi as any).submitAIResearchTask
+      delete (strategyApi as any).getAIResearchTask
       wrapper.unmount()
     }
   })

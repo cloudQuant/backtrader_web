@@ -1194,6 +1194,68 @@ class MarketDataResearchBindingService:
         )
 
 
+def market_data_research_bridge_evaluation_required(settings: object) -> bool:
+    """Return whether operator kill switches permit a durable bridge evaluation.
+
+    This predicate is intentionally only a narrowing control.  ``True`` does
+    not enable a bridge; callers must still evaluate the durable lifecycle
+    ledger before imposing a binding requirement.
+    """
+    return bool(getattr(settings, "MARKET_DATA_QUERY_V2_ENABLED", False)) and bool(
+        getattr(settings, "MARKET_DATA_RESEARCH_BACKTEST_BRIDGE_ENABLED", False)
+    )
+
+
+async def market_data_research_bridge_is_effective(
+    db: AsyncSession,
+    *,
+    settings: object | None = None,
+) -> bool:
+    """Return the current durable decision that makes a research binding mandatory.
+
+    This control-plane read deliberately happens before the request enters the
+    research binding service.  It does not authorize ``data:read``: disabled
+    deployments must preserve their legacy research path for users who only
+    have the ordinary research permission.  When the ledger cannot be read,
+    though, treating that unknown state as a disabled bridge would create a
+    fail-open path around an already-deployed strict binding requirement.
+    """
+    from app.api.data.queries import evaluate_market_data_capabilities
+    from app.config import get_settings
+
+    if not isinstance(db, AsyncSession):
+        raise TypeError("db must be an AsyncSession")
+    effective_settings = get_settings() if settings is None else settings
+    # Settings are only an operator kill switch here.  A disabled switch can
+    # preserve the legacy route without consulting a temporarily unavailable
+    # ledger, but an enabled switch never grants the bridge by itself: the
+    # durable evaluator below must still attest both capabilities.
+    if not market_data_research_bridge_evaluation_required(effective_settings):
+        return False
+    try:
+        capabilities = await evaluate_market_data_capabilities(db, settings=effective_settings)
+    except SQLAlchemyError as exc:
+        try:
+            await db.rollback()
+        except SQLAlchemyError:
+            pass
+        raise MarketDataResearchBindingError(
+            "MARKET_DATA_BINDING_CAPABILITY_CONTEXT_UNAVAILABLE"
+        ) from exc
+
+    if any(
+        getattr(state, "reason_code", None) == "CAPABILITY_LEDGER_UNAVAILABLE"
+        for state in capabilities.response.capability_states
+    ):
+        raise MarketDataResearchBindingError(
+            "MARKET_DATA_BINDING_CAPABILITY_CONTEXT_UNAVAILABLE"
+        )
+    return bool(
+        capabilities.response.query_v2_enabled
+        and capabilities.response.research_backtest_bridge_enabled
+    )
+
+
 async def build_market_data_research_binding_service(
     db: AsyncSession,
     *,

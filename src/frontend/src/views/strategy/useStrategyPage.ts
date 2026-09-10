@@ -588,6 +588,42 @@ export function useStrategyPage() {
     return '原数据预检'
   })
 
+  function aiResearchStrictMarketDataRunBlockReasonForStatus(
+    status: AIResearchMarketDataPlatformStatus,
+  ): string {
+    if (status.path === 'strict_local') return ''
+    if (status.path === 'legacy') {
+      return '严格本地市场数据预检尚未完成，无法运行 AI 策略'
+    }
+    if (status.path === 'unsupported') {
+      return `严格本地市场数据预检被阻断：${status.detail || '当前标的尚无数据中台契约'}`
+    }
+    if (status.path === 'legacy_fallback') {
+      return '严格本地市场数据预检不可用，无法运行 AI 策略'
+    }
+    if (status.detail === 'MARKET_DATA_STRICT_LOCAL_INCOMPLETE') {
+      const coverage = status.coverageRatio === null
+        ? ''
+        : `（覆盖率 ${(status.coverageRatio * 100).toFixed(2)}%）`
+      return `严格本地市场数据覆盖不完整${coverage}，无法运行 AI 策略`
+    }
+    return `严格本地市场数据预检被阻断：${status.detail || '预检未通过'}`
+  }
+
+  const aiResearchStrictMarketDataRunBlockReason = computed(() => {
+    if (!aiResearchMarketDataPlatformBridgeEnabled.value) return ''
+    if (aiResearchPrecheckLoading.value) {
+      return '严格本地市场数据预检正在进行，请等待预检完成后再运行'
+    }
+    return aiResearchStrictMarketDataRunBlockReasonForStatus(
+      aiResearchMarketDataPlatformStatus.value,
+    )
+  })
+
+  const aiResearchStrictMarketDataRunBlocked = computed(() => (
+    aiResearchStrictMarketDataRunBlockReason.value.length > 0
+  ))
+
   // ---- Computed ----
   const strategies = computed(() => strategyStore.strategies)
   const templates = computed(() => strategyStore.templates)
@@ -1396,8 +1432,8 @@ export function useStrategyPage() {
 
   function setAIResearchMarketDataPlatformStatus(
     status: Partial<AIResearchMarketDataPlatformStatus> & Pick<AIResearchMarketDataPlatformStatus, 'path'>,
-  ) {
-    aiResearchMarketDataPlatformStatus.value = {
+  ): AIResearchMarketDataPlatformStatus {
+    const nextStatus: AIResearchMarketDataPlatformStatus = {
       provider: null,
       coverageStatus: null,
       coverageRatio: null,
@@ -1405,6 +1441,8 @@ export function useStrategyPage() {
       detail: null,
       ...status,
     }
+    aiResearchMarketDataPlatformStatus.value = nextStatus
+    return nextStatus
   }
 
   /**
@@ -1412,8 +1450,11 @@ export function useStrategyPage() {
    * prechecks may use the most recently resolved value, while any action that
    * submits or continues research forces a fresh authorization decision.
    *
-   * An absent, malformed, or failed response deliberately remains null, which
-   * keeps the Iteration 196 path active instead of trusting browser flags.
+   * An absent, malformed, or failed response remains null. A client that has
+   * never received an enabled server capability can keep the Iteration 196
+   * path active; a submit-time caller that has already received an enabled
+   * capability treats that null as an unavailable strict-data authorization
+   * and blocks rather than silently downgrading its known gate.
    */
   async function resolveAIResearchMarketDataCapabilities(
     { forceRefresh = false }: { forceRefresh?: boolean } = {},
@@ -1433,7 +1474,12 @@ export function useStrategyPage() {
         // A forced submit-time read can supersede a still-pending page-load
         // request. Do not let that older response restore stale authority.
         if (requestGeneration === aiResearchMarketDataCapabilitiesRequestGeneration) {
-          aiResearchMarketDataCapabilities.value = capabilities
+          // Do not erase a previously authenticated enabled capability on a
+          // transport or schema failure. It remains a safety constraint for
+          // submit-time callers, but cannot itself authorize a new request.
+          if (capabilities) {
+            aiResearchMarketDataCapabilities.value = capabilities
+          }
           aiResearchMarketDataCapabilitiesResolved = true
         }
         return capabilities
@@ -1520,32 +1566,40 @@ export function useStrategyPage() {
     {
       fillLocalCache = false,
       forceStrictLocalReread = false,
+      capabilities: preResolvedCapabilities,
     }: {
       fillLocalCache?: boolean
       forceStrictLocalReread?: boolean
+      capabilities?: MarketDataCapabilitiesResponse | null
     } = {},
-  ): Promise<void> {
-    const capabilities = await resolveAIResearchMarketDataCapabilities()
-    if (controller.signal.aborted) return
+  ): Promise<AIResearchMarketDataPlatformStatus | null> {
+    const capabilities = preResolvedCapabilities === undefined
+      ? await resolveAIResearchMarketDataCapabilities()
+      : preResolvedCapabilities
+    if (controller.signal.aborted) return null
     if (
       fillLocalCache
         ? !isAIResearchMarketDataCacheFillEnabled(capabilities)
         : !forceStrictLocalReread
           && !isAIResearchMarketDataPlatformBridgeEnabled(capabilities)
-    ) return
+    ) return null
 
     const { assetType, symbol, period, window } = snapshot
     if (!assetType || !period || !window) {
-      setAIResearchMarketDataPlatformStatus({ path: 'unsupported', detail: 'TYPED_QUERY_CONTRACT_UNAVAILABLE' })
-      return
+      return setAIResearchMarketDataPlatformStatus({
+        path: 'unsupported',
+        detail: 'TYPED_QUERY_CONTRACT_UNAVAILABLE',
+      })
     }
     let contractIssued = false
     try {
       const contract = await resolveAIResearchMarketDataContract(assetType, symbol, period)
-      if (controller.signal.aborted) return
+      if (controller.signal.aborted) return null
       if (!contract) {
-        setAIResearchMarketDataPlatformStatus({ path: 'unsupported', detail: 'TYPED_QUERY_CONTRACT_UNAVAILABLE' })
-        return
+        return setAIResearchMarketDataPlatformStatus({
+          path: 'unsupported',
+          detail: 'TYPED_QUERY_CONTRACT_UNAVAILABLE',
+        })
       }
       contractIssued = true
       // Both scheduled and interactive prechecks are deliberately strict-local
@@ -1575,27 +1629,25 @@ export function useStrategyPage() {
         }),
         { signal: controller.signal, suppressErrorMessage: true },
       )
-      if (controller.signal.aborted) return
+      if (controller.signal.aborted) return null
       if (!isAIResearchMarketDataResponseCompatible(response, contract, assetType, period)) {
-        setAIResearchMarketDataPlatformStatus({
+        return setAIResearchMarketDataPlatformStatus({
           path: 'error',
           queryId: typeof response.query_id === 'string' ? response.query_id : null,
           detail: 'MARKET_DATA_STRICT_LOCAL_RESPONSE_MISMATCH',
         })
-        return
       }
       if (response.coverage.status !== 'complete') {
-        setAIResearchMarketDataPlatformStatus({
+        return setAIResearchMarketDataPlatformStatus({
           path: 'error',
           coverageStatus: response.coverage.status,
           coverageRatio: response.coverage.coverage_ratio,
           queryId: response.query_id,
           detail: 'MARKET_DATA_STRICT_LOCAL_INCOMPLETE',
         })
-        return
       }
       const lastFetch = response.fetches[response.fetches.length - 1]
-      setAIResearchMarketDataPlatformStatus({
+      return setAIResearchMarketDataPlatformStatus({
         path: fillLocalCache
           ? response.fetches.length > 0
             ? 'provider_persisted'
@@ -1607,16 +1659,23 @@ export function useStrategyPage() {
         queryId: response.query_id,
       })
     } catch (error) {
-      if (controller.signal.aborted) return
+      if (controller.signal.aborted) return null
       if (!contractIssued && isAIResearchMarketDataFamilyUnconfiguredError(error)) {
-        setAIResearchMarketDataPlatformStatus({ path: 'unsupported', detail: 'DATA_FAMILY_UNCONFIGURED' })
-        return
+        return setAIResearchMarketDataPlatformStatus({
+          path: 'unsupported',
+          detail: 'DATA_FAMILY_UNCONFIGURED',
+        })
       }
       if (!contractIssued && isMarketDataQueryV2FallbackError(error)) {
-        setAIResearchMarketDataPlatformStatus({ path: 'legacy_fallback', detail: 'MARKET_DATA_QUERY_V2_UNAVAILABLE' })
-        return
+        return setAIResearchMarketDataPlatformStatus({
+          path: 'legacy_fallback',
+          detail: 'MARKET_DATA_QUERY_V2_UNAVAILABLE',
+        })
       }
-      setAIResearchMarketDataPlatformStatus({ path: 'error', detail: 'MARKET_DATA_QUERY_V2_PRECHECK_FAILED' })
+      return setAIResearchMarketDataPlatformStatus({
+        path: 'error',
+        detail: 'MARKET_DATA_QUERY_V2_PRECHECK_FAILED',
+      })
     }
   }
 
@@ -2041,6 +2100,106 @@ export function useStrategyPage() {
   interface AIResearchPreparedSubmission {
     input: AIResearchRunnableInput
     submission: AIResearchSubmissionSnapshot
+  }
+
+  function aiResearchMarketDataPrecheckSnapshotFromSubmission(
+    submission: AIResearchSubmissionSnapshot,
+  ): AIResearchMarketDataPrecheckSnapshot {
+    const { request } = submission
+    const startDate = request.start_date || null
+    const endDate = request.end_date || null
+    const start = parseResearchDate(startDate || '')
+    const endInclusive = parseResearchDate(endDate || '')
+    let window: { start: string; end: string } | null = null
+    if (start && endInclusive && start <= endInclusive) {
+      endInclusive.setUTCDate(endInclusive.getUTCDate() + 1)
+      window = { start: start.toISOString(), end: endInclusive.toISOString() }
+    }
+    const timeframe = request.timeframe || ''
+    const period = timeframe === '1d'
+      ? 'daily'
+      : timeframe === '1w'
+        ? 'weekly'
+        : timeframe === '1mo'
+          ? 'monthly'
+          : null
+    return {
+      symbol: request.symbol.trim(),
+      assetType: submission.marketDataAssetType,
+      timeframe,
+      startDate,
+      endDate,
+      period,
+      window,
+    }
+  }
+
+  async function resolveAIResearchMarketDataCapabilitiesForAction(): Promise<{
+    capabilities: MarketDataCapabilitiesResponse | null
+    lastKnownBridgeEnabled: boolean
+  }> {
+    // Capture this before the forced refresh. Concurrent actions are allowed
+    // to receive newer rollout decisions, but a later disable response must
+    // never turn this action's already-known enabled gate into a legacy
+    // submission after its own refresh fails.
+    const lastKnownBridgeEnabled = isAIResearchMarketDataPlatformBridgeEnabled(
+      aiResearchMarketDataCapabilities.value,
+    )
+    const capabilities = await resolveAIResearchMarketDataCapabilities({ forceRefresh: true })
+    return {
+      capabilities,
+      // A parallel response may establish an enabled bridge while this
+      // action's forced refresh is in flight. If this refresh cannot produce
+      // a valid decision, conservatively preserve that newly known gate too.
+      // A valid disabled decision remains authoritative for this action.
+      lastKnownBridgeEnabled: capabilities === null && (
+        lastKnownBridgeEnabled
+        || isAIResearchMarketDataPlatformBridgeEnabled(
+          aiResearchMarketDataCapabilities.value,
+        )
+      ),
+    }
+  }
+
+  async function ensureAIResearchStrictLocalMarketDataReady(
+    submission: AIResearchSubmissionSnapshot,
+    capabilities: MarketDataCapabilitiesResponse | null,
+    lastKnownBridgeEnabled: boolean,
+  ): Promise<boolean> {
+    if (!capabilities && lastKnownBridgeEnabled) {
+      const reason = aiResearchStrictMarketDataRunBlockReasonForStatus(
+        setAIResearchMarketDataPlatformStatus({
+          path: 'error',
+          detail: 'MARKET_DATA_CAPABILITIES_UNAVAILABLE',
+        }),
+      )
+      aiResearchTaskError.value = reason
+      ElMessage.warning(reason)
+      return false
+    }
+    if (!isAIResearchMarketDataPlatformBridgeEnabled(capabilities)) return true
+
+    const status = await runAIResearchMarketDataPlatformPrecheck(
+      aiResearchMarketDataPrecheckSnapshotFromSubmission(submission),
+      new AbortController(),
+      {
+        forceStrictLocalReread: true,
+        capabilities,
+      },
+    )
+    if (status?.path === 'strict_local') return true
+
+    const reason = aiResearchStrictMarketDataRunBlockReasonForStatus(status ?? {
+      path: 'error',
+      provider: null,
+      coverageStatus: null,
+      coverageRatio: null,
+      queryId: null,
+      detail: 'MARKET_DATA_STRICT_LOCAL_PRECHECK_UNAVAILABLE',
+    })
+    aiResearchTaskError.value = reason
+    ElMessage.warning(reason)
+    return false
   }
 
   function aiResearchMandateQualityGatesFromForm(): Record<string, unknown> {
@@ -7068,10 +7227,15 @@ export function useStrategyPage() {
       ...submission.request,
       mandate_id: mandate.id,
     }
-    const capabilities = await resolveAIResearchMarketDataCapabilities({ forceRefresh: true })
+    const capabilityDecision = await resolveAIResearchMarketDataCapabilitiesForAction()
+    if (!await ensureAIResearchStrictLocalMarketDataReady(
+      submission,
+      capabilityDecision.capabilities,
+      capabilityDecision.lastKnownBridgeEnabled,
+    )) return
     request = applyAIResearchMarketDataBridgeIntent(
       request,
-      capabilities,
+      capabilityDecision.capabilities,
       submission.marketDataAssetType,
     )
 
@@ -7253,10 +7417,15 @@ export function useStrategyPage() {
       ...submission.request,
       mandate_id: mandate.id,
     }
-    const capabilities = await resolveAIResearchMarketDataCapabilities({ forceRefresh: true })
+    const capabilityDecision = await resolveAIResearchMarketDataCapabilitiesForAction()
+    if (!await ensureAIResearchStrictLocalMarketDataReady(
+      submission,
+      capabilityDecision.capabilities,
+      capabilityDecision.lastKnownBridgeEnabled,
+    )) return
     request = applyAIResearchMarketDataBridgeIntent(
       request,
-      capabilities,
+      capabilityDecision.capabilities,
       submission.marketDataAssetType,
     )
 
@@ -7331,10 +7500,15 @@ export function useStrategyPage() {
       ...submission.request,
       mandate_id: mandate.id,
     }
-    const capabilities = await resolveAIResearchMarketDataCapabilities({ forceRefresh: true })
+    const capabilityDecision = await resolveAIResearchMarketDataCapabilitiesForAction()
+    if (!await ensureAIResearchStrictLocalMarketDataReady(
+      submission,
+      capabilityDecision.capabilities,
+      capabilityDecision.lastKnownBridgeEnabled,
+    )) return
     request = applyAIResearchMarketDataBridgeIntent(
       request,
-      capabilities,
+      capabilityDecision.capabilities,
       submission.marketDataAssetType,
     )
 
@@ -7623,6 +7797,8 @@ export function useStrategyPage() {
     aiResearchMarketDataPlatformStatus,
     aiResearchMarketDataPlatformBridgeEnabled,
     aiResearchMarketDataCacheFillEnabled,
+    aiResearchStrictMarketDataRunBlocked,
+    aiResearchStrictMarketDataRunBlockReason,
     AI_RESEARCH_STAGE_LABELS,
     AI_RESEARCH_RUN_STATUS_LABELS,
     AI_RESEARCH_PAPER_REVIEW_STATUS_LABELS,
