@@ -71,12 +71,37 @@ def test_request_fingerprint_covers_route_and_every_outbound_dto_dimension() -> 
     assert replace(
         request, required_fields=frozenset({"close"})
     ).provider_request_fingerprint_sha256 != (request.provider_request_fingerprint_sha256)
+    kline = replace(
+        request,
+        family_id="stock.kline_legacy",
+        family_contract_version="market-data-kline-v1",
+    )
+    assert kline.provider_request_fingerprint_sha256 != request.provider_request_fingerprint_sha256
+    assert kline.dto_payload["family_id"] == "stock.kline_legacy"
+    assert kline.dto_payload["family_contract_version"] == "market-data-kline-v1"
     assert replace(
-        request, family_id="stock.realtime"
-    ).provider_request_fingerprint_sha256 != (request.provider_request_fingerprint_sha256)
+        kline,
+        family_id="stock.realtime",
+        family_contract_version="market-data-family-v1",
+    ).provider_request_fingerprint_sha256 != kline.provider_request_fingerprint_sha256
     assert replace(
         request, provider_endpoint="equity.price.historical"
     ).provider_request_fingerprint_sha256 != (request.provider_request_fingerprint_sha256)
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"family_id": "stock.kline_legacy"},
+        {"family_contract_version": "market-data-kline-v1"},
+    ],
+)
+def test_provider_request_requires_an_atomic_family_contract_pair(
+    changes: dict[str, str],
+) -> None:
+    """A route cannot retain a family while silently dropping its contract revision."""
+    with pytest.raises(ValueError, match="family_id and family_contract_version"):
+        _request(**changes)
 
 
 @pytest.mark.parametrize(

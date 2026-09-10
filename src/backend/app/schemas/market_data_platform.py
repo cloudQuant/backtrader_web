@@ -37,7 +37,7 @@ MarketDataPurpose = Literal[
     "export",
 ]
 MarketDataFamilyStatus = Literal["ready", "unconfigured", "not_applicable"]
-MarketDataFamilyContractVersion = Literal["market-data-family-v1"]
+MarketDataFamilyContractVersion = Literal["market-data-family-v1", "market-data-kline-v1"]
 MarketDataFrequencySemantics = Literal["calendar_grid", "snapshot", "reporting_period"]
 MarketDataCoverageModel = Literal[
     "calendar_grid",

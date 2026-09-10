@@ -298,6 +298,7 @@ def route_capability_descriptor_sha256(route: MarketDataProviderRoute) -> str:
             "currencies": _axis_payload(route.currencies),
             "units": _axis_payload(route.units),
             "family_id": route.family_id,
+            "family_contract_version": route.family_contract_version,
             "provider_endpoint": route.provider_endpoint,
             "product_types": sorted(route.product_types)
             if route.product_types is not None

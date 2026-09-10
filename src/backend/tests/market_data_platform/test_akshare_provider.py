@@ -6,6 +6,7 @@ import asyncio
 import hashlib
 import json
 import time
+from dataclasses import replace
 from datetime import date, datetime, timezone
 from typing import Any
 
@@ -19,9 +20,42 @@ from app.services.market_data.akshare_provider import (
     AkShareProviderError,
     get_akshare_snapshot_row_schema,
 )
+from app.services.market_data.dataset_contracts import (
+    DEFAULT_DATASET_CONTRACT_REGISTRY,
+    FAMILY_CONTRACT_VERSION,
+)
 from app.services.market_data.providers import MarketDataProviderRequest
 
 UTC = timezone.utc
+
+
+def _default_family_binding(
+    *,
+    asset_type: str,
+    data_kind: str,
+    route_id: str | None,
+    price_basis: str | None,
+) -> str | None:
+    """Return the reviewed public family used by this focused provider fixture."""
+    if data_kind == "bars":
+        return {
+            "stock": "stock.realtime",
+            "futures": "futures.realtime",
+            "bond": "bond.realtime",
+            "fund": "fund.realtime",
+            "option": "option.realtime",
+            "fx": "fx.range"
+            if route_id == "akshare-fx-range-primary-v1"
+            else "fx.realtime",
+        }.get(asset_type)
+    if data_kind == "reference_series":
+        if asset_type == "stock":
+            return "stock.liquidity"
+        if asset_type == "fund":
+            if route_id == "akshare-fund-nav-primary-v1" or price_basis == "nav":
+                return "fund.nav"
+            return "fund.liquidity"
+    return None
 
 
 def _request(
@@ -39,9 +73,20 @@ def _request(
     unit: str | None = None,
     source_policy_id: str | None = "akshare-v2",
     route_id: str | None = None,
+    family_id: str | None = None,
+    family_contract_version: str | None = None,
     product_type: str | None = None,
     fund_identity_kind: str | None = None,
 ) -> MarketDataProviderRequest:
+    if family_id is None:
+        family_id = _default_family_binding(
+            asset_type=asset_type,
+            data_kind=data_kind,
+            route_id=route_id,
+            price_basis=price_basis,
+        )
+        if family_id is not None:
+            family_contract_version = FAMILY_CONTRACT_VERSION
     return MarketDataProviderRequest(
         query_fingerprint="b" * 64,
         canonical_id=f"instrument:{asset_type}:{market}:{provider_symbol}",
@@ -60,6 +105,8 @@ def _request(
         unit=unit,
         source_policy_id=source_policy_id,
         route_id=route_id,
+        family_id=family_id,
+        family_contract_version=family_contract_version,
         product_type=product_type,
         fund_identity_kind=fund_identity_kind,
     )
@@ -92,6 +139,129 @@ def test_akshare_registry_declares_each_current_asset_type_explicitly() -> None:
     assert len({route_id for route in executable_routes for route_id in route.route_ids}) == sum(
         len(route.route_ids) for route in executable_routes
     )
+
+
+def test_akshare_policy_routes_bind_exact_public_family_pairs() -> None:
+    """Every source-policy route names one reviewed public family revision."""
+    route_pairs = {
+        route_id: (route.family_id, route.family_contract_version)
+        for route in AKSHARE_ROUTE_REGISTRY
+        for route_id in route.route_ids
+    }
+
+    assert route_pairs == {
+        "akshare-stock-primary-v1": ("stock.realtime", FAMILY_CONTRACT_VERSION),
+        "akshare-stock-kline-legacy-v1": ("stock.kline_legacy", "market-data-kline-v1"),
+        "akshare-stock-liquidity-primary-v1": ("stock.liquidity", FAMILY_CONTRACT_VERSION),
+        "akshare-futures-primary-v1": ("futures.realtime", FAMILY_CONTRACT_VERSION),
+        "akshare-bond-primary-v1": ("bond.realtime", FAMILY_CONTRACT_VERSION),
+        "akshare-fund-primary-v1": ("fund.realtime", FAMILY_CONTRACT_VERSION),
+        "akshare-fund-liquidity-primary-v1": ("fund.liquidity", FAMILY_CONTRACT_VERSION),
+        "akshare-fund-nav-primary-v1": ("fund.nav", FAMILY_CONTRACT_VERSION),
+        "akshare-cffex-option-primary-v1": ("option.realtime", FAMILY_CONTRACT_VERSION),
+        "akshare-fx-primary-v1": ("fx.realtime", FAMILY_CONTRACT_VERSION),
+        "akshare-fx-range-primary-v1": ("fx.range", FAMILY_CONTRACT_VERSION),
+    }
+    for route in AKSHARE_ROUTE_REGISTRY:
+        if not route.route_ids:
+            continue
+        assert route.family_id is not None
+        contract = DEFAULT_DATASET_CONTRACT_REGISTRY.ready_contract_for(
+            family_id=route.family_id,
+            asset_type=route.asset_type,
+        )
+        assert route.family_contract_version == contract.family_contract_version
+        assert route.data_kind == contract.data_kind
+        assert route.frequencies == frozenset(contract.frequencies)
+
+
+@pytest.mark.parametrize(
+    ("route_id", "family_id", "request_changes"),
+    (
+        ("akshare-stock-primary-v1", "stock.realtime", {}),
+        (
+            "akshare-stock-liquidity-primary-v1",
+            "stock.liquidity",
+            {"data_kind": "reference_series"},
+        ),
+        (
+            "akshare-futures-primary-v1",
+            "futures.realtime",
+            {"asset_type": "futures", "provider_symbol": "IF2609", "market": "CFFEX"},
+        ),
+        (
+            "akshare-bond-primary-v1",
+            "bond.realtime",
+            {"asset_type": "bond", "provider_symbol": "sh110001", "market": "CN-SSE"},
+        ),
+        (
+            "akshare-fund-primary-v1",
+            "fund.realtime",
+            {"asset_type": "fund", "provider_symbol": "159915", "market": "CN-SZSE"},
+        ),
+        (
+            "akshare-fund-liquidity-primary-v1",
+            "fund.liquidity",
+            {
+                "asset_type": "fund",
+                "provider_symbol": "159915",
+                "market": "CN-SZSE",
+                "data_kind": "reference_series",
+            },
+        ),
+        (
+            "akshare-fund-nav-primary-v1",
+            "fund.nav",
+            {
+                "asset_type": "fund",
+                "provider_symbol": "159915",
+                "market": "CN-SZSE",
+                "data_kind": "reference_series",
+                "price_basis": "nav",
+            },
+        ),
+        (
+            "akshare-cffex-option-primary-v1",
+            "option.realtime",
+            {"asset_type": "option", "provider_symbol": "MO2609-P-5000", "market": "CFFEX"},
+        ),
+        (
+            "akshare-fx-primary-v1",
+            "fx.realtime",
+            {"asset_type": "fx", "provider_symbol": "USDCNH", "market": "CN-OTC"},
+        ),
+        (
+            "akshare-fx-range-primary-v1",
+            "fx.range",
+            {"asset_type": "fx", "provider_symbol": "USDCNH", "market": "CN-OTC"},
+        ),
+    ),
+)
+def test_akshare_provider_selects_only_the_exact_family_version_pair(
+    route_id: str,
+    family_id: str,
+    request_changes: dict[str, object],
+) -> None:
+    """Public family-bound DTOs select one route; a revision mismatch cannot fall back."""
+    provider = AkShareMarketDataProvider()
+    request = _request(
+        route_id=route_id,
+        family_id=family_id,
+        family_contract_version=FAMILY_CONTRACT_VERSION,
+        **request_changes,
+    )
+
+    selected = provider._route_for(request)
+
+    assert selected.route_ids == frozenset({route_id})
+    assert selected.family_id == family_id
+    assert selected.family_contract_version == FAMILY_CONTRACT_VERSION
+    with pytest.raises(AkShareProviderError) as mismatch:
+        provider._route_for(
+            replace(request, family_contract_version="market-data-family-v2")
+        )
+
+    assert mismatch.value.code == "AKSHARE_ROUTE_UNSUPPORTED"
 
 
 def test_snapshot_row_schemas_stay_out_of_the_request_time_provider_registry() -> None:
@@ -201,6 +371,56 @@ async def test_akshare_provider_uses_the_current_market_page_field_contract() ->
 
     assert result.observations[0].fields["change_pct"] == 5.0
     assert result.observations[0].fields["settle"] == 10.25
+
+
+@pytest.mark.asyncio
+async def test_akshare_provider_routes_private_kline_only_with_its_exact_pair() -> None:
+    """The shared source function cannot make K-line an alias of stock.realtime."""
+    calls: list[dict[str, Any]] = []
+
+    def fake_stock_route(**kwargs: Any) -> list[dict[str, Any]]:
+        calls.append(kwargs)
+        return [
+            {
+                "日期": date(2026, 1, 2),
+                "股票代码": "000001",
+                "开盘": 10.0,
+                "最高": 11.0,
+                "最低": 9.0,
+                "收盘": 10.5,
+                "成交量": 1000,
+                "涨跌幅": 1.25,
+            }
+        ]
+
+    provider = AkShareMarketDataProvider(callable_resolver=lambda _: fake_stock_route)
+    kline_request = _request(
+        required_fields=frozenset(
+            {"open", "high", "low", "close", "volume", "change_pct"}
+        ),
+        adjustment="qfq",
+        price_basis="close",
+        currency="CNY",
+        unit="share",
+        route_id="akshare-stock-kline-legacy-v1",
+        family_id="stock.kline_legacy",
+        family_contract_version="market-data-kline-v1",
+    )
+
+    result = await provider.fetch(kline_request)
+
+    assert calls[0]["adjust"] == "qfq"
+    assert result.request.family_id == "stock.kline_legacy"
+    assert result.request.family_contract_version == "market-data-kline-v1"
+
+    with pytest.raises(AkShareProviderError, match="AKSHARE_ROUTE_UNSUPPORTED"):
+        await provider.fetch(
+            _request(
+                route_id="akshare-stock-kline-legacy-v1",
+                family_id="stock.realtime",
+                family_contract_version="market-data-family-v1",
+            )
+        )
 
 
 @pytest.mark.asyncio
@@ -402,25 +622,31 @@ async def test_akshare_provider_rejects_nav_requests_without_an_etf_listing_iden
 
 
 @pytest.mark.asyncio
-async def test_akshare_provider_requires_a_policy_route_id_when_product_axes_overlap() -> None:
-    """Overlapping ETF reference products cannot select an endpoint by resemblance."""
+async def test_akshare_provider_rejects_an_unbound_request_before_endpoint_selection() -> None:
+    """A retained caller cannot use endpoint resemblance after policy routes are family-bound."""
     provider = AkShareMarketDataProvider(
-        callable_resolver=lambda _: pytest.fail("ambiguous request must not fetch")
+        callable_resolver=lambda _: pytest.fail("unbound request must not fetch")
     )
 
     with pytest.raises(AkShareProviderError) as rejected:
         await provider.fetch(
-            _request(
-                asset_type="fund",
-                provider_symbol="159915",
-                market="CN-SZSE",
-                data_kind="reference_series",
-                required_fields=frozenset({"nav", "cumulative_nav", "daily_growth_rate"}),
-                adjustment="source_reported",
-                price_basis="nav",
-                currency="CNY",
-                unit="fund_share",
-                route_id=None,
+            replace(
+                _request(
+                    asset_type="fund",
+                    provider_symbol="159915",
+                    market="CN-SZSE",
+                    data_kind="reference_series",
+                    required_fields=frozenset({"nav", "cumulative_nav", "daily_growth_rate"}),
+                    adjustment="source_reported",
+                    price_basis="nav",
+                    currency="CNY",
+                    unit="fund_share",
+                    route_id=None,
+                    product_type="ETF",
+                    fund_identity_kind="LISTING",
+                ),
+                family_id=None,
+                family_contract_version=None,
             )
         )
 

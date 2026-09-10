@@ -29,7 +29,10 @@ from app.services.market_data.access import (
 )
 from app.services.market_data.capability_ledger import MarketDataCapabilityEvaluation
 from app.services.market_data.publication import MarketDataVisibilityAnchor
-from app.services.market_data.query_resolution import MarketDataQueryResolver
+from app.services.market_data.query_resolution import (
+    MarketDataQueryResolutionError,
+    MarketDataQueryResolver,
+)
 from app.services.market_data.query_service import (
     MarketDataQueryService,
     MarketDataQueryServiceError,
@@ -550,6 +553,49 @@ async def test_v2_query_endpoint_is_disabled_by_default(client, auth_headers, mo
 
 
 @pytest.mark.asyncio
+async def test_v2_query_endpoint_rejects_private_kline_family_before_service_execution(
+    client,
+    auth_headers,
+    monkeypatch,
+) -> None:
+    """A browser cannot submit the legacy facade's private family through v2."""
+    import app.api.data.queries as queries
+
+    service = _Service(_execution())
+    authorizer = _AccessAuthorizer(_principal())
+    request = _payload()
+    request.update(
+        {
+            "family_id": "stock.kline_legacy",
+            "family_contract_version": "market-data-kline-v1",
+            "required_fields": ["open", "high", "low", "close", "volume", "change_pct"],
+            "adjustment": "qfq",
+            "price_basis": "close",
+            "currency": "CNY",
+            "unit": "share",
+        }
+    )
+    monkeypatch.setattr(
+        queries,
+        "get_settings",
+        lambda: SimpleNamespace(MARKET_DATA_QUERY_V2_ENABLED=True),
+    )
+    _override_capability_evaluation(query_v2_enabled=True)
+    app.dependency_overrides[get_market_data_query_service] = lambda: service
+    app.dependency_overrides[get_market_data_access_authorizer] = lambda: authorizer
+    try:
+        response = await client.post("/api/v1/data/queries", json=request, headers=auth_headers)
+    finally:
+        app.dependency_overrides.pop(get_market_data_capability_evaluation, None)
+        app.dependency_overrides.pop(get_market_data_query_service, None)
+        app.dependency_overrides.pop(get_market_data_access_authorizer, None)
+
+    assert response.status_code == 503
+    assert response.json()["details"] == {"code": "MARKET_DATA_PRIVATE_FAMILY"}
+    assert service.requests == []
+
+
+@pytest.mark.asyncio
 async def test_v2_query_endpoint_rejects_research_cache_fill_until_server_opt_in(
     client,
     auth_headers,
@@ -773,6 +819,45 @@ async def test_v2_query_endpoint_maps_stable_service_code_without_traceback(
 
     assert response.status_code == 422
     assert response.json()["details"] == {"code": "CURSOR_INVALID"}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "error_code",
+    [
+        "DATA_FAMILY_CONTRACT_VERSION_UNSUPPORTED",
+        "DATA_FAMILY_QUERY_CONTRACT_MISMATCH",
+        "DATA_FAMILY_UNCONFIGURED",
+    ],
+)
+async def test_v2_query_endpoint_maps_family_contract_failures_to_service_unavailable(
+    client,
+    auth_headers,
+    monkeypatch,
+    error_code: str,
+) -> None:
+    """Public family failures are server-contract failures, never provider fallbacks."""
+    import app.api.data.queries as queries
+
+    service = _Service(MarketDataQueryResolutionError(error_code))
+    authorizer = _AccessAuthorizer(_principal())
+    monkeypatch.setattr(
+        queries,
+        "get_settings",
+        lambda: SimpleNamespace(MARKET_DATA_QUERY_V2_ENABLED=True),
+    )
+    _override_capability_evaluation(query_v2_enabled=True)
+    app.dependency_overrides[get_market_data_query_service] = lambda: service
+    app.dependency_overrides[get_market_data_access_authorizer] = lambda: authorizer
+    try:
+        response = await client.post("/api/v1/data/queries", json=_payload(), headers=auth_headers)
+    finally:
+        app.dependency_overrides.pop(get_market_data_query_service, None)
+        app.dependency_overrides.pop(get_market_data_access_authorizer, None)
+
+    assert response.status_code == 503
+    assert response.json()["details"] == {"code": error_code}
+    assert len(service.requests) == 1
 
 
 @pytest.mark.asyncio
@@ -1251,6 +1336,7 @@ def test_default_policy_selects_only_exact_unadjusted_liquidity_routes(
             identity=SimpleNamespace(asset_type=asset_type, venue=venue),
             query=SimpleNamespace(
                 family_id=f"{asset_type}.liquidity",
+                family_contract_version="market-data-family-v1",
                 data_kind="reference_series",
                 frequency="1d",
                 adjustment="unadjusted",
@@ -1269,6 +1355,7 @@ def test_default_policy_selects_only_exact_unadjusted_liquidity_routes(
                     identity=context.identity,
                     query=SimpleNamespace(
                         family_id=f"{asset_type}.liquidity",
+                        family_contract_version="market-data-family-v1",
                         data_kind="reference_series",
                         frequency="1d",
                         adjustment="qfq",
@@ -1310,6 +1397,7 @@ def test_default_policy_selects_the_exact_etf_nav_route() -> None:
             ),
             query=SimpleNamespace(
                 family_id="fund.nav",
+                family_contract_version="market-data-family-v1",
                 data_kind="reference_series",
                 frequency="1d",
                 adjustment="source_reported",
@@ -1328,6 +1416,7 @@ def test_default_policy_selects_the_exact_etf_nav_route() -> None:
                     identity=context.identity,
                     query=SimpleNamespace(
                         family_id="fund.nav",
+                        family_contract_version="market-data-family-v1",
                         data_kind="reference_series",
                         frequency="1d",
                         adjustment="unadjusted",

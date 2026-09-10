@@ -17,28 +17,36 @@ legacy page can opt into the new local-first path.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.market_data_platform import MdInstrumentLookupKey
+from app.models.market_data_platform import (
+    MdInstrumentIdentityRevision,
+    MdInstrumentLookupKey,
+    MdPublication,
+)
 from app.schemas.market_data_platform import QueryIdentity
 from app.services.market_data.catalog import DataCatalogResolver, DatasetStorageNotFoundError
 from app.services.market_data.dataset_contracts import (
     DEFAULT_DATASET_CONTRACT_REGISTRY,
-    FAMILY_CONTRACT_VERSION,
+    KLINE_LEGACY_FAMILY_ID,
     DatasetContract,
     DatasetContractRegistry,
+    DatasetContractRegistryError,
 )
 from app.services.market_data.identity import (
     MarketDataIdentityResolutionError,
     MarketDataIdentityResolver,
 )
+from app.services.market_data.legacy_kline_identity import matches_legacy_kline_display_token
 from app.services.market_data.openbb_runtime import (
     OpenBBRuntimeRoutePermit,
     approved_openbb_runtime_route_permits,
 )
+from app.services.market_data.publication import PUBLICATION_INSTRUMENT_IDENTITY
 
 _FREQUENCY_BY_LEGACY_PERIOD = {
     # ``daily``/``weekly``/``monthly`` are retained for the legacy page
@@ -162,6 +170,44 @@ class LegacyMarketDataQueryContractResolver:
         materialized key must prove a single active canonical identity before
         this bridge returns anything.
         """
+        if family_id == KLINE_LEGACY_FAMILY_ID:
+            # This resolver backs the public query-contract endpoint. The K-line
+            # compatibility product is intentionally server-selected by the
+            # dedicated facade and must not be mintable from a browser family
+            # selector.
+            raise DatasetContractRegistryError("DATA_FAMILY_UNSUPPORTED")
+        return await self._resolve(
+            asset_type=asset_type,
+            symbol=symbol,
+            period=period,
+            family_id=family_id,
+        )
+
+    async def resolve_kline_legacy(
+        self,
+        *,
+        symbol: str,
+        period: str,
+    ) -> dict[str, Any] | None:
+        """Mint the fixed private K-line contract for the server-owned legacy facade."""
+        return await self._resolve(
+            asset_type="stock",
+            symbol=symbol,
+            period=period,
+            family_id=KLINE_LEGACY_FAMILY_ID,
+            allow_frozen_exchange_symbol_alias=True,
+        )
+
+    async def _resolve(
+        self,
+        *,
+        asset_type: str,
+        symbol: str,
+        period: str,
+        family_id: str | None,
+        allow_frozen_exchange_symbol_alias: bool = False,
+    ) -> dict[str, Any] | None:
+        """Resolve a selected server-owned family after the public/private gate."""
         normalized_asset_type = asset_type.strip()
         normalized_symbol = symbol.strip()
         frequency = _FREQUENCY_BY_LEGACY_PERIOD.get(period.strip().lower())
@@ -189,6 +235,7 @@ class LegacyMarketDataQueryContractResolver:
         canonical_id = await self._unique_active_canonical_id(
             asset_type=normalized_asset_type,
             symbol=normalized_symbol,
+            allow_frozen_exchange_symbol_alias=allow_frozen_exchange_symbol_alias,
         )
         if canonical_id is None:
             return None
@@ -213,7 +260,13 @@ class LegacyMarketDataQueryContractResolver:
         # lookup projection and its migration use binary collations, but this
         # second, frozen-identity comparison keeps an un-migrated or corrupt
         # database fail-closed as well.
-        if identity.identity.display_symbol != normalized_symbol:
+        if allow_frozen_exchange_symbol_alias:
+            if not matches_legacy_kline_display_token(
+                identity.identity,
+                token=normalized_symbol,
+            ):
+                return None
+        elif identity.identity.display_symbol != normalized_symbol:
             return None
 
         semantics = _semantics_for(
@@ -273,7 +326,7 @@ class LegacyMarketDataQueryContractResolver:
         request.update(
             {
                 "family_id": family_contract.family_id,
-                "family_contract_version": FAMILY_CONTRACT_VERSION,
+                "family_contract_version": family_contract.family_contract_version,
             }
         )
         return {
@@ -286,8 +339,20 @@ class LegacyMarketDataQueryContractResolver:
         *,
         asset_type: str,
         symbol: str,
+        allow_frozen_exchange_symbol_alias: bool = False,
     ) -> str | None:
         """Return one canonical ID or fail closed on absent/ambiguous projected keys."""
+        if allow_frozen_exchange_symbol_alias and asset_type == "stock":
+            # The private K-line facade accepts two frozen token fields.  Its
+            # candidate universe must therefore be one publication-gated,
+            # current-identity union; consulting the mutable lookup projection
+            # first would allow an exact display-symbol row to mask a distinct
+            # exact ``details.exchange_symbol`` candidate.
+            return await self._unique_current_published_kline_canonical_id(
+                asset_type=asset_type,
+                token=symbol,
+            )
+
         rows = list(
             (
                 await self._db.execute(
@@ -325,6 +390,85 @@ class LegacyMarketDataQueryContractResolver:
             return None
         return exact_canonical_ids[0]
 
+    async def _unique_current_published_kline_canonical_id(
+        self,
+        *,
+        asset_type: str,
+        token: str,
+    ) -> str | None:
+        """Resolve exactly one current, published frozen K-line identity token.
+
+        A legacy K-line token can be either the frozen display symbol or the
+        frozen stock ``details.exchange_symbol`` (for example ``000001.SZ``).
+        Discover both axes together from published projections, then ask the
+        authoritative resolver to select the current revision for every
+        candidate and repeat the exact frozen-token comparison in Python.
+        This deliberately ignores pending and expired projections; neither can
+        create an alias collision for a current request.
+        """
+        effective_at = datetime.now(timezone.utc)
+        stored_exchange_symbol = MdInstrumentIdentityRevision.identity_json[
+            "details"
+        ]["exchange_symbol"].as_string()
+        candidate_canonical_ids = list(
+            (
+                await self._db.execute(
+                    select(MdInstrumentIdentityRevision.canonical_id)
+                    .join(
+                        MdPublication,
+                        (MdPublication.entity_type == PUBLICATION_INSTRUMENT_IDENTITY)
+                        & (MdPublication.entity_id == MdInstrumentIdentityRevision.id),
+                    )
+                    .where(
+                        MdInstrumentIdentityRevision.asset_type == asset_type,
+                        MdPublication.published_at.is_not(None),
+                        MdInstrumentIdentityRevision.valid_from <= effective_at,
+                        or_(
+                            MdInstrumentIdentityRevision.valid_to.is_(None),
+                            MdInstrumentIdentityRevision.valid_to > effective_at,
+                        ),
+                        or_(
+                            MdInstrumentIdentityRevision.symbol == token,
+                            stored_exchange_symbol == token,
+                        ),
+                    )
+                    .distinct()
+                    .order_by(MdInstrumentIdentityRevision.canonical_id)
+                    .limit(_MAX_LEGACY_LOOKUP_CANDIDATES + 1)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        if len(candidate_canonical_ids) > _MAX_LEGACY_LOOKUP_CANDIDATES:
+            return None
+
+        matches: set[str] = set()
+        for canonical_id in candidate_canonical_ids:
+            if not isinstance(canonical_id, str) or not canonical_id:
+                return None
+            try:
+                identity = await self._identities.resolve(
+                    QueryIdentity(canonical_id=canonical_id),
+                    effective_at=effective_at,
+                )
+            except MarketDataIdentityResolutionError as exc:
+                # A revision which was current when it was published may have
+                # become historical before this request.  It is not a current
+                # token match and must not produce a false collision.  Other
+                # authoritative-resolution failures are unsafe to ignore.
+                if exc.code == "IDENTITY_NOT_FOUND":
+                    continue
+                return None
+            if identity.canonical_id != canonical_id or identity.asset_type != asset_type:
+                return None
+            if matches_legacy_kline_display_token(identity.identity, token=token):
+                matches.add(canonical_id)
+
+        if len(matches) != 1:
+            return None
+        return next(iter(matches))
+
     def _has_reviewed_route(
         self,
         *,
@@ -346,6 +490,14 @@ class LegacyMarketDataQueryContractResolver:
         """
         if semantics is None:
             return False
+        if family_id == KLINE_LEGACY_FAMILY_ID:
+            return (
+                asset_type == "stock"
+                and venue in {"CN-SSE", "CN-SZSE"}
+                and data_kind in {None, "bars"}
+                and frequency in _DATE_ALIGNED_BAR_FREQUENCIES
+                and semantics == _CN_STOCK_FUND_DEFAULTS
+            )
         if family_id == "stock.liquidity":
             return (
                 asset_type == "stock"
@@ -412,10 +564,18 @@ class LegacyMarketDataQueryContractResolver:
                 and frequency in _DAILY_BAR_FREQUENCIES
                 and semantics == _CN_FX_DEFAULTS
             )
+        try:
+            family_contract_version = self._family_contracts.ready_contract_for(
+                family_id=family_id,
+                asset_type=asset_type,
+            ).family_contract_version
+        except DatasetContractRegistryError:
+            return False
         return any(
             _permit_matches_legacy_request(
                 permit,
                 family_id=family_id,
+                family_contract_version=family_contract_version,
                 asset_type=asset_type,
                 venue=venue,
                 data_kind=data_kind or "bars",
@@ -430,6 +590,7 @@ def _permit_matches_legacy_request(
     permit: OpenBBRuntimeRoutePermit,
     *,
     family_id: str,
+    family_contract_version: str,
     asset_type: str,
     venue: str | None,
     data_kind: str,
@@ -439,6 +600,7 @@ def _permit_matches_legacy_request(
     """Match every explicit OpenBB permit axis before a bridge can mint a contract."""
     return (
         permit.family_id == family_id
+        and permit.family_contract_version == family_contract_version
         and permit.asset_type == asset_type
         and permit.market == venue
         and permit.data_kind == data_kind
@@ -467,6 +629,10 @@ def _semantics_for(
     if family_id == "stock.liquidity":
         if asset_type == "stock" and venue in {"CN-SSE", "CN-SZSE"}:
             return _CN_STOCK_FUND_LIQUIDITY_DEFAULTS
+        return None
+    if family_id == KLINE_LEGACY_FAMILY_ID:
+        if asset_type == "stock" and venue in {"CN-SSE", "CN-SZSE"}:
+            return _CN_STOCK_FUND_DEFAULTS
         return None
     if family_id == "fund.liquidity":
         if asset_type == "fund" and venue in {"CN-SSE", "CN-SZSE"}:

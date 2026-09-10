@@ -298,6 +298,7 @@ class MarketDataProviderRequest:
     # The resolved query product and the server-owned endpoint remain in the
     # echoed DTO so an isolated runner cannot substitute a same-shaped route.
     family_id: str | None = None
+    family_contract_version: str | None = None
     provider_endpoint: str | None = None
     # These frozen master-data facts let an adapter defend a product-specific
     # source route even when it is invoked outside the policy selector.
@@ -335,6 +336,7 @@ class MarketDataProviderRequest:
             "source_policy_id",
             "route_id",
             "family_id",
+            "family_contract_version",
             "provider_endpoint",
             "product_type",
             "fund_identity_kind",
@@ -346,6 +348,8 @@ class MarketDataProviderRequest:
                     field_name,
                     _require_text(value, field_name=field_name, maximum=256),
                 )
+        if (self.family_id is None) != (self.family_contract_version is None):
+            raise ValueError("family_id and family_contract_version must be specified together")
         object.__setattr__(self, "request_id", _require_request_id(self.request_id))
         if self.policy_descriptor_hash is not None:
             object.__setattr__(
@@ -403,6 +407,7 @@ class MarketDataProviderRequest:
             "source_policy_id": self.source_policy_id,
             "route_id": self.route_id,
             "family_id": self.family_id,
+            "family_contract_version": self.family_contract_version,
             "provider_endpoint": self.provider_endpoint,
             "product_type": self.product_type,
             "fund_identity_kind": self.fund_identity_kind,

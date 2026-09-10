@@ -1,6 +1,6 @@
 # 迭代 197 设计文档
 
-> 实现快照：本文记录已接入迭代 196 冻结基线的 197 集成候选源码契约；它不把离线替身、fork 构件候选或局部测试解释为发布验收。OpenBB yfinance fork `24d06a7657ab9e19d07b5ba4f801394a440287a1` / `openbb-yfinance 1.6.3.post1` 仅定义待封装的 daily end-bound 修正，未形成运行许可、镜像或网络证据。真实 OpenBB 网络、MySQL/PostgreSQL、跨进程写入、真实 provider 数据和页面灰度仍以验收文档中的 `NOT_RUN` / `BLOCKED` 为准。当前 `/api/v1/data/kline` 仍直接调用 AkShare，不是本图的受治理路径；本次仅将其正式替换设计列入候选，不能把现状解释为已迁移。
+> 实现快照：本文记录已接入迭代 196 冻结基线的 197 集成候选源码契约；它不把离线替身、fork 构件候选或局部测试解释为发布验收。OpenBB yfinance fork `24d06a7657ab9e19d07b5ba4f801394a440287a1` / `openbb-yfinance 1.6.3.post1` 仅定义待封装的 daily end-bound 修正，未形成运行许可、镜像或网络证据。真实 OpenBB 网络、MySQL/PostgreSQL、跨进程写入、真实 provider 数据和页面灰度仍以验收文档中的 `NOT_RUN` / `BLOCKED` 为准。`/api/v1/data/kline` 已接入受治理 legacy bridge：私有 K 线 contract、`data:read`、`local_first`、受控持久化和 `local_only` reread 已在候选源码中实现；它仍不构成真实 provider、数据库、浏览器或生产验收。
 
 ## 1. 架构概览
 
@@ -30,13 +30,13 @@ flowchart LR
   S --> PLAN
 ```
 
-新链路与遗留 AkShare 仓库并行。页面迁移前，旧接口保持原路径和返回形状；新接口从第一天起使用明确 DTO，不调用旧 `MarketInstrumentService`。旧 `market-instruments/lookup` 仍可作本地兼容读取，但其 `refresh_online=true` 参数已在服务入口以 `MARKET_DATA_LEGACY_ONLINE_REFRESH_DISABLED` 拒绝：这条遗留接口没有 v2 所需的精确 identity、当前授权、durable lease、不可变 receipt、持久化和本地复读闭环，不能再作为在线 provider 旁路。`/api/v1/data/kline` 是不同且尚未收口的遗留路径：当前路由直接 import/call AkShare，故不得把 lookup 的本地只读结论外推给它；第 6 节定义其唯一可接受的替换方案。
+新链路与遗留 AkShare 仓库并行。页面迁移前，旧接口保持原路径和返回形状；新接口从第一天起使用明确 DTO，不调用旧 `MarketInstrumentService`。旧 `market-instruments/lookup` 仍可作本地兼容读取，但其 `refresh_online=true` 参数已在服务入口以 `MARKET_DATA_LEGACY_ONLINE_REFRESH_DISABLED` 拒绝：这条遗留接口没有 v2 所需的精确 identity、当前授权、durable lease、不可变 receipt、持久化和本地复读闭环，不能再作为在线 provider 旁路。`/api/v1/data/kline` 已在保留 wire shape 的同时收口到第 6 节的 bridge；该 handler 只经 v2 query service 读取和补齐，不能直接 import/call AkShare，也不能使用 `MarketInstrumentService`、遗留专表或 provider 内存 DTO 作为 fallback。
 
 ### 1.1 当前读取授权
 
 `MarketDataAccessAuthorizer` 在 API 层从数据库当前角色构建不可变的 `MarketDataPrincipal`。principal scope、tenant scope 和 entitlement revision 会进入 v2 分页的签名绑定；scope 在 token 内以摘要形式出现，避免泄露用户标识或使 token 因过长的原始 scope 失效。没有 `Permission.READ_DATA` 的调用在进入 anchor、identity、calendar、observation 或 provider 查询前拒绝。
 
-同一 gate 也适用于返回家族合同的 `query-bundle` 和读取目录/主数据生成模板的 `query-contract`；它们是市场数据控制面，不因自身不返回 observation 而只要求登录。`market-instruments/lookup` 的遗留兼容授权可按其现有迁移边界处理；`/api/v1/data/kline` 不得引用这一例外，正式 bridge 必须在任何控制面、事实或 provider I/O 前执行该 gate。
+同一 gate 也适用于返回家族合同的 `query-bundle` 和读取目录/主数据生成模板的 `query-contract`；它们是市场数据控制面，不因自身不返回 observation 而只要求登录。`market-instruments/lookup` 的遗留兼容授权可按其现有迁移边界处理；`/api/v1/data/kline` 不得引用这一例外，bridge 已在任何 control-plane、事实或 provider I/O 前执行同一 `data:read` gate。
 
 ### 1.2 路由能力生命周期（已落地，默认关闭）
 
@@ -61,7 +61,7 @@ source-policy 配置摘要与 access grant 摘要是不同维度：前者描述�
 
 ### 2.1 公共 DTO
 
-`MarketDataQueryRequest` 是规范化的基础/内部 DTO，允许受控导入和迁移工具在家族合同签发前描述工作；HTTP `POST /queries` 则只接受其子类 `PublicMarketDataQueryRequest`。后者拒绝额外字段，并将 `family_id` 和 `family_contract_version` 设为必填，因此未绑定请求会在服务、目录、主数据或 provider 工作之前被 FastAPI 以 HTTP 422 拒绝。两种 DTO 共同负责：
+`MarketDataQueryRequest` 是规范化的基础/内部 DTO，允许受控导入和迁移工具在家族合同签发前描述工作；HTTP `POST /queries` 则只接受其子类 `PublicMarketDataQueryRequest`。后者拒绝额外字段，并将 `family_id` 和 `family_contract_version` 设为必填，因此未绑定请求会在服务、目录、主数据或 provider 工作之前被 FastAPI 以 HTTP 422 拒绝。它还只接受 public-visible registry family；server-owned `stock.kline_legacy / market-data-kline-v1` 由 `/api/v1/data/kline` bridge 直接调用内部服务，不能经 `POST /queries` 或 `query-contract` 选择、签发或重放。两种 DTO 共同负责：
 
 - canonical ID 与完整三元组的异或选择；
 - UTC、半开区间和直接请求窗口限制；
@@ -79,7 +79,7 @@ source-policy 配置摘要与 access grant 摘要是不同维度：前者描述�
 
 `md_instrument_lookup_keys` 仍是确定性回填和精确索引的物化投影，但当前严格 resolver 从已发布的 `MdInstrumentIdentityRevision` 读取。未来若将 lookup key 接入严格读取，也必须让它引用同一冻结 revision 和同一 publication receipt，不能回退到可变 authority 行。
 
-权威 `asset_instruments.canonical_id` 以及这两张投影表的 `canonical_id`、`asset_type`、`market` 和 `symbol` 都是字节级协议字段：模型为 SQLite 明确声明 `BINARY`、MySQL 声明 `utf8mb4_bin`、PostgreSQL 声明 `C` collation。`20260909_market_data_exact_identity_collation` 对已有服务器表执行同一转换；MySQL 迁移要求先停止 market-data writer 并设置维护 fence。这样 authority 的 `(canonical_id, metadata_version)` 唯一索引也允许两个合法的 case-distinct canonical ID，而不会在投影写入前错误冲突。legacy bridge 的 lookup 查询同时取回原始 asset type/symbol，以 Python 逐字符过滤，再把返回 canonical ID 解析为已发布 frozen identity 并再次比较 display symbol。数据库层与服务层任一层不满足精确条件均不签发 contract；因此 `RB0` 和 `rb0` 可以作为两个已登记标识分别解析，但错误大小写不能借默认 `_ci` collation 得到另一个标识的 contract。
+权威 `asset_instruments.canonical_id` 以及这两张投影表的 `canonical_id`、`asset_type`、`market` 和 `symbol` 都是字节级协议字段：模型为 SQLite 明确声明 `BINARY`、MySQL 声明 `utf8mb4_bin`、PostgreSQL 声明 `C` collation。`20260909_market_data_exact_identity_collation` 对已有服务器表执行同一转换；MySQL 迁移要求先停止 market-data writer 并设置维护 fence。这样 authority 的 `(canonical_id, metadata_version)` 唯一索引也允许两个合法的 case-distinct canonical ID，而不会在投影写入前错误冲突。legacy K 线 bridge 只从当前且已发布的 frozen stock identity 中收集 token：它将 `display_symbol` 和 `details.exchange_symbol` 的逐字符匹配结果取并集，再逐个经权威 resolver 与 frozen token 比较复核。集合不是恰好一个 canonical identity、只命中 pending/历史 revision 或大小写不等时均不签发 contract；因此 `RB0` 和 `rb0` 可以作为两个已登记标识分别解析，但错误大小写不能借默认 `_ci` collation 得到另一个标识的 contract，也不能由一个 display token 掩盖另一个 exchange token。provider 只接收最终 identity 的 frozen display symbol。
 
 | 字段 | 作用 |
 | --- | --- |
@@ -249,19 +249,19 @@ source 不是 collector 构造参数。当前静态 reviewed-source registry 为
 
 ## 6. API 与页面迁移
 
-### 6.0 `/api/v1/data/kline` 兼容桥：前置设计决定
+### 6.0 `/api/v1/data/kline` 兼容桥：已实现的候选设计
 
-**拟议实施决定：新增专用 `stock.kline_legacy` family，而不升级 `stock.realtime`。** 当前 `stock.realtime` 的 `market.bars` compatibility contract 只保证 `close`，原地改为完整 OHLCV 会改变既有 family 的字段承诺、页面语义和已签发 binding。本兼容桥未来只接受由服务器签发的 `stock.kline_legacy / market-data-kline-v1` contract；其中 `market-data-kline-v1` 是该拟新增 family 的拟议 contract version，不是当前全局 version。当前代码尚无此 family、contract、profile、route 或 bridge 实现，客户端也不能传入或替换该 family/version。
+**已实施决定：新增专用 `stock.kline_legacy` family，而不升级 `stock.realtime`。** `stock.realtime` 的 `market.bars` compatibility contract 只保证 `close`，原地改为完整 OHLCV 会改变既有 family 的字段承诺、页面语义和已签发 binding。bridge 只接受服务端解析的私有 `stock.kline_legacy / market-data-kline-v1` contract；`market-data-kline-v1` 只适用于该 family，不是全局版本。该 family 已配置完整 K 线 profile、精确 provider route 和 bridge，但不出现在 public bundle；客户端不能经 `/queries` 或 `query-contract` 传入、替换或签发该 family/version。
 
-现有 `MarketDataFamilyContractVersion` wire schema 与 registry 都以全局 `market-data-family-v1` 作为唯一常量；它们不能直接承载该拟新增版本。正式实现必须迁移为受限的、server-registry 签发的 `(family_id, family_contract_version)` pair，而不是放宽为任意字符串：至少保留 `{stock.realtime: market-data-family-v1}`，只新增 `{stock.kline_legacy: market-data-kline-v1}`。`query-bundle` 和 `query-contract` 只能返回该 family 的正确 pair；任何客户端传入的自由版本、跨 family pair 或过期/错配 pair 都在 catalog、identity、事实和 provider I/O 前以 503 拒绝。既有 v1 token、contract、cursor 与 binding 仍以原 pair 验证，不转换、不重签、不向新 family 放宽。
+`MarketDataFamilyContractVersion` wire schema 与 registry 已支持受限的、server-registry 签发的 `(family_id, family_contract_version)` pair，而不是任意字符串：保留 `{stock.realtime: market-data-family-v1}`，只新增 `{stock.kline_legacy: market-data-kline-v1}`。`query-bundle` 只暴露 public-visible family，`query-contract` 只能为 public-visible family 返回正确 pair；legacy bridge 则在服务端解析私有 pair。任何客户端传入的自由版本、跨 family pair、私有 family 或过期/错配 pair 都在 catalog、identity、事实和 provider I/O 前失败关闭。既有 v1 token、contract、cursor 与 binding 仍以原 pair 验证，不转换、不重签、不向新 family 放宽。
 
-该 contract 固定为 `market.bars`、`bars`，并按 legacy `daily`、`weekly`、`monthly` 映射到单一批准频率。它必须逐项绑定 frozen canonical identity、asset/market、frequency、`adjustment=qfq`、price basis、currency、unit、source policy、family/version 和最低完整字段组 `open`、`high`、`low`、`close`、`volume`。legacy response 还具有 `records[].change`，所以 contract 同时要求可审计的 `change_pct`；投影器不得以 `0`、前一 bar、amount 或未经签发的 provider 列填充该字段。这个 contract、匹配的 data-series profile、coverage planner 和 provider route 全部 ready 前，`/kline` 不可被接入 v2。
+该 contract 固定为 `market.bars`、`bars`，并按 legacy `daily`、`weekly`、`monthly` 映射到单一批准频率。它逐项绑定 frozen canonical identity、asset/market、frequency、`adjustment=qfq`、price basis、currency、unit、source policy、family/version 和完整字段组 `open`、`high`、`low`、`close`、`volume`、`change_pct`。投影器不得以 `0`、前一 bar、amount 或未经签发的 provider 列填充 `change_pct`。该 contract、匹配的 data-series profile、coverage planner 和 provider route 均由 bridge 的 server-owned resolver 使用，不能被公有调用方复用为任意 `bars` contract。
 
 参数适配是 bridge 的 server-owned contract 一部分。CN stock `start_date/end_date` 只接受 `Asia/Shanghai` ISO `YYYY-MM-DD` 标签并要求 `start_date <= end_date`。daily 将 inclusive 标签映射为 `1d` 的 `[start@00:00 Asia/Shanghai, (end+1 calendar day)@00:00 Asia/Shanghai)` UTC 窗口，最多 366 日历日；weekly 只接受周一 start 与周日 end，映射 `1w` 的 `[start@00:00 Asia/Shanghai, (end+1 calendar day)@00:00 Asia/Shanghai)` 完整周窗口，最多 260 个完整周；monthly 只接受月初 start 与月末 end，映射 `1mo` 的 `[start@00:00 Asia/Shanghai, (end 所在月的下月 1 日)@00:00 Asia/Shanghai)` 完整月窗口，最多 120 个完整月。所有 local-midnight 边界都先按 `Asia/Shanghai` 构造后再转换 UTC；错位、超限、反向或解析失败返回 422。legacy endpoint 没有分页：首个 v2 请求必须无 cursor，底层 cursor、partial response 或无法在一个响应内覆盖完整上述 window 均返回 503。
 
 投影器还必须把 `coverage.accepted_event_keys` 当作 server-owned 完整性清单：先拒绝 response observations 自身的重复 event key，再按同一 canonical event-key 顺序比较 observation 序列与 accepted key 序列；两者必须精确相等，不能只比较行数或把缺失/额外 key 丢弃。所有 OHLCV 与 `change_pct` 都经同一 field-quality validator 处理，布尔值、`NaN`、正负无穷、空/纯空白文本以及其它不可用数值一律拒绝。`next_cursor=null` 不是足够证据：legacy bridge 的首个 v2 请求必须显式没有 cursor，并在这一单页响应中覆盖完整 server-owned legacy window。
 
-唯一序列化在 local reread 之后、任何 legacy JSON 写出之前完成：每个 accepted event 恰一行，event timestamp 转为 `Asia/Shanghai` 后的 `YYYY-MM-DD` dates 必须严格递增且无重复，两个 accepted event 不得投影为同一日期；`count == len(records) == len(dates) == len(ohlc) == len(volumes)`，并且同一索引的 record 与 arrays 一一对应。OHLC 与 `change` 以 server-owned 的既有两位小数 JSON number 投影，`change=1.23` 表示 `+1.23%` 的百分比点而非 `0.0123`；投影精度不得回写或降低 observation 存储精度。volume 只能是非负、语义精确且落在 `0..9007199254740991` JSON safe-integer 范围的整数，禁止以 `int()` 或相似转换截断小数、布尔或超范围值。任一不变量失败即拒绝整个响应。
+唯一序列化在 local reread 之后、任何 legacy JSON 写出之前完成：每个 accepted event 恰一行，event timestamp 转为 `Asia/Shanghai` 后的 `YYYY-MM-DD` dates 必须严格递增且无重复，两个 accepted event 不得投影为同一日期；`count == len(records) == len(dates) == len(ohlc) == len(volumes)`，并且同一索引的 record 与 arrays 一一对应。OHLC 与 `change` 以 `Decimal` 的 `ROUND_HALF_UP` 规则投影为 server-owned 的两位小数 JSON number，且拒绝 signed zero；`change=1.23` 表示 `+1.23%` 的百分比点而非 `0.0123`。投影精度不得回写或降低 observation 存储精度。volume 只能是非负、语义精确且落在 `0..9007199254740991` JSON safe-integer 范围的整数，禁止以 `int()` 或相似转换截断小数、布尔或超范围值。任一不变量失败即拒绝整个响应。
 
 桥接的服务端控制流固定如下：
 
@@ -271,7 +271,7 @@ flowchart LR
   A --> C[effective v2 capability]
   C --> X[exact family/version qfq contract]
   X --> Q[local_first v2 query]
-  Q -->|complete local| R[local observations]
+  Q -->|complete local| R[local_only reread]
   Q -->|approved gap only| P[policy + lease + provider]
   P --> W[receipt + Tx A/B publication]
   W --> R
@@ -280,11 +280,11 @@ flowchart LR
 ```
 
 1. 先从 current user 生成 principal，并执行 `require_read_data`。无权返回 403，且不会读取 capability、contract、catalog、identity、calendar、事实或 provider。
-2. 再读取 effective v2 capability。query capability 缺失、关闭、过期、格式错误或无法验证时返回 HTTP 503；不得降级到当前直接 AkShare 路径、legacy warehouse 或 `MarketInstrumentService`。
+2. 再读取 effective v2 capability。query capability 缺失、关闭、过期、格式错误或无法验证时返回 HTTP 503；不得降级到直接 AkShare 路径、legacy warehouse 或 `MarketInstrumentService`。
 3. server-owned resolver 将 legacy display token 解析为唯一的 frozen identity，并签发 exact `qfq` contract。解析不允许通过 suffix、代码前缀、默认市场或相邻标的猜测 identity。family/version pair、contract、route、字段 profile 或 binding 任一缺失/不匹配均返回 HTTP 503；旧 `stock.realtime / market-data-family-v1` binding 不能被解释为新 K 线 binding。
 4. 日期参数只在 `Asia/Shanghai` legacy date-profile 成立时才能构造 v2 UTC 半开窗口：daily 为 `[start@00:00, (end+1 calendar day)@00:00)` 的 inclusive `start/end` 标签、366 日上限；weekly 为 `[start@00:00, (end+1 calendar day)@00:00)` 的周一至周日、260 完整周上限；monthly 为 `[start@00:00, (end 所在月的下月 1 日)@00:00)` 的月初至月末、120 完整月上限；以上时间先按 `Asia/Shanghai` 构造后转 UTC。无效 period、日期、日期顺序、日期标签、无法对齐的窗口或超限均为 HTTP 422；桥接不会静默归一为日线、裁剪范围或拉取下一页。
-5. 唯一的数据执行入口是带 `MarketDataQueryAccess` 的 v2 `local_first` service。完整本地覆盖直接返回已发布 observation；缺口只可由 capability、source policy、route preflight 和 durable lease 全部允许的 provider route 补齐。成功路径必须保存 receipt、在事务 A/B 发布后从本地重读。provider 内存 DTO 不能成为 HTTP 响应。
-6. projection 在重读后检查每条 observation 的完整 OHLCV、`change_pct`、统一 field quality、同一 contract 语义、coverage=`complete`，且 response 的无重复 canonical event-key 序列与 `coverage.accepted_event_keys` 精确相等。首个 v2 请求必须无 cursor；只有它在一页覆盖完整 server-owned legacy window 且 `next_cursor=null` 时，才按 `Asia/Shanghai` 日期严格递增且无重复生成既有 `dates`、`ohlc=[open, close, low, high]`、`volumes` 和 `records`。每个 accepted event 恰一行，所有数组长度与 `count` 相等、同索引 record/array 完全对应，OHLC/change 为两位小数 JSON number、change 为百分比点，volume 为非负 exact safe integer。若任一检查失败，返回结构化 HTTP 503，不返回部分行、截断结果或伪造 `change`。
+5. 唯一的数据执行入口是带 `MarketDataQueryAccess` 的 v2 `local_first` service。完整本地覆盖直接返回已发布 observation；缺口只可由 capability、source policy、route preflight 和 durable lease 全部允许的 provider route 补齐。无论是否补齐，bridge 都以同一 sealed request 再做 `local_only` reread；成功的 gap 路径先保存 receipt，再经事务 A/B publication。provider 内存 DTO 不能成为 HTTP 响应。
+6. projection 在重读后检查完整 OHLCV、`change_pct`、统一 field quality、同一 contract 语义、coverage=`complete`、`expected_event_keys == accepted_event_keys`、无 missing key/coverage gap，并验证全部 accepted event 落在 sealed window 内；response 的无重复 canonical event-key 序列还必须与 `coverage.accepted_event_keys` 精确相等。首个 v2 请求必须无 cursor；只有它在一页覆盖完整 server-owned legacy window 且 `next_cursor=null` 时，才按 `Asia/Shanghai` 日期严格递增且无重复生成既有 `dates`、`ohlc=[open, close, low, high]`、`volumes` 和 `records`。每个 accepted event 恰一行，所有数组长度与 `count` 相等、同索引 record/array 完全对应，OHLC/change 按 `ROUND_HALF_UP` 生成两位小数 JSON number、change 为百分比点且无 signed zero，volume 为非负 exact safe integer。若任一检查失败，返回结构化 HTTP 503，不返回部分行、截断结果或伪造 `change`。
 
 错误边界必须稳定且可观察：权限拒绝为 403；客户端日期/period、`Asia/Shanghai` date-profile、window/page 上限输入为 422；capability、family/version pair、contract、route、calendar、coverage、accepted-event-key 精确性、字段质量、序列化不变量、publication、首请求 cursor 或 legacy pagination 无法满足时为 503。普通“本次 provider 没有立即给出行”不能再被转换为 404 后绕过 provenance；它只能按 v2 coverage/route 结果失败关闭。实现与测试不得直接 import/call `akshare`，不得以 `MarketInstrumentService`、遗留专表或任何相近标的作为 fallback。
 

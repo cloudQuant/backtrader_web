@@ -92,9 +92,13 @@ class MarketDataProviderRoute:
     units: frozenset[str | None]
     adapter: MarketDataProvider
     # Retained routes that predate the public family binding may leave this
-    # unset. A permit-derived route must set one exact family so a similarly
-    # shaped product cannot reach the provider by sharing asset/market axes.
+    # pair unset. A family-bound route must declare the exact family *and*
+    # contract version so a similarly shaped product cannot reach the provider
+    # by sharing asset/market axes.
     family_id: str | None = None
+    # A route may bind an exact product revision as well as its family ID.
+    # Retained generic routes leave both values unset until migrated.
+    family_contract_version: str | None = None
     # This is a server-owned adapter dispatch token. It is copied to the
     # signed provider DTO; callers never select it through a public request.
     provider_endpoint: str | None = None
@@ -160,11 +164,25 @@ class MarketDataProviderRoute:
             "units",
             _semantic_capability_set(self.units, field_name="unit"),
         )
+        if (self.family_id is None) != (self.family_contract_version is None):
+            raise ValueError(
+                "family_id and family_contract_version must be supplied together"
+            )
         if self.family_id is not None:
             object.__setattr__(
                 self,
                 "family_id",
                 _nonempty_text(self.family_id, field_name="family_id"),
+            )
+        if self.family_contract_version is not None:
+            object.__setattr__(
+                self,
+                "family_contract_version",
+                _nonempty_text(
+                    self.family_contract_version,
+                    field_name="family_contract_version",
+                    maximum=64,
+                ),
             )
         if self.provider_endpoint is not None:
             object.__setattr__(
@@ -212,6 +230,11 @@ class MarketDataProviderRoute:
             and (
                 self.family_id is None
                 or getattr(context.query, "family_id", None) == self.family_id
+            )
+            and (
+                self.family_contract_version is None
+                or getattr(context.query, "family_contract_version", None)
+                == self.family_contract_version
             )
             and (self.product_types is None or product_type in self.product_types)
             and (self.fund_identity_kinds is None or fund_identity_kind in self.fund_identity_kinds)

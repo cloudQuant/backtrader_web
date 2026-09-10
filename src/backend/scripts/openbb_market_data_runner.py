@@ -82,6 +82,7 @@ class _RunnerRuntimeRoutePermit:
 
     route_id: str
     family_id: str
+    family_contract_version: str
     provider: str
     asset_type: str
     market: str
@@ -98,6 +99,7 @@ class _RunnerRuntimeRoutePermit:
         return (
             request.get("route_id") == self.route_id
             and request.get("family_id") == self.family_id
+            and request.get("family_contract_version") == self.family_contract_version
             and request.get("provider") == self.provider
             and request.get("asset_type") == self.asset_type
             and request.get("market") == self.market
@@ -206,6 +208,7 @@ def _manifest_route_permit(value: object) -> _RunnerRuntimeRoutePermit:
     return _RunnerRuntimeRoutePermit(
         route_id=_manifest_text(value.get("route_id")),
         family_id=_manifest_text(value.get("family_id")),
+        family_contract_version=_manifest_text(value.get("family_contract_version")),
         provider=_manifest_text(value.get("provider")),
         asset_type=_manifest_text(value.get("asset_type")),
         market=_manifest_text(value.get("market")),

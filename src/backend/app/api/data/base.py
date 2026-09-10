@@ -6,24 +6,50 @@ import logging
 import typing
 from datetime import date
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.data.deps import (
+    get_authorized_market_data_access,
     get_market_data_access_authorizer,
 )
 from app.api.data.queries import (
     evaluate_market_data_capabilities,
+    execute_market_data_query_with_singleflight,
     get_market_data_capability_evaluation,
+    get_market_data_query_service,
 )
 from app.api.deps import get_current_user
 from app.config import get_settings
 from app.db.database import get_db
-from app.services.market_data.access import MarketDataAccessAuthorizer, MarketDataAuthorizationError
+from app.services.market_data.access import (
+    MarketDataAccessAuthorizer,
+    MarketDataAuthorizationError,
+    MarketDataQueryAccess,
+)
 from app.services.market_data.capability_ledger import MarketDataCapabilityEvaluation
-from app.services.market_data.dataset_contracts import DatasetContractRegistryError
+from app.services.market_data.dataset_contracts import (
+    KLINE_LEGACY_FAMILY_ID,
+    DatasetContractRegistryError,
+)
+from app.services.market_data.identity import MarketDataIdentityResolutionError
 from app.services.market_data.legacy_contract import LegacyMarketDataQueryContractResolver
+from app.services.market_data.legacy_kline_bridge import execute_legacy_kline_local_first
+from app.services.market_data.legacy_kline_projection import (
+    LegacyKlineBridgeError,
+    LegacyKlineInputError,
+    LegacyKlineRequest,
+    parse_legacy_kline_request,
+)
+from app.services.market_data.query_resolution import MarketDataQueryResolutionError
+from app.services.market_data.query_service import (
+    MarketDataCursorBinding,
+    MarketDataQueryService,
+    MarketDataQueryServiceError,
+)
+from app.services.market_data.source_policy import MarketDataSourcePolicyError
+from app.services.market_data.store import MarketDataStoreError
 from app.services.market_instrument import (
     LegacyMarketDataOnlineRefreshDisabledError,
     MarketAssetType,
@@ -32,6 +58,21 @@ from app.services.market_instrument import (
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+# The K-line facade reserves HTTP 403 for the caller's current data-read
+# entitlement. Source-route, license, and provider-policy decisions are
+# server-side availability/governance failures for this compatibility path and
+# must remain fail-closed 503 responses rather than being misreported as a
+# missing user grant.
+_KLINE_DATA_READ_DENIAL_CODES = frozenset(
+    {
+        "MARKET_DATA_ACCESS_CHANGED_DURING_FETCH",
+        "MARKET_DATA_ACCESS_REQUIRED",
+        "MARKET_DATA_PRINCIPAL_INVALID",
+        "MARKET_DATA_PRINCIPAL_REVOKED",
+        "MARKET_DATA_READ_ENTITLEMENT_DENIED",
+    }
+)
 
 
 def get_market_instrument_service() -> MarketInstrumentService:
@@ -107,6 +148,15 @@ async def get_market_data_query_contract(
             status_code=503,
             detail={"code": "MARKET_DATA_QUERY_V2_DISABLED"},
         )
+    # The K-line family is private to the server-owned compatibility facade.
+    # Reject it at the public control-plane boundary rather than delegating to
+    # the resolver, which keeps its private-product rejection from looking
+    # like an ordinary invalid public family selector.
+    if family_id == KLINE_LEGACY_FAMILY_ID:
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "MARKET_DATA_PRIVATE_FAMILY"},
+        )
     try:
         resolve_args: dict[str, str] = {
             "asset_type": asset_type,
@@ -137,98 +187,104 @@ async def get_market_data_query_contract(
     return contract
 
 
-@router.get("/kline", summary="Query K-line data", response_model=None)
-async def get_kline_data(
+def get_legacy_kline_request(
+    http_request: Request,
+    _access: MarketDataQueryAccess = Depends(get_authorized_market_data_access),
     symbol: str = Query(..., description="Stock code, e.g., 000001.SZ"),
     start_date: str = Query(..., description="Start date YYYY-MM-DD"),
     end_date: str = Query(..., description="End date YYYY-MM-DD"),
     period: str = Query("daily", description="Period: daily/weekly/monthly"),
-    current_user: typing.Any = Depends(get_current_user),
+) -> LegacyKlineRequest:
+    """Validate the selector only after the current data-read authorization."""
+    allowed_keys = {"symbol", "start_date", "end_date", "period"}
+    query_keys = set(http_request.query_params.keys())
+    if query_keys - allowed_keys or any(
+        len(http_request.query_params.getlist(key)) != 1 for key in query_keys
+    ):
+        raise HTTPException(status_code=422, detail={"code": "KLINE_REQUEST_INVALID"})
+    try:
+        return parse_legacy_kline_request(
+            symbol=symbol,
+            start_date=start_date,
+            end_date=end_date,
+            period=period,
+        )
+    except LegacyKlineInputError as exc:
+        raise HTTPException(status_code=422, detail={"code": exc.code}) from exc
+
+
+@router.get("/kline", summary="Query K-line data", response_model=None)
+async def get_kline_data(
+    request: LegacyKlineRequest = Depends(get_legacy_kline_request),
+    access: MarketDataQueryAccess = Depends(get_authorized_market_data_access),
+    db: AsyncSession = Depends(get_db),
+    capabilities: MarketDataCapabilityEvaluation = Depends(get_market_data_capability_evaluation),
+    service: MarketDataQueryService = Depends(get_market_data_query_service),
+    query_contracts: LegacyMarketDataQueryContractResolver = Depends(
+        get_legacy_market_data_query_contract_resolver
+    ),
 ) -> typing.Any:
-    """Fetch A-share kline OHLCV data via AkShare.
+    """Return the legacy K-line wire shape from a governed local reread only.
 
-    Args:
-        symbol: Stock code (e.g., 000001.SZ).
-        start_date: Start date in YYYY-MM-DD format.
-        end_date: End date in YYYY-MM-DD format.
-        period: Data period (daily/weekly/monthly).
-
-    Returns:
-        A payload containing `kline` arrays and a flat `records` list for UI display.
+    The first execution may fill an approved, bounded gap through the normal
+    v2 service.  It is never projected directly: a new ``local_only``
+    execution must return the exact persisted event keys before the response
+    can be formed.
     """
-    import akshare as ak
+    if not capabilities.response.query_v2_enabled:
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "MARKET_DATA_QUERY_V2_DISABLED"},
+        )
 
-    code = symbol.split(".")[0]
-    start_str = start_date.replace("-", "")
-    end_str = end_date.replace("-", "")
+    binding = MarketDataCursorBinding(
+        principal_scope=access.principal.principal_scope,
+        tenant_scope=access.principal.tenant_scope,
+        entitlement_revision=access.principal.entitlement_revision,
+    )
+
+    async def execute_local_first(query: typing.Any) -> typing.Any:
+        return await execute_market_data_query_with_singleflight(
+            service=service,
+            db=db,
+            request=query,
+            cursor_binding=binding,
+            access=access,
+        )
+
+    async def execute_local_only(query: typing.Any) -> typing.Any:
+        return await service.execute(
+            query,
+            cursor_binding=binding,
+            access=access,
+        )
 
     try:
-        df = ak.stock_zh_a_hist(
-            symbol=code,
-            period=period,
-            start_date=start_str,
-            end_date=end_str,
-            adjust="qfq",
-            timeout=10,
+        return await execute_legacy_kline_local_first(
+            request=request,
+            contract_resolver=query_contracts,
+            execute_local_first=execute_local_first,
+            execute_local_only=execute_local_only,
         )
-
-        if df.empty:
-            raise HTTPException(status_code=404, detail=f"No data retrieved for {symbol}")
-
-        # akshare returns Chinese column names, rename to English
-        df = df.rename(
-            columns={
-                "日期": "date",  # Date
-                "开盘": "open",  # Open
-                "最高": "high",  # High
-                "最低": "low",  # Low
-                "收盘": "close",  # Close
-                "成交量": "volume",  # Volume
-                "涨跌幅": "change_pct",  # Change percentage
-            }
-        )
-
-        records = []
-        dates = []
-        ohlc = []
-        volumes = []
-
-        for _, row in df.iterrows():
-            d = str(row["date"])
-            dates.append(d)
-            o = round(float(row["open"]), 2)
-            h = round(float(row["high"]), 2)
-            low = round(float(row["low"]), 2)
-            c = round(float(row["close"]), 2)
-            v = int(row["volume"])
-            change = round(float(row.get("change_pct", 0)), 2)
-
-            ohlc.append([o, c, low, h])
-            volumes.append(v)
-            records.append(
-                {
-                    "date": d,
-                    "open": o,
-                    "high": h,
-                    "low": low,
-                    "close": c,
-                    "volume": v,
-                    "change": change,
-                }
-            )
-
-        return {
-            "symbol": symbol,
-            "count": len(records),
-            "kline": {"dates": dates, "ohlc": ohlc, "volumes": volumes},
-            "records": records,
-        }
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Failed to fetch market data: {symbol}, {e}")
-        raise HTTPException(status_code=500, detail=f"Query failed: {e}") from e
+    except MarketDataAuthorizationError as exc:
+        await db.rollback()
+        response_status = 403 if exc.code in _KLINE_DATA_READ_DENIAL_CODES else 503
+        raise HTTPException(status_code=response_status, detail={"code": exc.code}) from exc
+    except (
+        LegacyKlineBridgeError,
+        DatasetContractRegistryError,
+        MarketDataIdentityResolutionError,
+        MarketDataQueryResolutionError,
+        MarketDataSourcePolicyError,
+        MarketDataQueryServiceError,
+        MarketDataStoreError,
+    ) as exc:
+        await db.rollback()
+        code = getattr(exc, "code", "KLINE_QUERY_FAILED")
+        raise HTTPException(status_code=503, detail={"code": code}) from exc
+    except SQLAlchemyError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=503, detail={"code": "MARKET_DATA_WRITE_FAILED"}) from exc
 
 
 @router.get(

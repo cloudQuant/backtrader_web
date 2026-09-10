@@ -82,6 +82,8 @@ class QueryIdentity:
     price_basis: str | None = None
     currency: str | None = None
     unit: str | None = None
+    family_id: str | None = None
+    family_contract_version: str | None = None
 
     def __post_init__(self) -> None:
         for field_name in (
@@ -95,10 +97,19 @@ class QueryIdentity:
             "source_policy_id",
         ):
             _require_nonempty_string(field_name, getattr(self, field_name))
-        for field_name in ("adjustment", "price_basis", "currency", "unit"):
+        for field_name in (
+            "adjustment",
+            "price_basis",
+            "currency",
+            "unit",
+            "family_id",
+            "family_contract_version",
+        ):
             value = getattr(self, field_name)
             if value is not None:
                 _require_nonempty_string(field_name, value)
+        if (self.family_id is None) != (self.family_contract_version is None):
+            raise ValueError("family_id and family_contract_version must be specified together")
 
 
 @dataclass(frozen=True, slots=True, order=True)

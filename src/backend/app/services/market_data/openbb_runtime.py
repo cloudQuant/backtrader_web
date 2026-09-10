@@ -29,6 +29,7 @@ class OpenBBRuntimeRoutePermit:
 
     route_id: str
     family_id: str
+    family_contract_version: str
     provider: str
     asset_type: str
     market: str
@@ -79,6 +80,9 @@ def _manifest_permit(value: object) -> OpenBBRuntimeRoutePermit:
     return OpenBBRuntimeRoutePermit(
         route_id=_manifest_text(value.get("route_id"), field_name="route_id"),
         family_id=_manifest_text(value.get("family_id"), field_name="family_id"),
+        family_contract_version=_manifest_text(
+            value.get("family_contract_version"), field_name="family_contract_version"
+        ),
         provider=_manifest_text(value.get("provider"), field_name="provider"),
         asset_type=_manifest_text(value.get("asset_type"), field_name="asset_type"),
         market=_manifest_text(value.get("market"), field_name="market"),

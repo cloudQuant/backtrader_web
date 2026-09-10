@@ -54,6 +54,7 @@ CFFEX_SETTLEMENT_PROVIDER_ENDPOINT = "futures_hist_daily_cffex"
 CFFEX_SETTLEMENT_REQUIRED_FIELDS = frozenset({"settle", "previous_settle", "open_interest"})
 CFFEX_SETTLEMENT_DATASET_CODE = "market.settlement"
 CFFEX_SETTLEMENT_FAMILY_ID = "futures.settlement"
+CFFEX_SETTLEMENT_FAMILY_CONTRACT_VERSION = "market-data-family-v1"
 CFFEX_SETTLEMENT_MARKET = "CFFEX"
 CFFEX_SETTLEMENT_SOURCE_POLICY_ID = "market-cffex-settlement-batch-v1"
 CFFEX_SETTLEMENT_ADJUSTMENT = "unadjusted"
@@ -722,6 +723,7 @@ def _assert_target_context(
         or query.start != expected_start
         or query.end != expected_end
         or query.family_id != CFFEX_SETTLEMENT_FAMILY_ID
+        or query.family_contract_version != CFFEX_SETTLEMENT_FAMILY_CONTRACT_VERSION
         or query.adjustment != CFFEX_SETTLEMENT_ADJUSTMENT
         or query.price_basis != CFFEX_SETTLEMENT_PRICE_BASIS
         or query.currency != CFFEX_SETTLEMENT_CURRENCY
@@ -1099,11 +1101,10 @@ def _provider_result_for_target(
         currency=context.query.currency,
         unit=context.query.unit,
         source_policy_id=context.query.source_policy_id,
-        # Preserve the frozen internal context exactly. The collector may be
-        # invoked with an unbound internal request while the public family
-        # remains deliberately unconfigured; a provider receipt must not
-        # invent a public family binding the caller did not resolve.
+        # Preserve the frozen family binding exactly; a provider receipt must
+        # not invent a family revision the collector did not resolve.
         family_id=context.query.family_id,
+        family_contract_version=context.query.family_contract_version,
         provider_endpoint=plan.source_descriptor.endpoint,
     )
     raw_payload = {

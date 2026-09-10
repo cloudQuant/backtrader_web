@@ -185,6 +185,8 @@ def _context(request: MarketDataQueryRequest | None = None) -> ResolvedMarketDat
             price_basis="close",
             currency="CNY",
             unit="share",
+            family_id=query.family_id,
+            family_contract_version=query.family_contract_version,
         ),
     )
 
@@ -1467,6 +1469,7 @@ def test_provider_request_binds_the_resolved_family_and_server_endpoint() -> Non
     route = replace(
         _route(_Provider(_provider_result()), request_provider="yfinance"),
         family_id="stock.realtime",
+        family_contract_version="market-data-family-v1",
         provider_endpoint="equity.price.historical",
     )
 
@@ -1478,17 +1481,68 @@ def test_provider_request_binds_the_resolved_family_and_server_endpoint() -> Non
     )
 
     assert provider_request.family_id == "stock.realtime"
+    assert provider_request.family_contract_version == "market-data-family-v1"
     assert provider_request.provider_endpoint == "equity.price.historical"
     assert provider_request.product_type == "EQUITY"
     assert provider_request.fund_identity_kind is None
     assert provider_request.dto_payload["family_id"] == "stock.realtime"
+    assert provider_request.dto_payload["family_contract_version"] == "market-data-family-v1"
     assert provider_request.dto_payload["provider_endpoint"] == "equity.price.historical"
     assert provider_request.dto_payload["product_type"] == "EQUITY"
     assert provider_request.dto_payload["fund_identity_kind"] is None
     with pytest.raises(MarketDataQueryServiceError, match="SOURCE_POLICY_ROUTE_FAMILY_MISMATCH"):
         _provider_request_for(
             family_bound_context,
-            replace(route, family_id="stock.valuation"),
+            replace(
+                route,
+                family_id="stock.valuation",
+                family_contract_version="market-data-family-v1",
+            ),
+            policy_descriptor_hash="b" * 64,
+            access_grant_descriptor_hash="c" * 64,
+        )
+
+
+def test_private_kline_pair_propagates_from_coverage_to_the_provider_receipt() -> None:
+    """The dedicated K-line route admits only its exact family/revision pair."""
+    from app.services.market_data.query_service import _provider_request_for
+
+    request = MarketDataQueryRequest.model_validate(
+        {
+            **_request().model_dump(mode="json"),
+            "family_id": "stock.kline_legacy",
+            "family_contract_version": "market-data-kline-v1",
+            "required_fields": ["open", "high", "low", "close", "volume", "change_pct"],
+        }
+    )
+    context = _context(request)
+    route = replace(
+        _route(_Provider(_provider_result()), request_provider="akshare"),
+        route_id="akshare-stock-kline-legacy-v1",
+        family_id="stock.kline_legacy",
+        family_contract_version="market-data-kline-v1",
+        provider_endpoint="stock_zh_a_hist",
+    )
+
+    provider_request = _provider_request_for(
+        context,
+        route,
+        policy_descriptor_hash="b" * 64,
+        access_grant_descriptor_hash="c" * 64,
+    )
+
+    assert route.supports(context)
+    assert context.coverage_identity.family_id == "stock.kline_legacy"
+    assert context.coverage_identity.family_contract_version == "market-data-kline-v1"
+    assert provider_request.family_id == "stock.kline_legacy"
+    assert provider_request.family_contract_version == "market-data-kline-v1"
+    assert provider_request.provider_symbol == "600000"
+    assert provider_request.dto_payload["family_id"] == "stock.kline_legacy"
+    assert provider_request.dto_payload["family_contract_version"] == "market-data-kline-v1"
+    with pytest.raises(MarketDataQueryServiceError, match="SOURCE_POLICY_ROUTE_FAMILY_VERSION_MISMATCH"):
+        _provider_request_for(
+            context,
+            replace(route, family_contract_version="market-data-family-v1"),
             policy_descriptor_hash="b" * 64,
             access_grant_descriptor_hash="c" * 64,
         )
@@ -1505,6 +1559,7 @@ def test_policy_descriptor_hash_binds_permit_family_and_endpoint() -> None:
     route = replace(
         _route(_Provider(_provider_result()), request_provider="yfinance"),
         family_id="stock.realtime",
+        family_contract_version="market-data-family-v1",
         provider_endpoint="equity.price.historical",
     )
 
@@ -1518,7 +1573,22 @@ def test_policy_descriptor_hash_binds_permit_family_and_endpoint() -> None:
     baseline = _policy_descriptor_hash(policy_for(route))
 
     assert baseline != _policy_descriptor_hash(
-        policy_for(replace(route, family_id="stock.valuation"))
+        policy_for(
+            replace(
+                route,
+                family_id="stock.valuation",
+                family_contract_version="market-data-family-v1",
+            )
+        )
+    )
+    assert baseline != _policy_descriptor_hash(
+        policy_for(
+            replace(
+                route,
+                family_id="stock.kline_legacy",
+                family_contract_version="market-data-kline-v1",
+            )
+        )
     )
     assert baseline != _policy_descriptor_hash(
         policy_for(replace(route, provider_endpoint="etf.historical"))

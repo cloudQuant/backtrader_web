@@ -22,6 +22,8 @@ from app.schemas.market_data_platform import (
 _ASSET_TYPES = frozenset({"stock", "futures", "bond", "fund", "option", "fx", "crypto"})
 _BAR_FREQUENCIES = frozenset({"5min", "30min", "1h", "1d", "1w", "1mo"})
 FAMILY_CONTRACT_VERSION = "market-data-family-v1"
+KLINE_LEGACY_FAMILY_ID = "stock.kline_legacy"
+KLINE_LEGACY_CONTRACT_VERSION = "market-data-kline-v1"
 _SEMANTIC_AXIS_NAMES = frozenset({"adjustment", "price_basis", "currency", "unit"})
 _REQUIRED_FAMILY_IDS = frozenset(
     {
@@ -47,6 +49,10 @@ _REQUIRED_FAMILY_IDS = frozenset(
         "crypto.cme_position",
         "crypto.range",
     }
+)
+_PRIVATE_FAMILY_IDS = frozenset({KLINE_LEGACY_FAMILY_ID})
+_SUPPORTED_FAMILY_CONTRACT_VERSIONS = frozenset(
+    {FAMILY_CONTRACT_VERSION, KLINE_LEGACY_CONTRACT_VERSION}
 )
 
 
@@ -145,6 +151,11 @@ class DatasetContract:
     source_policy_id: str | None = None
     reason_code: str | None = None
     semantic_binding: DatasetSemanticBinding | None = None
+    # A private contract is executable only through a server-owned compatibility
+    # bridge. It is intentionally absent from the market-page family bundle so
+    # a browser cannot select it as a replacement for a page data product.
+    bundle_visible: bool = True
+    family_contract_version: str = FAMILY_CONTRACT_VERSION
 
     def to_response(
         self,
@@ -164,7 +175,7 @@ class DatasetContract:
             _assert_ready_family_shape(self)
         return MarketDataFamilyContractResponse(
             family_id=self.family_id,
-            family_contract_version=FAMILY_CONTRACT_VERSION,
+            family_contract_version=self.family_contract_version,
             asset_type=self.asset_type,
             status=status,
             dataset_code=self.dataset_code,
@@ -198,6 +209,7 @@ class _ReadyFamilyShape:
     required_fields: tuple[str, ...]
     coverage_model: str
     semantic_binding: DatasetSemanticBinding | None = None
+    family_contract_version: str = FAMILY_CONTRACT_VERSION
 
     def matches(self, contract: DatasetContract) -> bool:
         """Return whether all material product axes remain exactly reviewed."""
@@ -209,6 +221,7 @@ class _ReadyFamilyShape:
             and contract.field_profile.required_fields == self.required_fields
             and contract.coverage_model == self.coverage_model
             and contract.semantic_binding == self.semantic_binding
+            and contract.family_contract_version == self.family_contract_version
         )
 
 
@@ -220,6 +233,21 @@ class _ReadyFamilyShape:
 # only after its complete product-specific provider, bridge, and page gates
 # have been reviewed.
 _READY_FAMILY_SHAPES: dict[str, _ReadyFamilyShape] = {
+    KLINE_LEGACY_FAMILY_ID: _ReadyFamilyShape(
+        "market.bars",
+        "bars",
+        "calendar_grid",
+        ("1d", "1w", "1mo"),
+        ("open", "high", "low", "close", "volume", "change_pct"),
+        "calendar_grid",
+        DatasetSemanticBinding(
+            adjustment="qfq",
+            price_basis="close",
+            currency="CNY",
+            unit="share",
+        ),
+        KLINE_LEGACY_CONTRACT_VERSION,
+    ),
     "stock.realtime": _ReadyFamilyShape(
         "market.bars",
         "bars",
@@ -398,15 +426,21 @@ class DatasetContractRegistry:
 
     def __init__(self, contracts: Iterable[DatasetContract]) -> None:
         normalized = tuple(contracts)
-        if len(normalized) != len(_REQUIRED_FAMILY_IDS):
+        public_contracts = tuple(contract for contract in normalized if contract.bundle_visible)
+        private_contracts = tuple(contract for contract in normalized if not contract.bundle_visible)
+        if len(public_contracts) != len(_REQUIRED_FAMILY_IDS):
             raise ValueError("dataset registry must declare every current market-page family")
         if any(not isinstance(contract, DatasetContract) for contract in normalized):
             raise TypeError("dataset registry entries must be DatasetContract values")
+        if any(not isinstance(contract.bundle_visible, bool) for contract in normalized):
+            raise TypeError("dataset registry bundle visibility must be a bool")
         family_ids = [contract.family_id for contract in normalized]
         if len(family_ids) != len(set(family_ids)):
             raise ValueError("dataset registry family IDs must be unique")
-        if frozenset(family_ids) != _REQUIRED_FAMILY_IDS:
+        if frozenset(contract.family_id for contract in public_contracts) != _REQUIRED_FAMILY_IDS:
             raise ValueError("dataset registry family IDs do not match the market-page contract")
+        if frozenset(contract.family_id for contract in private_contracts) != _PRIVATE_FAMILY_IDS:
+            raise ValueError("dataset registry private family IDs do not match the compatibility contract")
         if any(contract.asset_type not in _ASSET_TYPES for contract in normalized):
             raise ValueError("dataset registry uses an unsupported asset type")
         for contract in normalized:
@@ -420,7 +454,7 @@ class DatasetContractRegistry:
         by_asset_type: dict[str, tuple[DatasetContract, ...]] = {}
         for asset_type in sorted(_ASSET_TYPES):
             asset_contracts = tuple(
-                contract for contract in normalized if contract.asset_type == asset_type
+                contract for contract in public_contracts if contract.asset_type == asset_type
             )
             if len(asset_contracts) != 3:
                 raise ValueError(
@@ -438,7 +472,7 @@ class DatasetContractRegistry:
             )
         else:
             contract = self._by_id.get(request.family_id)
-            if contract is None:
+            if contract is None or not contract.bundle_visible:
                 raise DatasetContractRegistryError("DATA_FAMILY_UNSUPPORTED")
             if contract.asset_type == request.asset_type:
                 families = (contract.to_response(),)
@@ -483,11 +517,13 @@ class DatasetContractRegistry:
         version, and executable lifecycle; the exact asset type is verified
         after canonical identity resolution in ``assert_query_binding``.
         """
-        if family_contract_version != FAMILY_CONTRACT_VERSION:
+        if family_contract_version not in _SUPPORTED_FAMILY_CONTRACT_VERSIONS:
             raise DatasetContractRegistryError("DATA_FAMILY_CONTRACT_VERSION_UNSUPPORTED")
         contract = self._by_id.get(family_id)
         if contract is None:
             raise DatasetContractRegistryError("DATA_FAMILY_UNSUPPORTED")
+        if family_contract_version != contract.family_contract_version:
+            raise DatasetContractRegistryError("DATA_FAMILY_CONTRACT_VERSION_UNSUPPORTED")
         if contract.status != "ready" or contract.source_policy_id is None:
             raise DatasetContractRegistryError("DATA_FAMILY_UNCONFIGURED")
 
@@ -516,8 +552,10 @@ class DatasetContractRegistry:
         issued for that product.  This check runs after canonical identity
         resolution so the declared asset type is independently established.
         """
-        if family_contract_version != FAMILY_CONTRACT_VERSION:
-            raise DatasetContractRegistryError("DATA_FAMILY_CONTRACT_VERSION_UNSUPPORTED")
+        self.assert_executable_family_preflight(
+            family_id=family_id,
+            family_contract_version=family_contract_version,
+        )
         contract = self.ready_contract_for(family_id=family_id, asset_type=asset_type)
         if (
             dataset_code != contract.dataset_code
@@ -560,6 +598,29 @@ def _profile(
 # range products advance only when their own dataset, provider route, semantic
 # defaults, and legacy-page bridge are all bound to the same family ID.
 _CONTRACTS: tuple[DatasetContract, ...] = (
+    DatasetContract(
+        KLINE_LEGACY_FAMILY_ID,
+        "stock",
+        "ready",
+        "market.bars",
+        "bars",
+        "calendar_grid",
+        ("1d", "1w", "1mo"),
+        _profile(
+            "stock-kline-legacy-v1",
+            ("open", "high", "low", "close", "volume", "change_pct"),
+        ),
+        "calendar_grid",
+        source_policy_id="market-default-v1",
+        semantic_binding=DatasetSemanticBinding(
+            adjustment="qfq",
+            price_basis="close",
+            currency="CNY",
+            unit="share",
+        ),
+        bundle_visible=False,
+        family_contract_version=KLINE_LEGACY_CONTRACT_VERSION,
+    ),
     DatasetContract(
         "stock.realtime",
         "stock",
@@ -903,6 +964,8 @@ DEFAULT_DATASET_CONTRACT_REGISTRY = DatasetContractRegistry(_CONTRACTS)
 __all__ = [
     "DEFAULT_DATASET_CONTRACT_REGISTRY",
     "FAMILY_CONTRACT_VERSION",
+    "KLINE_LEGACY_CONTRACT_VERSION",
+    "KLINE_LEGACY_FAMILY_ID",
     "DatasetContract",
     "DatasetContractRegistry",
     "DatasetContractRegistryError",
