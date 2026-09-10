@@ -25,6 +25,7 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Literal, Protocol
 
+from app.services.market_data.multi_record import normalize_record_dimensions
 from app.services.market_data.shared_payload import SharedSourcePayloadSegment
 
 OPENBB_RUNNER_PROTOCOL_VERSION = "openbb-market-data-v1"
@@ -428,6 +429,10 @@ class ProviderMarketObservation:
     event_at: datetime
     available_at: datetime
     fields: Mapping[str, Any]
+    # This is deliberately dimensions only: the Store, rather than a provider
+    # adapter or external caller, derives the canonical semantic key and its
+    # digest after it binds the exact family contract.
+    record_dimensions: Mapping[str, Any] | None = None
 
     def __post_init__(self) -> None:
         event_at = _as_utc(self.event_at, field_name="event_at")
@@ -442,9 +447,23 @@ class ProviderMarketObservation:
             normalized_fields[normalized_field_name] = value
         if not normalized_fields:
             raise ValueError("provider observation fields must not be empty")
+        normalized_dimensions: Mapping[str, object] | None = None
+        if self.record_dimensions is not None:
+            if not isinstance(self.record_dimensions, Mapping):
+                raise TypeError("record_dimensions must be a mapping or None")
+            # Record dimensions become part of the durable server-derived
+            # identity later in Store. Unlike ordinary field payloads, they
+            # must not retain nested caller-owned dict/list references between
+            # DTO construction and persistence.
+            normalized_dimensions = normalize_record_dimensions(self.record_dimensions)
         object.__setattr__(self, "event_at", event_at)
         object.__setattr__(self, "available_at", available_at)
         object.__setattr__(self, "fields", MappingProxyType(normalized_fields))
+        object.__setattr__(
+            self,
+            "record_dimensions",
+            normalized_dimensions,
+        )
 
 
 @dataclass(frozen=True, slots=True)

@@ -39,6 +39,16 @@ from app.models.identifier_types import exact_identifier_string
 
 _SHA256_LENGTH = 64
 _CALENDAR_COVERAGE_PAYLOAD_KEY = "coverage"
+# B2's only legacy-compatible record identity is a server-owned singleton.
+# It intentionally does not derive from ``source_record_key``, which remains
+# opaque upstream trace metadata.  Multi-record writers must provide a
+# normalized semantic key/hash pair instead of accepting caller input as-is.
+SINGLE_RECORD_SEMANTIC_KEY_CANONICAL_JSON = (
+    '{"record_identity_contract_version":"market-data-semantic-record-key-v1","scope":"singleton"}'
+)
+SINGLE_RECORD_SEMANTIC_KEY_SHA256 = (
+    "98220d1065fb50740a858df25f884573e8c6aea554b05a3268ed4d1fd621d08e"
+)
 # These states are intentionally stored in relational columns rather than
 # inferred from a caller-controlled JSON blob.  A current v2 source grant can
 # therefore exclude compatibility/legacy receipts before they participate in
@@ -841,8 +851,17 @@ class MdObservationRevision(Base):
         UniqueConstraint(
             "series_id",
             "event_time",
+            "semantic_record_key_sha256",
             "revision_number",
-            name="uq_md_observation_revision_series_event_number",
+            name="uq_md_observation_revision_series_event_record_number",
+        ),
+        CheckConstraint(
+            "length(semantic_record_key) > 0",
+            name="ck_md_observation_revision_semantic_record_key_nonempty",
+        ),
+        CheckConstraint(
+            f"length(semantic_record_key_sha256) = {_SHA256_LENGTH}",
+            name="ck_md_observation_revision_semantic_record_key_sha256_length",
         ),
         CheckConstraint(
             f"length(fields_sha256) = {_SHA256_LENGTH}",
@@ -860,6 +879,13 @@ class MdObservationRevision(Base):
             "ix_md_observation_revision_series_event",
             "series_id",
             "event_time",
+            "available_at",
+        ),
+        Index(
+            "ix_md_observation_revision_series_event_record_available",
+            "series_id",
+            "event_time",
+            "semantic_record_key_sha256",
             "available_at",
         ),
         Index("ix_md_observation_revision_source", "source_snapshot_id"),
@@ -896,6 +922,18 @@ class MdObservationRevision(Base):
     revision_number = Column(Integer, nullable=False)
     revision_key_sha256 = Column(String(_SHA256_LENGTH), nullable=False)
     normalization_version = Column(String(128), nullable=False)
+    semantic_record_key = Column(
+        Text,
+        default=SINGLE_RECORD_SEMANTIC_KEY_CANONICAL_JSON,
+        nullable=False,
+    )
+    semantic_record_key_sha256 = Column(
+        String(_SHA256_LENGTH),
+        default=SINGLE_RECORD_SEMANTIC_KEY_SHA256,
+        nullable=False,
+    )
+    # Preserve upstream-provided trace metadata verbatim.  It is never an
+    # identity input and cannot replace the server-normalized semantic key.
     source_record_key = Column(String(512), nullable=True)
     provenance_json = Column(JSON, default=dict, nullable=False)
     committed_at = Column(PITDateTime, nullable=False)
