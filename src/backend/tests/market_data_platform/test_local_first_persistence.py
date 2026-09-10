@@ -183,6 +183,7 @@ def _policy(
     unit: str = "share",
     route_id: str = "fixture-akshare-stock-v1",
     family_id: str | None = None,
+    family_contract_version: str | None = None,
     product_types: frozenset[str] | None = None,
     fund_identity_kinds: frozenset[str] | None = None,
 ) -> MarketDataSourcePolicyRegistry:
@@ -200,6 +201,7 @@ def _policy(
         units=frozenset({unit}),
         adapter=provider,
         family_id=family_id,
+        family_contract_version=family_contract_version,
         product_types=product_types,
         fund_identity_kinds=fund_identity_kinds,
     )
@@ -521,6 +523,7 @@ async def test_imported_etf_nav_grid_persists_then_rereads_the_source_reported_f
         unit="fund_share",
         route_id="akshare-fund-nav-primary-v1",
         family_id="fund.nav",
+        family_contract_version="market-data-family-v1",
         product_types=frozenset({"ETF"}),
         fund_identity_kinds=frozenset({"LISTING"}),
     )

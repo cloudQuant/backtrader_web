@@ -255,6 +255,8 @@ def _context(*, symbol: str, canonical_id: str) -> ResolvedMarketDataQueryContex
             price_basis="settle",
             currency="CNY",
             unit="contract",
+            family_id="futures.settlement",
+            family_contract_version="market-data-family-v1",
         ),
     )
 
@@ -1430,14 +1432,15 @@ async def test_unbound_family_never_reaches_the_cffex_source() -> None:
         ("price_basis", "close"),
         ("currency", "USD"),
         ("unit", "share"),
+        ("family_contract_version", "market-data-kline-v1"),
         ("source_policy_id", "market-cffex-settlement-nearby-v1"),
     ],
 )
-async def test_non_native_settlement_semantic_axes_never_reach_source(
+async def test_non_native_settlement_contract_axes_never_reach_source(
     field_name: str,
     invalid_value: str,
 ) -> None:
-    """A CFFEX settlement receipt cannot inherit nearby bars semantics."""
+    """A CFFEX settlement receipt cannot inherit nearby bars semantics or family revisions."""
     target = _target("IF2609")
     invalid_query = target.context.query.model_copy(update={field_name: invalid_value})
     invalid_target = CffexSettlementCollectionTarget(

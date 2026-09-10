@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
@@ -118,6 +119,28 @@ def _secondary_route() -> MarketDataProviderRoute:
         currencies=frozenset({"CNY"}),
         units=frozenset({"share"}),
         adapter=_NoNetworkProvider(),
+    )
+
+
+def test_route_capability_descriptor_binds_the_private_kline_family_contract_pair() -> None:
+    """An old route attestation cannot authorize the generic stock-bars product."""
+    kline_route = replace(
+        _route(),
+        family_id="stock.kline_legacy",
+        family_contract_version="market-data-kline-v1",
+        provider_endpoint="stock_zh_a_hist",
+    )
+    baseline = route_capability_descriptor_sha256(kline_route)
+
+    assert baseline != route_capability_descriptor_sha256(
+        replace(
+            kline_route,
+            family_id="stock.realtime",
+            family_contract_version="market-data-family-v1",
+        )
+    )
+    assert baseline != route_capability_descriptor_sha256(
+        replace(kline_route, provider_endpoint="equity.price.historical")
     )
 
 

@@ -170,6 +170,8 @@ class MarketDataQueryResolver:
             price_basis=query.price_basis,
             currency=query.currency,
             unit=query.unit,
+            family_id=query.family_id,
+            family_contract_version=query.family_contract_version,
         )
         return ResolvedMarketDataQueryContext(
             query=query,

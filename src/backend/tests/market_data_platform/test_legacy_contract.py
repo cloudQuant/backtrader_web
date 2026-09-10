@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from typing import Any
 
@@ -311,8 +311,12 @@ async def _add_identity(
     symbol: str,
     market: str,
     identity_payload: dict[str, object] | None = None,
+    valid_from: datetime | None = None,
+    valid_to: datetime | None = None,
+    publish: bool = True,
 ) -> None:
     now = datetime(2026, 9, 8, tzinfo=UTC)
+    identity_valid_from = valid_from or now
     identity = InstrumentIdentity.model_validate(
         identity_payload or _identity(canonical_id=canonical_id, symbol=symbol, venue=market)
     )
@@ -330,7 +334,8 @@ async def _add_identity(
         identity_json=identity.model_dump(mode="json"),
         metadata_version=identity.metadata_version,
         lifecycle_status="ACTIVE",
-        valid_from=now,
+        valid_from=identity_valid_from,
+        valid_to=valid_to,
         created_at=now,
     )
     session.add(instrument)
@@ -344,14 +349,16 @@ async def _add_identity(
             canonical_id=identity.canonical_id,
             metadata_version=identity.metadata_version,
             is_active=True,
-            valid_from=now,
+            valid_from=identity_valid_from,
+            valid_to=valid_to,
         )
     )
     await session.flush()
     projections = MarketDataIdentityProjectionWriter(session)
     await projections.project(instrument)
     await session.commit()
-    await projections.publish_staged()
+    if publish:
+        await projections.publish_staged()
 
 
 @pytest.mark.asyncio
@@ -428,6 +435,201 @@ async def test_legacy_bridge_binds_a_selected_ready_family_to_the_exact_contract
         "family_id": "stock.realtime",
         "family_contract_version": "market-data-family-v1",
     }
+
+
+@pytest.mark.asyncio
+async def test_private_kline_bridge_mints_only_the_dedicated_full_ohlcv_contract(
+    db_session: AsyncSession,
+) -> None:
+    """The K-line facade cannot select the close-only public realtime product."""
+    await _add_catalog(db_session)
+    await _add_identity(
+        db_session,
+        canonical_id="instrument:stock:CN-SSE:600000",
+        symbol="600000",
+        market="CN-SSE",
+    )
+
+    resolver = LegacyMarketDataQueryContractResolver(db_session)
+    contract = await resolver.resolve_kline_legacy(symbol="600000", period="monthly")
+
+    assert contract == {
+        "version": "market-data-v2",
+        "request": {
+            "identity": {"canonical_id": "instrument:stock:CN-SSE:600000"},
+            "dataset_code": "market.bars",
+            "data_kind": "bars",
+            "frequency": "1mo",
+            "required_fields": ["open", "high", "low", "close", "volume", "change_pct"],
+            "adjustment": "qfq",
+            "price_basis": "close",
+            "currency": "CNY",
+            "unit": "share",
+            "source_policy_id": "market-default-v1",
+            "mode": "local_first",
+            "family_id": "stock.kline_legacy",
+            "family_contract_version": "market-data-kline-v1",
+        },
+    }
+
+    with pytest.raises(DatasetContractRegistryError, match="DATA_FAMILY_UNSUPPORTED"):
+        await resolver.resolve(
+            asset_type="stock",
+            symbol="600000",
+            period="monthly",
+            family_id="stock.kline_legacy",
+        )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("market", "symbol", "legacy_token"),
+    [
+        ("CN-SSE", "600000", "600000.SH"),
+        ("CN-SZSE", "000001", "000001.SZ"),
+    ],
+)
+async def test_private_kline_bridge_resolves_only_an_exact_frozen_exchange_token(
+    db_session: AsyncSession,
+    market: str,
+    symbol: str,
+    legacy_token: str,
+) -> None:
+    """Legacy suffix tokens are frozen identity aliases, never suffix guesses."""
+    await _add_catalog(db_session)
+    canonical_id = f"instrument:stock:{market}:{symbol}"
+    identity_payload = _identity(canonical_id=canonical_id, symbol=symbol, venue=market)
+    identity_payload["details"] = {"kind": "STOCK", "exchange_symbol": legacy_token}
+    await _add_identity(
+        db_session,
+        canonical_id=canonical_id,
+        symbol=symbol,
+        market=market,
+        identity_payload=identity_payload,
+    )
+
+    resolver = LegacyMarketDataQueryContractResolver(db_session)
+    contract = await resolver.resolve_kline_legacy(symbol=legacy_token, period="daily")
+
+    assert contract is not None
+    assert contract["request"]["identity"] == {"canonical_id": canonical_id}
+    assert contract["request"]["family_id"] == "stock.kline_legacy"
+    assert (
+        await resolver.resolve_kline_legacy(symbol=legacy_token.lower(), period="daily") is None
+    )
+    assert (
+        await resolver.resolve_kline_legacy(symbol=f"{symbol}.OTHER", period="daily") is None
+    )
+
+
+@pytest.mark.asyncio
+async def test_private_kline_bridge_rejects_current_published_display_exchange_token_collision(
+    db_session: AsyncSession,
+) -> None:
+    """One legacy token must not select either of two current canonical identities."""
+    await _add_catalog(db_session)
+    legacy_token = "600000.SH"
+    primary_canonical_id = "instrument:stock:CN-SSE:600000"
+    primary_identity = _identity(
+        canonical_id=primary_canonical_id,
+        symbol="600000",
+        venue="CN-SSE",
+    )
+    primary_identity["details"] = {"kind": "STOCK", "exchange_symbol": legacy_token}
+    await _add_identity(
+        db_session,
+        canonical_id=primary_canonical_id,
+        symbol="600000",
+        market="CN-SSE",
+        identity_payload=primary_identity,
+    )
+
+    colliding_canonical_id = "instrument:stock:CN-SZSE:600001"
+    colliding_identity = _identity(
+        canonical_id=colliding_canonical_id,
+        symbol=legacy_token,
+        venue="CN-SZSE",
+    )
+    colliding_identity["details"] = {"kind": "STOCK", "exchange_symbol": "600001.SZ"}
+    await _add_identity(
+        db_session,
+        canonical_id=colliding_canonical_id,
+        symbol=legacy_token,
+        market="CN-SZSE",
+        identity_payload=colliding_identity,
+    )
+
+    contract = await LegacyMarketDataQueryContractResolver(db_session).resolve_kline_legacy(
+        symbol=legacy_token,
+        period="daily",
+    )
+
+    assert contract is None
+
+
+@pytest.mark.asyncio
+async def test_private_kline_bridge_ignores_pending_and_expired_frozen_aliases(
+    db_session: AsyncSession,
+) -> None:
+    """Pending or historical identity revisions cannot create a current alias collision."""
+    await _add_catalog(db_session)
+    legacy_token = "600000.SH"
+    primary_canonical_id = "instrument:stock:CN-SSE:600000"
+    primary_identity = _identity(
+        canonical_id=primary_canonical_id,
+        symbol="600000",
+        venue="CN-SSE",
+    )
+    primary_identity["details"] = {"kind": "STOCK", "exchange_symbol": legacy_token}
+    await _add_identity(
+        db_session,
+        canonical_id=primary_canonical_id,
+        symbol="600000",
+        market="CN-SSE",
+        identity_payload=primary_identity,
+    )
+
+    pending_canonical_id = "instrument:stock:CN-SZSE:600001"
+    pending_identity = _identity(
+        canonical_id=pending_canonical_id,
+        symbol="600001",
+        venue="CN-SZSE",
+    )
+    pending_identity["details"] = {"kind": "STOCK", "exchange_symbol": legacy_token}
+    await _add_identity(
+        db_session,
+        canonical_id=pending_canonical_id,
+        symbol="600001",
+        market="CN-SZSE",
+        identity_payload=pending_identity,
+        publish=False,
+    )
+
+    historical_canonical_id = "instrument:stock:CN-SZSE:600002"
+    historical_identity = _identity(
+        canonical_id=historical_canonical_id,
+        symbol="600002",
+        venue="CN-SZSE",
+    )
+    historical_identity["details"] = {"kind": "STOCK", "exchange_symbol": legacy_token}
+    current_time = datetime.now(UTC)
+    await _add_identity(
+        db_session,
+        canonical_id=historical_canonical_id,
+        symbol="600002",
+        market="CN-SZSE",
+        identity_payload=historical_identity,
+        valid_from=current_time - timedelta(days=2),
+        valid_to=current_time - timedelta(days=1),
+    )
+
+    contract = await LegacyMarketDataQueryContractResolver(db_session).resolve_kline_legacy(
+        symbol=legacy_token,
+        period="daily",
+    )
+
+    assert contract is not None
+    assert contract["request"]["identity"] == {"canonical_id": primary_canonical_id}
 
 
 @pytest.mark.asyncio
@@ -721,6 +923,7 @@ async def test_legacy_bridge_maps_a_future_ready_snapshot_family_to_its_exact_pu
     permit = OpenBBRuntimeRoutePermit(
         route_id="openbb-yfinance-crypto-us-coinbase-snapshot-v1",
         family_id="crypto.realtime",
+        family_contract_version="market-data-family-v1",
         provider="yfinance",
         asset_type="crypto",
         market="US-COINBASE",
@@ -859,6 +1062,7 @@ def test_legacy_bridge_matches_the_full_shape_of_a_synthetic_openbb_permit(
     permit = OpenBBRuntimeRoutePermit(
         route_id="openbb-yfinance-stock-us-nyse-1d-v1",
         family_id="stock.realtime",
+        family_contract_version="market-data-family-v1",
         provider="yfinance",
         asset_type="stock",
         market="US-NYSE",
@@ -1381,6 +1585,36 @@ async def test_contract_probe_forwards_the_explicit_bundle_family_to_the_server_
             "family_id": "stock.realtime",
         }
     ]
+
+
+@pytest.mark.asyncio
+async def test_contract_probe_rejects_private_kline_family_before_resolver_execution(
+    client,
+    auth_headers,
+    permitted_market_data_access,
+    market_data_capability_override,
+) -> None:
+    """A browser cannot mint the server-owned K-line contract through query-contract."""
+    resolver = _ContractResolver({"unexpected": True})
+    market_data_capability_override(query_v2_enabled=True)
+    app.dependency_overrides[get_legacy_market_data_query_contract_resolver] = lambda: resolver
+    try:
+        response = await client.get(
+            "/api/v1/data/market-instruments/query-contract",
+            params={
+                "asset_type": "stock",
+                "symbol": "600000",
+                "period": "daily",
+                "family_id": "stock.kline_legacy",
+            },
+            headers=auth_headers,
+        )
+    finally:
+        app.dependency_overrides.pop(get_legacy_market_data_query_contract_resolver, None)
+
+    assert response.status_code == 503
+    assert response.json()["details"] == {"code": "MARKET_DATA_PRIVATE_FAMILY"}
+    assert resolver.calls == []
 
 
 @pytest.mark.asyncio

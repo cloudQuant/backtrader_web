@@ -1551,11 +1551,18 @@ def _provider_request_for(
     venue = context.identity.venue
     if venue is None:
         raise MarketDataQueryServiceError("IDENTITY_MARKET_UNSUPPORTED")
-    if route.family_id is not None and route.family_id != context.query.family_id:
-        # ``routes_for`` normally makes this impossible. Keep the check at the
-        # provider boundary as well so a future orchestration refactor cannot
-        # send a permit-derived endpoint under a sibling family binding.
-        raise MarketDataQueryServiceError("SOURCE_POLICY_ROUTE_FAMILY_MISMATCH")
+    if (route.family_id is None) != (route.family_contract_version is None):
+        # Construction rejects partial pairs. Keep this guard at the provider
+        # boundary for malformed integration seams or retained objects.
+        raise MarketDataQueryServiceError("SOURCE_POLICY_ROUTE_FAMILY_VERSION_MISMATCH")
+    if route.family_id is not None:
+        if route.family_id != context.query.family_id:
+            # ``routes_for`` normally makes this impossible. Keep the check
+            # at the provider boundary so a refactor cannot send a
+            # permit-derived endpoint under a sibling family binding.
+            raise MarketDataQueryServiceError("SOURCE_POLICY_ROUTE_FAMILY_MISMATCH")
+        if route.family_contract_version != context.query.family_contract_version:
+            raise MarketDataQueryServiceError("SOURCE_POLICY_ROUTE_FAMILY_VERSION_MISMATCH")
     return MarketDataProviderRequest(
         query_fingerprint=context.query.query_fingerprint,
         canonical_id=context.query.canonical_id,
@@ -1575,6 +1582,7 @@ def _provider_request_for(
         source_policy_id=context.query.source_policy_id,
         route_id=route.route_id,
         family_id=context.query.family_id,
+        family_contract_version=context.query.family_contract_version,
         provider_endpoint=route.provider_endpoint,
         product_type=context.identity.identity.product_type,
         fund_identity_kind=getattr(
@@ -1952,6 +1960,7 @@ def _policy_descriptor_hash(policy: MarketDataSourcePolicy) -> str:
                 "currencies": _policy_axis_payload(route.currencies),
                 "units": _policy_axis_payload(route.units),
                 "family_id": route.family_id,
+                "family_contract_version": route.family_contract_version,
                 "provider_endpoint": route.provider_endpoint,
                 "product_types": (
                     sorted(route.product_types) if route.product_types is not None else None

@@ -25,6 +25,11 @@ from importlib import metadata
 from types import MappingProxyType
 from typing import Any
 
+from app.services.market_data.dataset_contracts import (
+    FAMILY_CONTRACT_VERSION,
+    KLINE_LEGACY_CONTRACT_VERSION,
+    KLINE_LEGACY_FAMILY_ID,
+)
 from app.services.market_data.providers import (
     MarketDataProviderRequest,
     ProviderFetchResult,
@@ -126,6 +131,10 @@ class AkShareRoute:
     # must not be allowed to select each other's source function merely
     # because their broad dimensions happen to overlap.
     route_ids: frozenset[str] = frozenset()
+    # A shared source endpoint can serve several data products only when each
+    # dedicated policy route verifies the same family/version pair locally.
+    family_id: str | None = None
+    family_contract_version: str | None = None
 
     def __post_init__(self) -> None:
         has_endpoint = self.endpoint is not None or self.endpoint_resolver is not None
@@ -174,6 +183,27 @@ class AkShareRoute:
             "route_ids",
             frozenset(route_id.strip() for route_id in self.route_ids),
         )
+        if (self.family_id is None) != (self.family_contract_version is None):
+            raise ValueError("AkShare family routes require both family_id and family_contract_version")
+        if self.route_ids and self.family_id is None:
+            raise ValueError("AkShare source-policy routes require an exact family pair")
+        if self.family_id is not None:
+            if not isinstance(self.family_id, str) or not self.family_id.strip():
+                raise ValueError("AkShare family_id must be non-blank when supplied")
+            object.__setattr__(self, "family_id", self.family_id.strip())
+        if self.family_contract_version is not None:
+            if self.family_id is None:
+                raise ValueError("AkShare family_contract_version requires family_id")
+            if (
+                not isinstance(self.family_contract_version, str)
+                or not self.family_contract_version.strip()
+            ):
+                raise ValueError("AkShare family_contract_version must be non-blank")
+            object.__setattr__(
+                self,
+                "family_contract_version",
+                self.family_contract_version.strip(),
+            )
 
 
 @dataclass(frozen=True, slots=True)
@@ -573,6 +603,28 @@ AKSHARE_ROUTE_REGISTRY: tuple[AkShareRoute, ...] = (
         supported_currencies=frozenset({"CNY"}),
         supported_units=frozenset({"share"}),
         route_ids=frozenset({"akshare-stock-primary-v1"}),
+        family_id="stock.realtime",
+        family_contract_version=FAMILY_CONTRACT_VERSION,
+    ),
+    AkShareRoute(
+        asset_type="stock",
+        data_kind="bars",
+        frequencies=_DAILY_BAR_FREQUENCIES,
+        endpoint="stock_zh_a_hist",
+        build_call_kwargs=_build_historical_kline_kwargs,
+        timestamp_columns=("日期", "date"),
+        allowed_markets=frozenset({"CN-SSE", "CN-SZSE"}),
+        symbol_columns=("股票代码", "symbol", "code"),
+        client_filters_window=True,
+        identity_proof="response_symbol",
+        request_validator=_validate_cn_stock_symbol,
+        supported_adjustments=frozenset({"qfq"}),
+        supported_price_bases=frozenset({"close"}),
+        supported_currencies=frozenset({"CNY"}),
+        supported_units=frozenset({"share"}),
+        route_ids=frozenset({"akshare-stock-kline-legacy-v1"}),
+        family_id=KLINE_LEGACY_FAMILY_ID,
+        family_contract_version=KLINE_LEGACY_CONTRACT_VERSION,
     ),
     # This is deliberately a separate route from stock bars even though it
     # uses the same exact-symbol AkShare function.  The route ID prevents a
@@ -594,6 +646,8 @@ AKSHARE_ROUTE_REGISTRY: tuple[AkShareRoute, ...] = (
         supported_currencies=frozenset({"CNY"}),
         supported_units=frozenset({"share"}),
         route_ids=frozenset({"akshare-stock-liquidity-primary-v1"}),
+        family_id="stock.liquidity",
+        family_contract_version=FAMILY_CONTRACT_VERSION,
     ),
     AkShareRoute(
         asset_type="futures",
@@ -608,6 +662,8 @@ AKSHARE_ROUTE_REGISTRY: tuple[AkShareRoute, ...] = (
         supported_units=frozenset({"contract"}),
         request_validator=_validate_cffex_futures_symbol,
         route_ids=frozenset({"akshare-futures-primary-v1"}),
+        family_id="futures.realtime",
+        family_contract_version=FAMILY_CONTRACT_VERSION,
     ),
     AkShareRoute(
         asset_type="bond",
@@ -621,6 +677,8 @@ AKSHARE_ROUTE_REGISTRY: tuple[AkShareRoute, ...] = (
         request_validator=_validate_cn_bond_symbol,
         supported_currencies=frozenset({"CNY"}),
         route_ids=frozenset({"akshare-bond-primary-v1"}),
+        family_id="bond.realtime",
+        family_contract_version=FAMILY_CONTRACT_VERSION,
     ),
     AkShareRoute(
         asset_type="fund",
@@ -636,6 +694,8 @@ AKSHARE_ROUTE_REGISTRY: tuple[AkShareRoute, ...] = (
         supported_units=frozenset({"share"}),
         request_validator=_validate_cn_etf_symbol,
         route_ids=frozenset({"akshare-fund-primary-v1"}),
+        family_id="fund.realtime",
+        family_contract_version=FAMILY_CONTRACT_VERSION,
     ),
     # ETF liquidity is an exact code/date range request.  AkShare's endpoint
     # does not echo the code in each returned row, so it retains the existing
@@ -654,6 +714,8 @@ AKSHARE_ROUTE_REGISTRY: tuple[AkShareRoute, ...] = (
         supported_units=frozenset({"share"}),
         request_validator=_validate_cn_etf_symbol,
         route_ids=frozenset({"akshare-fund-liquidity-primary-v1"}),
+        family_id="fund.liquidity",
+        family_contract_version=FAMILY_CONTRACT_VERSION,
     ),
     # NAV is a source-reported per-fund-share reference series. It is neither
     # a traded ETF price bar nor a liquidity projection, so it uses the
@@ -675,6 +737,8 @@ AKSHARE_ROUTE_REGISTRY: tuple[AkShareRoute, ...] = (
         supported_fund_identity_kinds=frozenset({"LISTING"}),
         request_validator=_validate_cn_etf_symbol,
         route_ids=frozenset({"akshare-fund-nav-primary-v1"}),
+        family_id="fund.nav",
+        family_contract_version=FAMILY_CONTRACT_VERSION,
     ),
     AkShareRoute(
         asset_type="option",
@@ -689,6 +753,8 @@ AKSHARE_ROUTE_REGISTRY: tuple[AkShareRoute, ...] = (
         supported_currencies=frozenset({"CNY"}),
         supported_units=frozenset({"contract"}),
         route_ids=frozenset({"akshare-cffex-option-primary-v1"}),
+        family_id="option.realtime",
+        family_contract_version=FAMILY_CONTRACT_VERSION,
     ),
     AkShareRoute(
         asset_type="fx",
@@ -702,6 +768,27 @@ AKSHARE_ROUTE_REGISTRY: tuple[AkShareRoute, ...] = (
         client_filters_window=True,
         identity_proof="response_symbol",
         route_ids=frozenset({"akshare-fx-primary-v1"}),
+        family_id="fx.realtime",
+        family_contract_version=FAMILY_CONTRACT_VERSION,
+    ),
+    # The same reviewed source function can supply a full OHLC range, but the
+    # range product owns a distinct public family and policy route. Keeping a
+    # second exact family pair prevents either FX product from selecting the
+    # other merely because its endpoint and semantic axes overlap.
+    AkShareRoute(
+        asset_type="fx",
+        data_kind="bars",
+        frequencies=_DAILY_ONLY_FREQUENCIES,
+        endpoint="forex_hist_em",
+        build_call_kwargs=_build_symbol_only_kwargs,
+        timestamp_columns=("日期", "date"),
+        allowed_markets=frozenset({"OTC", "CN-OTC"}),
+        symbol_columns=("代码", "code", "symbol"),
+        client_filters_window=True,
+        identity_proof="response_symbol",
+        route_ids=frozenset({"akshare-fx-range-primary-v1"}),
+        family_id="fx.range",
+        family_contract_version=FAMILY_CONTRACT_VERSION,
     ),
     AkShareRoute(
         asset_type="crypto",
@@ -834,6 +921,22 @@ class AkShareMarketDataProvider:
         ]
         if not candidates:
             raise AkShareProviderError("AKSHARE_MARKET_UNSUPPORTED")
+        # A private product family is an exact route constraint, not a hint.
+        # Conversely, an older/internal caller without a family binding must
+        # not become able to select the dedicated legacy K-line endpoint just
+        # because it shares stock/bar/frequency dimensions with the generic
+        # adapter route.
+        if request.family_id is None:
+            candidates = [route for route in candidates if route.family_id is None]
+        else:
+            candidates = [
+                route
+                for route in candidates
+                if route.family_id == request.family_id
+                and route.family_contract_version == request.family_contract_version
+            ]
+        if not candidates:
+            raise AkShareProviderError("AKSHARE_ROUTE_UNSUPPORTED")
         # `route_id` is supplied by the reviewed source-policy route in the
         # real query path.  Respect it here as an adapter-side second check so
         # adding another exact route for the same asset/data-kind dimensions
@@ -850,6 +953,13 @@ class AkShareMarketDataProvider:
 
     @staticmethod
     def _validate_route_request(route: AkShareRoute, request: MarketDataProviderRequest) -> None:
+        if route.family_id is not None and request.family_id != route.family_id:
+            raise AkShareProviderError("AKSHARE_FAMILY_UNSUPPORTED")
+        if (
+            route.family_contract_version is not None
+            and request.family_contract_version != route.family_contract_version
+        ):
+            raise AkShareProviderError("AKSHARE_FAMILY_CONTRACT_VERSION_UNSUPPORTED")
         adjustment = request.adjustment or "unadjusted"
         if adjustment not in route.supported_adjustments:
             raise AkShareProviderError("AKSHARE_ADJUSTMENT_UNSUPPORTED")

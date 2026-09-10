@@ -129,6 +129,72 @@ def test_registry_declares_all_twenty_one_current_market_page_families() -> None
     )
 
 
+def test_legacy_kline_contract_is_private_and_keeps_its_full_ohlcv_shape() -> None:
+    """The legacy bridge cannot borrow the public close-only stock bars contract."""
+    contract = DEFAULT_DATASET_CONTRACT_REGISTRY.ready_contract_for(
+        family_id="stock.kline_legacy",
+        asset_type="stock",
+    )
+
+    assert contract.family_contract_version == "market-data-kline-v1"
+    assert contract.dataset_code == "market.bars"
+    assert contract.data_kind == "bars"
+    assert contract.frequencies == ("1d", "1w", "1mo")
+    assert contract.field_profile.required_fields == (
+        "open",
+        "high",
+        "low",
+        "close",
+        "volume",
+        "change_pct",
+    )
+    assert contract.semantic_binding is not None
+    assert contract.semantic_binding.adjustment == "qfq"
+    assert contract.semantic_binding.price_basis == "close"
+    assert contract.semantic_binding.currency == "CNY"
+    assert contract.semantic_binding.unit == "share"
+
+    stock_bundle = DEFAULT_DATASET_CONTRACT_REGISTRY.bundle_for(
+        MarketDataQueryBundleRequest(asset_type="stock")
+    )
+    assert {entry.family_id for entry in stock_bundle.families} == {
+        "stock.realtime",
+        "stock.valuation",
+        "stock.liquidity",
+    }
+    with pytest.raises(DatasetContractRegistryError, match="DATA_FAMILY_UNSUPPORTED"):
+        DEFAULT_DATASET_CONTRACT_REGISTRY.bundle_for(
+            MarketDataQueryBundleRequest(asset_type="stock", family_id="stock.kline_legacy")
+        )
+
+    DEFAULT_DATASET_CONTRACT_REGISTRY.assert_executable_family_preflight(
+        family_id="stock.kline_legacy",
+        family_contract_version="market-data-kline-v1",
+    )
+    DEFAULT_DATASET_CONTRACT_REGISTRY.assert_query_binding(
+        family_id="stock.kline_legacy",
+        family_contract_version="market-data-kline-v1",
+        asset_type="stock",
+        dataset_code="market.bars",
+        data_kind="bars",
+        frequency="1d",
+        required_fields=tuple(sorted(contract.field_profile.required_fields)),
+        source_policy_id="market-default-v1",
+        adjustment="qfq",
+        price_basis="close",
+        currency="CNY",
+        unit="share",
+        explicit_semantic_axis_names=frozenset(
+            {"adjustment", "price_basis", "currency", "unit"}
+        ),
+    )
+    with pytest.raises(DatasetContractRegistryError, match="DATA_FAMILY_CONTRACT_VERSION_UNSUPPORTED"):
+        DEFAULT_DATASET_CONTRACT_REGISTRY.assert_executable_family_preflight(
+            family_id="stock.kline_legacy",
+            family_contract_version="market-data-family-v1",
+        )
+
+
 def test_ready_entries_are_only_explicitly_reviewed_product_contracts() -> None:
     """Only the three reviewed B1 additions may join the established realtime products."""
     entries = [
@@ -649,6 +715,45 @@ async def test_query_bundle_endpoint_returns_static_contracts_without_a_query_se
         "source_policy_id": "market-default-v1",
         "reason_code": None,
     }
+
+
+@pytest.mark.asyncio
+async def test_query_bundle_rejects_private_kline_family_before_registry_execution(
+    client,
+    auth_headers,
+    monkeypatch,
+    permitted_market_data_access,
+    set_effective_query_capability,
+) -> None:
+    """A public bundle request cannot inspect the facade's private family."""
+    import app.api.data.queries as queries
+
+    class _UnexpectedRegistry:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def bundle_for(self, _request: object) -> object:
+            self.calls += 1
+            raise AssertionError("private family must not reach the bundle registry")
+
+    registry = _UnexpectedRegistry()
+    monkeypatch.setattr(
+        queries,
+        "get_settings",
+        lambda: SimpleNamespace(MARKET_DATA_QUERY_V2_ENABLED=True),
+    )
+    monkeypatch.setattr(queries, "DEFAULT_DATASET_CONTRACT_REGISTRY", registry)
+    set_effective_query_capability(True)
+
+    response = await client.get(
+        "/api/v1/data/market-instruments/query-bundle",
+        params={"asset_type": "stock", "family_id": "stock.kline_legacy"},
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 503
+    assert response.json()["details"] == {"code": "MARKET_DATA_PRIVATE_FAMILY"}
+    assert registry.calls == 0
 
 
 @pytest.mark.asyncio

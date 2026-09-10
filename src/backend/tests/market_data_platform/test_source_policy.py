@@ -2,12 +2,21 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from types import SimpleNamespace
 
 import pytest
 
 from app.api.data.queries import _default_source_policy_registry
+from app.schemas.market_data_platform import MarketDataQueryBundleRequest
 from app.services.market_data import openbb_runtime
+from app.services.market_data.akshare_provider import AKSHARE_ROUTE_REGISTRY
+from app.services.market_data.dataset_contracts import (
+    DEFAULT_DATASET_CONTRACT_REGISTRY,
+    FAMILY_CONTRACT_VERSION,
+    KLINE_LEGACY_CONTRACT_VERSION,
+    KLINE_LEGACY_FAMILY_ID,
+)
 from app.services.market_data.openbb_runtime import (
     OPENBB_RUNTIME_PERMIT_MATRIX,
     OpenBBRuntimeRoutePermit,
@@ -23,6 +32,19 @@ from app.services.market_data.source_policy import (
 class _Provider:
     async def fetch(self, _request):
         raise AssertionError("route selection tests must not invoke an adapter")
+
+
+def _ready_public_default_family_pairs() -> set[tuple[str, str]]:
+    """Read the executable public pairs from the issued registry bundles."""
+    pairs: set[tuple[str, str]] = set()
+    for asset_type in ("stock", "futures", "bond", "fund", "option", "fx", "crypto"):
+        bundle = DEFAULT_DATASET_CONTRACT_REGISTRY.bundle_for(
+            MarketDataQueryBundleRequest(asset_type=asset_type)
+        )
+        for family in bundle.families:
+            if family.status == "ready" and family.source_policy_id == "market-default-v1":
+                pairs.add((family.family_id, family.family_contract_version))
+    return pairs
 
 
 def _context(**query_changes):
@@ -58,6 +80,26 @@ def _route() -> MarketDataProviderRoute:
     )
 
 
+@pytest.mark.parametrize(
+    ("family_id", "family_contract_version"),
+    (
+        ("stock.realtime", None),
+        (None, FAMILY_CONTRACT_VERSION),
+    ),
+)
+def test_route_rejects_a_partial_family_contract_pair(
+    family_id: str | None,
+    family_contract_version: str | None,
+) -> None:
+    """A route cannot pin a family while treating its version as a wildcard."""
+    with pytest.raises(ValueError, match="family_id and family_contract_version"):
+        replace(
+            _route(),
+            family_id=family_id,
+            family_contract_version=family_contract_version,
+        )
+
+
 def test_route_requires_every_declared_market_and_semantic_axis() -> None:
     """A route cannot broaden from an adjusted CNY share series to a nearby semantic series."""
     route = _route()
@@ -88,6 +130,8 @@ def test_default_policy_routes_an_exact_cffex_option_contract_to_akshare() -> No
     context = SimpleNamespace(
         identity=SimpleNamespace(asset_type="option", venue="CFFEX"),
         query=SimpleNamespace(
+            family_id="option.realtime",
+            family_contract_version=FAMILY_CONTRACT_VERSION,
             data_kind="bars",
             frequency="1d",
             adjustment="unadjusted",
@@ -100,6 +144,113 @@ def test_default_policy_routes_an_exact_cffex_option_contract_to_akshare() -> No
     routes = registry.resolve("market-default-v1").routes_for(context)
 
     assert [route.route_id for route in routes] == ["akshare-cffex-option-primary-v1"]
+
+
+def test_default_policy_routes_private_kline_to_its_exact_akshare_route() -> None:
+    """The full legacy K-line product cannot fall through stock realtime bars."""
+    registry = _default_source_policy_registry("yfinance", ())
+    context = SimpleNamespace(
+        identity=SimpleNamespace(asset_type="stock", venue="CN-SSE"),
+        query=SimpleNamespace(
+            family_id="stock.kline_legacy",
+            family_contract_version="market-data-kline-v1",
+            data_kind="bars",
+            frequency="1w",
+            adjustment="qfq",
+            price_basis="close",
+            currency="CNY",
+            unit="share",
+        ),
+    )
+
+    routes = registry.resolve("market-default-v1").routes_for(context)
+
+    assert [route.route_id for route in routes] == ["akshare-stock-kline-legacy-v1"]
+    assert routes[0].family_id == "stock.kline_legacy"
+    assert routes[0].family_contract_version == "market-data-kline-v1"
+
+
+def test_default_policy_binds_every_akshare_route_to_its_registry_family_pair() -> None:
+    """Every ready public family maps to one exact policy and adapter route pair."""
+    policy = _default_source_policy_registry("yfinance", ()).resolve("market-default-v1")
+    policy_pairs_by_route_id = {
+        route.route_id: (route.family_id, route.family_contract_version)
+        for route in policy.routes
+        if route.request_provider == "akshare"
+    }
+    adapter_pairs_by_route_id = {
+        route_id: (route.family_id, route.family_contract_version)
+        for route in AKSHARE_ROUTE_REGISTRY
+        for route_id in route.route_ids
+    }
+    expected_public_pairs = _ready_public_default_family_pairs()
+    expected_all_pairs = expected_public_pairs | {
+        (KLINE_LEGACY_FAMILY_ID, KLINE_LEGACY_CONTRACT_VERSION)
+    }
+
+    assert policy_pairs_by_route_id == adapter_pairs_by_route_id
+    assert all(
+        family_id is not None and family_contract_version is not None
+        for family_id, family_contract_version in policy_pairs_by_route_id.values()
+    )
+    assert set(policy_pairs_by_route_id.values()) == expected_all_pairs
+    assert {pair for pair in policy_pairs_by_route_id.values() if pair[0] != KLINE_LEGACY_FAMILY_ID} == (
+        expected_public_pairs
+    )
+
+
+@pytest.mark.parametrize(
+    ("family_id", "route_id"),
+    (
+        ("fx.realtime", "akshare-fx-primary-v1"),
+        ("fx.range", "akshare-fx-range-primary-v1"),
+    ),
+)
+def test_default_policy_keeps_fx_realtime_and_range_on_distinct_exact_routes(
+    family_id: str,
+    route_id: str,
+) -> None:
+    """Equal FX transport axes cannot make one public family select the other."""
+    policy = _default_source_policy_registry("yfinance", ()).resolve("market-default-v1")
+    context = SimpleNamespace(
+        identity=SimpleNamespace(asset_type="fx", venue="CN-OTC"),
+        query=SimpleNamespace(
+            family_id=family_id,
+            family_contract_version=FAMILY_CONTRACT_VERSION,
+            data_kind="bars",
+            frequency="1d",
+            adjustment="unadjusted",
+            price_basis="close",
+            currency=None,
+            unit=None,
+        ),
+    )
+
+    routes = policy.routes_for(context)
+
+    assert [route.route_id for route in routes] == [route_id]
+    assert routes[0].family_id == family_id
+    assert routes[0].family_contract_version == FAMILY_CONTRACT_VERSION
+
+
+def test_default_policy_rejects_fx_range_when_its_strict_semantics_drift() -> None:
+    """The range route cannot behave as an unbound FX bars fallback."""
+    policy = _default_source_policy_registry("yfinance", ()).resolve("market-default-v1")
+    context = SimpleNamespace(
+        identity=SimpleNamespace(asset_type="fx", venue="CN-OTC"),
+        query=SimpleNamespace(
+            family_id="fx.range",
+            family_contract_version=FAMILY_CONTRACT_VERSION,
+            data_kind="bars",
+            frequency="1d",
+            adjustment=None,
+            price_basis="close",
+            currency=None,
+            unit=None,
+        ),
+    )
+
+    assert policy.routes_for(context) == ()
 
 
 def test_default_policy_routes_only_the_exact_etf_nav_product_contract() -> None:
@@ -116,6 +267,7 @@ def test_default_policy_routes_only_the_exact_etf_nav_product_contract() -> None
         ),
         query=SimpleNamespace(
             family_id="fund.nav",
+            family_contract_version=FAMILY_CONTRACT_VERSION,
             data_kind="reference_series",
             frequency="1d",
             adjustment="source_reported",
@@ -133,6 +285,7 @@ def test_default_policy_routes_only_the_exact_etf_nav_product_contract() -> None
             identity=context.identity,
             query=SimpleNamespace(
                 family_id="fund.liquidity",
+                family_contract_version=FAMILY_CONTRACT_VERSION,
                 data_kind="reference_series",
                 frequency="1d",
                 adjustment="source_reported",
@@ -171,6 +324,7 @@ def test_default_policy_rejects_non_etf_or_non_listing_fund_nav_identities(
         ),
         query=SimpleNamespace(
             family_id="fund.nav",
+            family_contract_version=FAMILY_CONTRACT_VERSION,
             data_kind="reference_series",
             frequency="1d",
             adjustment="source_reported",
@@ -246,6 +400,7 @@ def test_default_policy_projects_every_axis_of_a_synthetic_explicit_openbb_permi
     permit = OpenBBRuntimeRoutePermit(
         route_id="openbb-yfinance-stock-us-nyse-1d-v1",
         family_id="stock.realtime",
+        family_contract_version="market-data-family-v1",
         provider="yfinance",
         asset_type="stock",
         market="US-NYSE",
@@ -265,6 +420,7 @@ def test_default_policy_projects_every_axis_of_a_synthetic_explicit_openbb_permi
         identity=SimpleNamespace(asset_type="stock", venue="US-NYSE"),
         query=SimpleNamespace(
             family_id=permit.family_id,
+            family_contract_version=permit.family_contract_version,
             data_kind="bars",
             frequency="1d",
             adjustment=None,
@@ -284,6 +440,7 @@ def test_default_policy_projects_every_axis_of_a_synthetic_explicit_openbb_permi
     assert routes[0].data_kinds == frozenset({permit.data_kind})
     assert routes[0].frequencies == frozenset({permit.frequency})
     assert routes[0].family_id == permit.family_id
+    assert routes[0].family_contract_version == permit.family_contract_version
     assert routes[0].provider_endpoint == permit.endpoint
 
     other_family_context = SimpleNamespace(

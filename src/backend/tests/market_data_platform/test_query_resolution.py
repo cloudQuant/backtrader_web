@@ -14,6 +14,10 @@ from app.models.data_governance import DgDataset, DgDatasetStorage, DgStorageTar
 from app.schemas.asset_research import InstrumentIdentity, StockIdentityDetails
 from app.schemas.market_data_platform import MarketDataQueryRequest, PublicMarketDataQueryRequest
 from app.services.market_data.catalog import DataCatalogResolver
+from app.services.market_data.dataset_contracts import (
+    KLINE_LEGACY_CONTRACT_VERSION,
+    KLINE_LEGACY_FAMILY_ID,
+)
 from app.services.market_data.identity import MarketDataIdentityResolver
 from app.services.market_data.identity_projection import MarketDataIdentityProjectionWriter
 from app.services.market_data.query_resolution import (
@@ -151,6 +155,40 @@ async def test_query_resolver_binds_catalog_identity_and_coverage_key() -> None:
     assert result.coverage_identity.asset_type == "stock"
     assert result.coverage_identity.market == "CN-SSE"
     assert result.coverage_identity.instrument_metadata_version == "stock-v1"
+
+
+@pytest.mark.asyncio
+async def test_private_kline_pair_is_preserved_through_resolution_and_coverage_identity() -> None:
+    """The legacy bridge's private product pair cannot collapse into generic stock bars."""
+    identity = _identity()
+    async with async_session_maker() as db:
+        await _add_catalog(db)
+        await _add_published_instrument(db, identity)
+        resolver = MarketDataQueryResolver(
+            catalog=DataCatalogResolver(db),
+            identities=MarketDataIdentityResolver(db),
+        )
+        kline = await resolver.resolve(
+            _request(
+                family_id=KLINE_LEGACY_FAMILY_ID,
+                family_contract_version=KLINE_LEGACY_CONTRACT_VERSION,
+                required_fields=["open", "high", "low", "close", "volume", "change_pct"],
+            )
+        )
+        realtime = await resolver.resolve(_request())
+
+    assert kline.query.family_id == KLINE_LEGACY_FAMILY_ID
+    assert kline.query.family_contract_version == KLINE_LEGACY_CONTRACT_VERSION
+    assert kline.coverage_identity.family_id == KLINE_LEGACY_FAMILY_ID
+    assert kline.coverage_identity.family_contract_version == KLINE_LEGACY_CONTRACT_VERSION
+    assert kline.query.query_fingerprint != realtime.query.query_fingerprint
+    assert (
+        kline.coverage_identity.family_id,
+        kline.coverage_identity.family_contract_version,
+    ) != (
+        realtime.coverage_identity.family_id,
+        realtime.coverage_identity.family_contract_version,
+    )
 
 
 @pytest.mark.asyncio

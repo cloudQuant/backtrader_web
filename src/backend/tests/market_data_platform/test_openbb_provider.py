@@ -1835,13 +1835,14 @@ def test_openbb_runner_rejects_dangerous_extension_environment_before_import(
     assert json.loads(completed.stdout)["error"]["code"] == ("OPENBB_RUNNER_DANGEROUS_ENVIRONMENT")
 
 
-def test_openbb_runner_future_permit_requires_family_and_endpoint_identity(
+def test_openbb_runner_future_permit_requires_family_version_and_endpoint_identity(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A future enablement cannot select a sibling family or OpenBB endpoint."""
+    """A future enablement cannot select a sibling family/version or OpenBB endpoint."""
     permit = _RunnerRuntimeRoutePermit(
         route_id="openbb-yfinance-stock-us-nyse-1d-v1",
         family_id="stock.realtime",
+        family_contract_version="market-data-family-v1",
         provider="yfinance",
         asset_type="stock",
         market="US-NYSE",
@@ -1859,11 +1860,15 @@ def test_openbb_runner_future_permit_requires_family_and_endpoint_identity(
         market="US-NYSE",
         route_id=permit.route_id,
         family_id=permit.family_id,
+        family_contract_version=permit.family_contract_version,
         provider_endpoint=permit.endpoint,
     ).dto_payload
 
     assert _has_active_runtime_route_permit(request)
     assert not _has_active_runtime_route_permit({**request, "family_id": "stock.valuation"})
+    assert not _has_active_runtime_route_permit(
+        {**request, "family_contract_version": "market-data-kline-v1"}
+    )
     assert not _has_active_runtime_route_permit({**request, "provider_endpoint": "etf.historical"})
 
 

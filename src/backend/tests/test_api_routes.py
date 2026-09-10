@@ -3,11 +3,18 @@ API route coverage tests - Cover data, comparison, paper_trading, strategy_versi
 realtime, monitoring, live_trading, optimization and other low-coverage API routes.
 """
 
-import sys
+from types import SimpleNamespace
 
-import pandas as pd
 from fastapi import FastAPI
 from httpx import AsyncClient
+
+import app.api.data.base as data_base
+from app.api.data.deps import get_authorized_market_data_access
+from app.api.data.queries import (
+    get_market_data_capability_evaluation,
+    get_market_data_query_service,
+)
+from app.main import app
 
 
 class TestRouterMetadata:
@@ -36,33 +43,63 @@ class TestDataAPI:
 
     async def test_query_kline_no_auth(self, client: AsyncClient):
         """Test K-line query without authentication."""
-        resp = await client.get("/api/v1/data/kline?symbol=000001.SZ")
+        resp = await client.get(
+            "/api/v1/data/kline?symbol=000001.SZ&start_date=2024-01-01&end_date=2024-01-01"
+        )
         assert resp.status_code == 401  # Unauthorized for unauthenticated requests
 
     async def test_query_kline(self, client: AsyncClient, auth_headers: dict, monkeypatch):
-        """Test K-line query with authentication."""
+        """Test that the legacy wire shape comes from the governed bridge."""
+        access = SimpleNamespace(
+            principal=SimpleNamespace(
+                principal_scope="principal:api-routes-test",
+                tenant_scope="default",
+                entitlement_revision="api-routes-test-v1",
+            )
+        )
+        evaluation = SimpleNamespace(response=SimpleNamespace(query_v2_enabled=True))
+        monkeypatch.setitem(app.dependency_overrides, get_authorized_market_data_access, lambda: access)
+        monkeypatch.setitem(
+            app.dependency_overrides,
+            get_market_data_capability_evaluation,
+            lambda: evaluation,
+        )
+        monkeypatch.setitem(app.dependency_overrides, get_market_data_query_service, lambda: object())
+        monkeypatch.setitem(
+            app.dependency_overrides,
+            data_base.get_legacy_market_data_query_contract_resolver,
+            lambda: object(),
+        )
 
-        class _DummyAk:
-            @staticmethod
-            def stock_zh_a_hist(**_kwargs):
-                return pd.DataFrame(
+        async def fake_bridge(**_kwargs):
+            return {
+                "symbol": "000001.SZ",
+                "count": 1,
+                "kline": {
+                    "dates": ["2024-01-01"],
+                    "ohlc": [[10.0, 10.3, 9.8, 10.5]],
+                    "volumes": [1_000_000],
+                },
+                "records": [
                     {
-                        "日期": ["2024-01-01"],
-                        "开盘": [10.0],
-                        "最高": [10.5],
-                        "最低": [9.8],
-                        "收盘": [10.3],
-                        "成交量": [1000000],
-                        "涨跌幅": [2.5],
+                        "date": "2024-01-01",
+                        "open": 10.0,
+                        "high": 10.5,
+                        "low": 9.8,
+                        "close": 10.3,
+                        "volume": 1_000_000,
+                        "change": 2.5,
                     }
-                )
+                ],
+            }
 
-        monkeypatch.setitem(sys.modules, "akshare", _DummyAk)
+        monkeypatch.setattr(data_base, "execute_legacy_kline_local_first", fake_bridge)
         resp = await client.get(
             "/api/v1/data/kline?symbol=000001.SZ&start_date=2024-01-01&end_date=2024-01-31",
             headers=auth_headers,
         )
         assert resp.status_code == 200
+        assert resp.json()["kline"]["ohlc"] == [[10.0, 10.3, 9.8, 10.5]]
 
 
 # ==================== Comparison API ====================

@@ -330,6 +330,8 @@ class MarketDataStore:
             "price_basis": coverage.price_basis,
             "currency": coverage.currency,
             "unit": coverage.unit,
+            "family_id": coverage.family_id,
+            "family_contract_version": coverage.family_contract_version,
         }
         canonical_identity = _canonical_json(semantic_identity, field_name="series identity")
         return SeriesIdentity(
@@ -1527,6 +1529,8 @@ def _assert_context_integrity(context: ResolvedMarketDataQueryContext) -> None:
         or query.price_basis != coverage.price_basis
         or query.currency != coverage.currency
         or query.unit != coverage.unit
+        or query.family_id != coverage.family_id
+        or query.family_contract_version != coverage.family_contract_version
     ):
         raise MarketDataStoreError("QUERY_CONTEXT_INTEGRITY")
     _require_text(context.storage.dataset_id, field_name="dataset_id", maximum=36)
@@ -2366,6 +2370,8 @@ def _provider_request_matches_context(
         and request.currency == context.query.currency
         and request.unit == context.query.unit
         and request.source_policy_id == context.query.source_policy_id
+        and request.family_id == context.query.family_id
+        and request.family_contract_version == context.query.family_contract_version
     )
 
 

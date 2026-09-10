@@ -103,6 +103,8 @@ def _context(
     purpose: str = "display",
     consistency: str = "display",
     knowledge_cutoff: datetime | None = None,
+    family_id: str | None = None,
+    family_contract_version: str | None = None,
 ) -> ResolvedMarketDataQueryContext:
     start_at = start or _at(9)
     end_at = end or _at(16)
@@ -120,6 +122,8 @@ def _context(
             "currency": "CNY",
             "unit": "share",
             "source_policy_id": "market-default-v1",
+            "family_id": family_id,
+            "family_contract_version": family_contract_version,
             "purpose": purpose,
             "consistency": consistency,
             "knowledge_cutoff": (
@@ -170,6 +174,8 @@ def _context(
             price_basis="close",
             currency="CNY",
             unit="share",
+            family_id=query.family_id,
+            family_contract_version=query.family_contract_version,
         ),
     )
 
@@ -383,6 +389,28 @@ async def test_series_identity_reuses_one_series_across_windows_and_projection_f
     assert "end" not in first.semantic_identity_json
     assert "required_fields" not in first.semantic_identity_json
     assert first.semantic_identity_json["instrument_metadata_version"] == METADATA_VERSION
+
+
+def test_series_identity_binds_the_private_kline_family_contract_pair() -> None:
+    """A full-OHLCV legacy series never shares storage identity with stock.realtime."""
+    kline_context = _context(
+        required_fields=("open", "high", "low", "close", "volume", "change_pct"),
+        family_id="stock.kline_legacy",
+        family_contract_version="market-data-kline-v1",
+    )
+    realtime_context = _context(
+        family_id="stock.realtime",
+        family_contract_version="market-data-family-v1",
+    )
+
+    kline_identity = MarketDataStore.series_identity(kline_context)
+    realtime_identity = MarketDataStore.series_identity(realtime_context)
+
+    assert kline_identity.semantic_key_sha256 != realtime_identity.semantic_key_sha256
+    assert kline_identity.semantic_identity["family_id"] == "stock.kline_legacy"
+    assert kline_identity.semantic_identity["family_contract_version"] == "market-data-kline-v1"
+    assert realtime_identity.semantic_identity["family_id"] == "stock.realtime"
+    assert realtime_identity.semantic_identity["family_contract_version"] == "market-data-family-v1"
 
 
 @pytest.mark.asyncio

@@ -44,6 +44,9 @@ from app.services.market_data.capability_ledger import (
 from app.services.market_data.catalog import DataCatalogResolver
 from app.services.market_data.dataset_contracts import (
     DEFAULT_DATASET_CONTRACT_REGISTRY,
+    FAMILY_CONTRACT_VERSION,
+    KLINE_LEGACY_CONTRACT_VERSION,
+    KLINE_LEGACY_FAMILY_ID,
     DatasetContractRegistryError,
 )
 from app.services.market_data.identity import (
@@ -133,6 +136,27 @@ def _default_source_policy_registry(
             currencies=_CNY_OR_UNDECLARED,
             units=_SHARE_OR_UNDECLARED,
             adapter=_shared_akshare_provider(),
+            family_id="stock.realtime",
+            family_contract_version=FAMILY_CONTRACT_VERSION,
+        ),
+        # The legacy K-line facade is deliberately a separate full-OHLCV
+        # product. It shares the reviewed source function with stock bars but
+        # never falls back to the close-only stock.realtime family.
+        MarketDataProviderRoute(
+            route_id="akshare-stock-kline-legacy-v1",
+            request_provider="akshare",
+            expected_result_provider_ids=frozenset({"akshare"}),
+            asset_types=frozenset({"stock"}),
+            data_kinds=frozenset({"bars"}),
+            frequencies=_DAILY_BAR_FREQUENCIES,
+            markets=frozenset({"CN-SSE", "CN-SZSE"}),
+            adjustments=frozenset({"qfq"}),
+            price_bases=frozenset({"close"}),
+            currencies=frozenset({"CNY"}),
+            units=frozenset({"share"}),
+            adapter=_shared_akshare_provider(),
+            family_id=KLINE_LEGACY_FAMILY_ID,
+            family_contract_version=KLINE_LEGACY_CONTRACT_VERSION,
         ),
         # Stock liquidity is a separate product from bars and valuation. The
         # bound family contract emits these exact semantics, which select the
@@ -152,6 +176,7 @@ def _default_source_policy_registry(
             units=frozenset({"share"}),
             adapter=_shared_akshare_provider(),
             family_id="stock.liquidity",
+            family_contract_version=FAMILY_CONTRACT_VERSION,
         ),
         MarketDataProviderRoute(
             route_id="akshare-fund-primary-v1",
@@ -166,6 +191,8 @@ def _default_source_policy_registry(
             currencies=_CNY_OR_UNDECLARED,
             units=_SHARE_OR_UNDECLARED,
             adapter=_shared_akshare_provider(),
+            family_id="fund.realtime",
+            family_contract_version=FAMILY_CONTRACT_VERSION,
         ),
         # ETF liquidity has the same narrow contract as stock liquidity, but
         # it retains a distinct policy route and provider route ID so a future
@@ -184,6 +211,7 @@ def _default_source_policy_registry(
             units=frozenset({"share"}),
             adapter=_shared_akshare_provider(),
             family_id="fund.liquidity",
+            family_contract_version=FAMILY_CONTRACT_VERSION,
         ),
         # ETF NAV is a separately sourced, source-reported reference series.
         # Its family binding and semantic axes prevent it from being selected
@@ -202,6 +230,7 @@ def _default_source_policy_registry(
             units=frozenset({"fund_share"}),
             adapter=_shared_akshare_provider(),
             family_id="fund.nav",
+            family_contract_version=FAMILY_CONTRACT_VERSION,
             # The reviewed endpoint is only for a listed CN ETF. Product
             # type and listing kind are frozen master-data facts, never
             # inferred from the symbol prefix at request time.
@@ -221,6 +250,8 @@ def _default_source_policy_registry(
             currencies=_CNY_OR_UNDECLARED,
             units=_CONTRACT_OR_UNDECLARED,
             adapter=_shared_akshare_provider(),
+            family_id="futures.realtime",
+            family_contract_version=FAMILY_CONTRACT_VERSION,
         ),
         MarketDataProviderRoute(
             route_id="akshare-bond-primary-v1",
@@ -235,6 +266,8 @@ def _default_source_policy_registry(
             currencies=_CNY_OR_UNDECLARED,
             units=_UNDECLARED,
             adapter=_shared_akshare_provider(),
+            family_id="bond.realtime",
+            family_contract_version=FAMILY_CONTRACT_VERSION,
         ),
         MarketDataProviderRoute(
             route_id="akshare-fx-primary-v1",
@@ -249,6 +282,29 @@ def _default_source_policy_registry(
             currencies=_UNDECLARED,
             units=_UNDECLARED,
             adapter=_shared_akshare_provider(),
+            family_id="fx.realtime",
+            family_contract_version=FAMILY_CONTRACT_VERSION,
+        ),
+        # FX range is a separately versioned market-page product even though
+        # it uses the same reviewed AkShare endpoint.  A dedicated route ID
+        # lets the adapter revalidate that family/revision pair, so a
+        # family-bound range request cannot select the realtime route by
+        # sharing its asset, cadence, venue, and semantic axes.
+        MarketDataProviderRoute(
+            route_id="akshare-fx-range-primary-v1",
+            request_provider="akshare",
+            expected_result_provider_ids=frozenset({"akshare"}),
+            asset_types=frozenset({"fx"}),
+            data_kinds=frozenset({"bars"}),
+            frequencies=_DAILY_ONLY_FREQUENCIES,
+            markets=frozenset({"OTC", "CN-OTC"}),
+            adjustments=frozenset({"unadjusted"}),
+            price_bases=frozenset({"close"}),
+            currencies=_UNDECLARED,
+            units=_UNDECLARED,
+            adapter=_shared_akshare_provider(),
+            family_id="fx.range",
+            family_contract_version=FAMILY_CONTRACT_VERSION,
         ),
         MarketDataProviderRoute(
             route_id="akshare-cffex-option-primary-v1",
@@ -263,6 +319,8 @@ def _default_source_policy_registry(
             currencies=_CNY_OR_UNDECLARED,
             units=_CONTRACT_OR_UNDECLARED,
             adapter=_shared_akshare_provider(),
+            family_id="option.realtime",
+            family_contract_version=FAMILY_CONTRACT_VERSION,
         ),
     ]
     for permit in approved_openbb_runtime_route_permits(openbb_provider, openbb_markets):
@@ -281,6 +339,7 @@ def _default_source_policy_registry(
                 units=frozenset({permit.unit}),
                 adapter=_shared_openbb_provider(),
                 family_id=permit.family_id,
+                family_contract_version=permit.family_contract_version,
                 provider_endpoint=permit.endpoint,
             )
         )
@@ -553,6 +612,14 @@ async def get_market_data_query_bundle(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail={"code": "MARKET_DATA_QUERY_V2_DISABLED"},
         )
+    # The legacy K-line product is server-owned by the compatibility facade.
+    # Do not let a public bundle selector enter the registry and turn this
+    # private control-plane boundary into an ordinary 422 family lookup.
+    if request.family_id == KLINE_LEGACY_FAMILY_ID:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={"code": "MARKET_DATA_PRIVATE_FAMILY"},
+        )
     try:
         return DEFAULT_DATASET_CONTRACT_REGISTRY.bundle_for(request)
     except DatasetContractRegistryError as exc:
@@ -579,6 +646,16 @@ async def query_market_data(
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail={"code": "MARKET_DATA_QUERY_V2_DISABLED"},
+        )
+    # ``stock.kline_legacy`` is a private compatibility contract.  Its fixed
+    # server-issued request is consumed only by the legacy K-line facade after
+    # it has validated the legacy selector and frozen identity.  Accepting it
+    # here would let an HTTP caller bypass that boundary and select a product
+    # which is intentionally absent from public bundles and query contracts.
+    if request.family_id == KLINE_LEGACY_FAMILY_ID:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={"code": "MARKET_DATA_PRIVATE_FAMILY"},
         )
     if (
         request.purpose == _RESEARCH_CACHE_FILL_PURPOSE
@@ -643,6 +720,9 @@ def _market_data_http_error(code: str) -> HTTPException:
         response_status = status.HTTP_404_NOT_FOUND
     elif code in {
         "DATASET_UNAVAILABLE",
+        "DATA_FAMILY_CONTRACT_VERSION_UNSUPPORTED",
+        "DATA_FAMILY_QUERY_CONTRACT_MISMATCH",
+        "DATA_FAMILY_UNCONFIGURED",
         "SOURCE_POLICY_UNAVAILABLE",
         "SOURCE_POLICY_PURPOSE_DENIED",
         "ONLINE_FETCH_DISABLED",
