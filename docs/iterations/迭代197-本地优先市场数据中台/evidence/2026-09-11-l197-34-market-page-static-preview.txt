@@ -1,0 +1,67 @@
+schema=iteration197-market-page-static-preview-receipt-v1
+recorded_at=2026-09-11
+
+[candidate]
+commit=7bc3aa620f25aa463bc9ca8f12f8e153baf490f7
+worktree=/Users/yunjinqi/Downloads/backtrader_web/.worktrees/codex/iteration-197-l34-verification
+git_status_short=<empty; clean detached worktree>
+frontend_cwd=/Users/yunjinqi/Downloads/backtrader_web/.worktrees/codex/iteration-197-l34-verification/src/frontend
+
+[environment]
+node=v25.1.0
+npm=11.6.2
+playwright=Version 1.58.2
+browser=local Chromium cache via Playwright
+package_node_engine=>=20 <25; this local command used the recorded Node version above
+network=static Vite preview plus Playwright route fixtures; no AkShare/OpenBB/provider/database request
+
+[commands]
+typecheck=node_modules/.bin/vue-tsc --noEmit
+typecheck_exit_code=0
+vitest=node_modules/.bin/vitest run src/__tests__/views/DataPage.test.ts
+vitest_exit_code=0
+build=npm run build -- --outDir /tmp/iteration-197-l34-dist
+build_exit_code=0
+preview=node_modules/.bin/vite preview --outDir /tmp/iteration-197-l34-dist --host 127.0.0.1 --port 4174 --strictPort
+playwright=BASE_URL=http://127.0.0.1:4174 node_modules/.bin/playwright test -c playwright.a11y.config.ts e2e/a11y/market_data_local_first.spec.ts --project=chromium
+playwright_exit_code=0
+
+[typecheck_stdout]
+
+[vitest_stdout]
+
+ RUN  v1.6.0 /Users/yunjinqi/Downloads/backtrader_web/.worktrees/codex/iteration-197-l34-verification/src/frontend
+
+(node:17567) Warning: `--localstorage-file` was provided without a valid path
+(Use `node --trace-warnings ...` to show where the warning was created)
+Browserslist: browsers data (caniuse-lite) is 6 months old. Please run:
+  npx update-browserslist-db@latest
+  Why you should do it regularly: https://github.com/browserslist/update-db#readme
+ ✓ src/__tests__/views/DataPage.test.ts  (62 tests) 1195ms
+
+ Test Files  1 passed (1)
+      Tests  62 passed (62)
+   Start at  03:46:12
+   Duration  2.35s (transform 460ms, setup 152ms, collect 416ms, tests 1.20s, environment 204ms, prepare 57ms)
+
+
+[build_summary]
+Verified ai-research-approval-errors/v1: 48 backend/frontend entries, 6dd9f6ce55ec595c9441ae08e26f6cc0845549eb1c950a6a28481ad973870d53
+(!) Some chunks are larger than 500 kB after minification. Consider:
+✓ built in 26.16s
+
+[playwright_stdout]
+
+Running 1 test using 1 worker
+
+(node:17995) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:17995) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  1 [chromium] › e2e/a11y/market_data_local_first.spec.ts:134:1 › market page keeps lifecycle reads local-only and reserves local-first for the explicit query action (1.6s)
+
+  1 passed (2.9s)
+
+[scope]
+The fixture browser test asserts the rendered /data/market protocol only: initial POST /api/v1/data/queries is stock.realtime/market-data-family-v1/local_only, the explicit query action issues the same exact contract with local_first, the local_first receipt is rendered as persisted, and unknown data routes fail the test.
+It does not prove a real FastAPI deployment, durable database write, AkShare/OpenBB result, real user authorization, MySQL/PostgreSQL behavior, or release readiness.
