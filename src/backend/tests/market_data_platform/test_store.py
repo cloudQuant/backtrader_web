@@ -364,6 +364,33 @@ def _observation(
     )
 
 
+def _legacy_v1_revision_key(
+    context: ResolvedMarketDataQueryContext,
+    revision: MdObservationRevision,
+    *,
+    fields_sha256: str,
+    quality: ObservationQuality,
+) -> str:
+    """Build a historically valid v1 identity for fixtures that predate source-time sealing."""
+    return store_module._observation_revision_identity_sha256(
+        contract_version=store_module._OBSERVATION_REVISION_CONTRACT_V1,
+        series_semantic_key_sha256=MarketDataStore.series_identity(context).semantic_key_sha256,
+        source_snapshot_id=revision.source_snapshot_id,
+        event_at=store_module._stored_utc(
+            revision.event_time,
+            field_name="legacy revision event_time",
+        ),
+        available_at=store_module._stored_utc(
+            revision.available_at,
+            field_name="legacy revision available_at",
+        ),
+        fields_sha256=fields_sha256,
+        quality=quality,
+        revision_number=revision.revision_number,
+        source_available_at=None,
+    )
+
+
 @pytest.mark.asyncio
 async def test_series_identity_reuses_one_series_across_windows_and_projection_fields() -> None:
     """Windows and required-field projection do not fork the canonical economic series."""
@@ -1016,16 +1043,24 @@ async def test_store_rechecks_a_legacy_pass_placeholder_without_rewriting_it() -
             .order_by(MdObservationRevision.id)
         )
         assert legacy is not None
+        legacy_fields = {"close": "--"}
+        legacy_fields_sha256 = _sha(
+            json.dumps(legacy_fields, separators=(",", ":"), sort_keys=True)
+        )
         await db.execute(
             update(MdObservationRevision)
             .where(MdObservationRevision.id == legacy.id)
             .values(
-                fields_json={"close": "--"},
-                fields_sha256=_sha(
-                    json.dumps({"close": "--"}, separators=(",", ":"), sort_keys=True)
-                ),
+                fields_json=legacy_fields,
+                fields_sha256=legacy_fields_sha256,
                 quality_status="pass",
                 quality_policy_version="required-fields-v1",
+                revision_key_sha256=_legacy_v1_revision_key(
+                    context,
+                    legacy,
+                    fields_sha256=legacy_fields_sha256,
+                    quality=ObservationQuality.PASS,
+                ),
             )
         )
         await db.commit()
@@ -1067,16 +1102,24 @@ async def test_store_excludes_a_legacy_pass_placeholder_from_response_rows_but_k
         await db.commit()
         legacy = await db.scalar(select(MdObservationRevision))
         assert legacy is not None
+        legacy_fields = {"close": "--"}
+        legacy_fields_sha256 = _sha(
+            json.dumps(legacy_fields, separators=(",", ":"), sort_keys=True)
+        )
         await db.execute(
             update(MdObservationRevision)
             .where(MdObservationRevision.id == legacy.id)
             .values(
-                fields_json={"close": "--"},
-                fields_sha256=_sha(
-                    json.dumps({"close": "--"}, separators=(",", ":"), sort_keys=True)
-                ),
+                fields_json=legacy_fields,
+                fields_sha256=legacy_fields_sha256,
                 quality_status="pass",
                 quality_policy_version="required-fields-v1",
+                revision_key_sha256=_legacy_v1_revision_key(
+                    context,
+                    legacy,
+                    fields_sha256=legacy_fields_sha256,
+                    quality=ObservationQuality.PASS,
+                ),
             )
         )
         await db.commit()
@@ -1391,9 +1434,7 @@ async def test_store_content_addresses_one_source_batch_for_multiple_source_rece
         refs = list((await db.execute(select(MdSourceSnapshotPayloadRef))).scalars())
         snapshots = list(
             (
-                await db.execute(
-                    select(MdSourceSnapshot).order_by(MdSourceSnapshot.retrieved_at)
-                )
+                await db.execute(select(MdSourceSnapshot).order_by(MdSourceSnapshot.retrieved_at))
             ).scalars()
         )
         publication_count = int(
@@ -1435,14 +1476,17 @@ async def test_store_content_addresses_one_source_batch_for_multiple_source_rece
         assert ref.payload_role == manifest["shared_source_payload"]["payload_role"]
         reconstructed = dict(manifest["receipt_payload"])
         reconstructed["source_batch"] = json.loads(canonical_source_batch.decode("utf-8"))
-        assert snapshot.payload_sha256 == hashlib.sha256(
-            json.dumps(
-                reconstructed,
-                ensure_ascii=False,
-                separators=(",", ":"),
-                sort_keys=True,
-            ).encode("utf-8")
-        ).hexdigest()
+        assert (
+            snapshot.payload_sha256
+            == hashlib.sha256(
+                json.dumps(
+                    reconstructed,
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                    sort_keys=True,
+                ).encode("utf-8")
+            ).hexdigest()
+        )
 
 
 @pytest.mark.asyncio
@@ -1579,7 +1623,7 @@ async def test_store_rejects_corrupted_existing_shared_payload_before_new_receip
         await db.execute(
             update(MdSourcePayload)
             .where(MdSourcePayload.content_sha256 == payload.content_sha256)
-            .values(canonical_payload_bytes=b"{\"tampered\":true}")
+            .values(canonical_payload_bytes=b'{"tampered":true}')
         )
         await db.commit()
         with pytest.raises(MarketDataStoreError) as rejected:
@@ -1596,7 +1640,9 @@ async def test_store_rejects_corrupted_existing_shared_payload_before_new_receip
                 unverified_compatibility_reason=UNVERIFIED_COMPATIBILITY_REASON_LEGACY_IMPORT,
             )
         await db.rollback()
-        snapshot_count = int(await db.scalar(select(func.count()).select_from(MdSourceSnapshot)) or 0)
+        snapshot_count = int(
+            await db.scalar(select(func.count()).select_from(MdSourceSnapshot)) or 0
+        )
 
     assert rejected.value.code == "SHARED_SOURCE_PAYLOAD_INTEGRITY_CONFLICT"
     assert snapshot_count == 1
@@ -1731,6 +1777,220 @@ async def test_store_uses_local_receipt_time_not_provider_claim_for_pit_visibili
         snapshot.source_observed_at, field_name="snapshot observed_at"
     ) == _at(10)
     assert snapshot.provenance_json["provider_retrieved_at"] == _at(10).isoformat()
+
+
+@pytest.mark.asyncio
+async def test_store_local_revision_exposes_validated_provider_availability_separately() -> None:
+    """A local read preserves upstream availability without replacing its PIT receipt time."""
+    context = _context()
+
+    async with async_session_maker() as db:
+        await _seed_dataset_and_provider(db)
+        store = MarketDataStore(db, clock=lambda: _at(12))
+        await store.persist_provider_result(
+            context,
+            _result(
+                retrieved_at=_at(11),
+                observations=(
+                    _observation(
+                        event_at=_at(10),
+                        available_at=_at(11),
+                        fields={"close": "10.00"},
+                    ),
+                ),
+            ),
+            received_at=_at(12),
+            unverified_compatibility_reason=UNVERIFIED_COMPATIBILITY_REASON_LEGACY_IMPORT,
+        )
+        await db.commit()
+
+        rows = await store.read_observation_revisions(context, knowledge_cutoff=_at(13))
+
+    assert len(rows) == 1
+    assert rows[0].source_available_at == _at(11)
+    assert rows[0].available_at == _at(12)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "provider_available_at",
+    (
+        None,
+        "not-a-timestamp",
+        "2026-09-08T11:00:00",
+        _at(10).isoformat(),
+        _at(13).isoformat(),
+    ),
+    ids=(
+        "missing",
+        "malformed",
+        "timezone-free",
+        "sealed-but-earlier",
+        "after-local-availability",
+    ),
+)
+async def test_store_fails_closed_when_persisted_provider_availability_is_invalid(
+    provider_available_at: str | None,
+) -> None:
+    """Tampered or incomplete upstream availability evidence cannot contribute local coverage."""
+    context = _context()
+
+    async with async_session_maker() as db:
+        await _seed_dataset_and_provider(db)
+        store = MarketDataStore(db, clock=lambda: _at(12))
+        persisted = await store.persist_provider_result(
+            context,
+            _result(
+                retrieved_at=_at(11),
+                observations=(
+                    _observation(
+                        event_at=_at(10),
+                        available_at=_at(11),
+                        fields={"close": "10.00"},
+                    ),
+                ),
+            ),
+            received_at=_at(12),
+            unverified_compatibility_reason=UNVERIFIED_COMPATIBILITY_REASON_LEGACY_IMPORT,
+        )
+        await db.commit()
+        revision = await db.get(MdObservationRevision, persisted.observation_revision_ids[0])
+        assert revision is not None
+        forged_provenance = dict(revision.provenance_json)
+        if provider_available_at is None:
+            forged_provenance.pop("provider_available_at")
+        else:
+            forged_provenance["provider_available_at"] = provider_available_at
+        await db.execute(
+            update(MdObservationRevision)
+            .where(MdObservationRevision.id == revision.id)
+            .values(provenance_json=forged_provenance)
+            .execution_options(synchronize_session=False)
+        )
+        await db.commit()
+        db.expire_all()
+
+        with pytest.raises(MarketDataStoreError) as rejected:
+            await store.read_observation_revisions(context, knowledge_cutoff=_at(13))
+
+    assert rejected.value.code == "LOCAL_OBSERVATION_INTEGRITY"
+
+
+@pytest.mark.asyncio
+async def test_store_fails_closed_when_sealed_provider_availability_follows_local_receipt() -> None:
+    """A valid v2 identity cannot make upstream availability later than the local receipt."""
+    context = _context()
+
+    async with async_session_maker() as db:
+        await _seed_dataset_and_provider(db)
+        store = MarketDataStore(db, clock=lambda: _at(12))
+        persisted = await store.persist_provider_result(
+            context,
+            _result(
+                retrieved_at=_at(11),
+                observations=(
+                    _observation(
+                        event_at=_at(10),
+                        available_at=_at(11),
+                        fields={"close": "10.00"},
+                    ),
+                ),
+            ),
+            received_at=_at(12),
+            unverified_compatibility_reason=UNVERIFIED_COMPATIBILITY_REASON_LEGACY_IMPORT,
+        )
+        await db.commit()
+        revision = await db.get(MdObservationRevision, persisted.observation_revision_ids[0])
+        assert revision is not None
+        forged_source_available_at = _at(13)
+        forged_provenance = dict(revision.provenance_json)
+        forged_provenance["provider_available_at"] = forged_source_available_at.isoformat()
+        sealed_forged_revision_key = store_module._observation_revision_identity_sha256(
+            contract_version=store_module._OBSERVATION_REVISION_CONTRACT_V2,
+            series_semantic_key_sha256=MarketDataStore.series_identity(context).semantic_key_sha256,
+            source_snapshot_id=revision.source_snapshot_id,
+            event_at=store_module._stored_utc(
+                revision.event_time,
+                field_name="sealed forged revision event_time",
+            ),
+            available_at=store_module._stored_utc(
+                revision.available_at,
+                field_name="sealed forged revision available_at",
+            ),
+            fields_sha256=revision.fields_sha256,
+            quality=ObservationQuality(revision.quality_status),
+            revision_number=revision.revision_number,
+            source_available_at=forged_source_available_at,
+        )
+        await db.execute(
+            update(MdObservationRevision)
+            .where(MdObservationRevision.id == revision.id)
+            .values(
+                revision_key_sha256=sealed_forged_revision_key,
+                provenance_json=forged_provenance,
+            )
+            .execution_options(synchronize_session=False)
+        )
+        await db.commit()
+        db.expire_all()
+
+        with pytest.raises(MarketDataStoreError) as rejected:
+            await store.read_observation_revisions(context, knowledge_cutoff=_at(14))
+
+    assert rejected.value.code == "LOCAL_OBSERVATION_INTEGRITY"
+
+
+@pytest.mark.asyncio
+async def test_store_leaves_unsealed_v1_provider_availability_unavailable() -> None:
+    """Historical v1 identity rows remain readable but cannot claim source timing proof."""
+    context = _context()
+
+    async with async_session_maker() as db:
+        await _seed_dataset_and_provider(db)
+        store = MarketDataStore(db, clock=lambda: _at(12))
+        persisted = await store.persist_provider_result(
+            context,
+            _result(
+                retrieved_at=_at(11),
+                observations=(
+                    _observation(
+                        event_at=_at(10),
+                        available_at=_at(11),
+                        fields={"close": "10.00"},
+                    ),
+                ),
+            ),
+            received_at=_at(12),
+            unverified_compatibility_reason=UNVERIFIED_COMPATIBILITY_REASON_LEGACY_IMPORT,
+        )
+        await db.commit()
+        revision = await db.get(MdObservationRevision, persisted.observation_revision_ids[0])
+        assert revision is not None
+        legacy_revision_key = _legacy_v1_revision_key(
+            context,
+            revision,
+            fields_sha256=revision.fields_sha256,
+            quality=ObservationQuality(revision.quality_status),
+        )
+        legacy_provenance = dict(revision.provenance_json)
+        legacy_provenance["provider_available_at"] = _at(11).isoformat()
+        await db.execute(
+            update(MdObservationRevision)
+            .where(MdObservationRevision.id == revision.id)
+            .values(
+                revision_key_sha256=legacy_revision_key,
+                provenance_json=legacy_provenance,
+            )
+            .execution_options(synchronize_session=False)
+        )
+        await db.commit()
+        db.expire_all()
+
+        rows = await store.read_observation_revisions(context, knowledge_cutoff=_at(13))
+
+    assert len(rows) == 1
+    assert rows[0].source_available_at is None
+    assert rows[0].available_at == _at(12)
 
 
 @pytest.mark.asyncio
@@ -2211,7 +2471,9 @@ async def test_stale_fenced_pending_receipt_stays_hidden_while_recovery_and_curr
             current_persisted.source_snapshot_id,
         )
         current_receipt = await current_db.scalar(
-            select(MdPublication).where(MdPublication.entity_id == current_persisted.source_snapshot_id)
+            select(MdPublication).where(
+                MdPublication.entity_id == current_persisted.source_snapshot_id
+            )
         )
         assert current_snapshot is not None
         assert current_receipt is not None

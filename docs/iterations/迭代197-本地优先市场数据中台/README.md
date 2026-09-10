@@ -10,6 +10,7 @@
 - [范围清单闸门](SCOPE_MANIFEST.md)：从 21 个家族合同和当前 UI/API 输入生成可复核清单；当前候选已按迭代 196 冻结收据重新生成并验证范围产物。它不覆盖私有估值 collector、shared payload/ref 迁移或完整回执重建，这些另有存储与迁移回归。
 - [数据产品扩展计划](PRODUCT_EXPANSION_PLAN.md)：21 个页面家族的实际能力台账，以及 11 个单记录和 4 个多记录产品的后续模型、来源与验收要求。
 - [并行设计基线整合记录](DOCUMENT_INTEGRATION_20260909.md)：保留独立设计工作区的同名文档基线及当前实现候选文档的对应关系。
+- [A 股历史日线遗留表导入边界](LEGACY_STOCK_DAILY_IMPORT_GUARD.md)：`STOCK_ZH_A_HIST` 的 source-batch/import-scope/read-authorization、逐 target write-permit、逐 bar 唯一 revision/source binding、publication 不早于 Store local receipt、Store v2 来源时间封存、v1 `source_available_at=None` 拒绝、source/local availability 与 quarantine 证据链，以及候选本地证据和 `NO-GO` 启用条件。
 
 当前实现已为 11 个 B1 单记录家族建立惰性的逻辑数据集目录、精确 family-shape 白名单和合同驱动的页面状态。其中 `stock.liquidity`、`fund.liquidity`、`fund.nav` 和 `fx.range` 已完成候选代码开通：它们具有各自的 `ready` family contract、精确来源策略和页面显式选择路径。`fund.nav` 只覆盖 CN-SSE/CN-SZSE ETF 的日线净值，字段为 `nav`、`cumulative_nav`、`daily_growth_rate`，语义固定为 `source_reported + nav + CNY + fund_share`。它还要求 frozen identity 同时声明 `product_type=ETF` 和 `fund_identity_kind=LISTING`；source policy、legacy compatibility bridge 和 AkShare adapter 均在 provider I/O 前复核该条件。其余七个 B1 家族仍为 `unconfigured`。这只表示代码合同与离线回归已具备，不能表示所有产品已经通过真实 provider、数据库或页面灰度验收。已执行的 `stock.liquidity` 真实子用例返回零 response/normalized rows，状态为 `FAIL`；其它实际启用 AkShare 路线仍为 `NOT_RUN`。
 
