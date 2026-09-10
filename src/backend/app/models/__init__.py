@@ -111,7 +111,9 @@ from app.models.market_data_platform import (
     MdInstrumentLookupKey,
     MdObservationRevision,
     MdPublication,
+    MdSourcePayload,
     MdSourceSnapshot,
+    MdSourceSnapshotPayloadRef,
 )
 from app.models.market_data_trust import (
     AssetSpecModel,
@@ -249,7 +251,9 @@ __all__ = [
     "MdInstrumentLookupKey",
     "MdObservationRevision",
     "MdPublication",
+    "MdSourcePayload",
     "MdSourceSnapshot",
+    "MdSourceSnapshotPayloadRef",
     "KnowledgeBase",
     "KBDocument",
     "DocumentChunk",

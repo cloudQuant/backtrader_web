@@ -2,7 +2,7 @@
 
 > 状态：已为当前 `dev` 候选生成并验证范围清单（2026-09-10；manifest SHA-256：`d1dd587a1d199c2b155789d1c24d53eb3c0e320165b62daf5c57fc55d3544cd1`）。
 >
-> 冻结输入：[iter196-market-data-baseline-20260909.json](iter196-market-data-baseline-20260909.json)；生成结果：[iteration197-market-data-scope-manifest-20260909.json](iteration197-market-data-scope-manifest-20260909.json)。基线引用迭代 196 的冻结候选和收据 SHA-256，而不是当前工作树或测试夹具。
+> 冻结输入：[iter196-market-data-baseline-20260909.json](iter196-market-data-baseline-20260909.json)；生成结果：[iteration197-market-data-scope-manifest-20260909.json](iteration197-market-data-scope-manifest-20260909.json)。基线引用迭代 196 的冻结候选和收据 SHA-256，而不是当前工作树或测试夹具。该 artifact 只覆盖 21 个公开 family 与 UI/API 输入；不覆盖私有估值 collector、`md_source_payloads` / `md_source_snapshot_payload_refs` 迁移、shared BLOB 完整性或完整 receipt 重建。
 
 ## 目的
 
@@ -14,7 +14,7 @@
 
 它把每一行的产品合同、UI/API 可接受输入、生成器及来源文件 SHA-256 和独立 `row_sha256` 固化为 JSON。清单还有整体 `manifest_sha256`，因此审核者可以区分单行被改动、整份文件被改动和当前源代码漂移。
 
-清单只描述当前合同面。它不会启用 `MARKET_DATA_QUERY_V2_ENABLED`、`MARKET_DATA_ONLINE_FETCH_ENABLED` 或前端开关，也不会授权 `/investment/strategies` 使用生产数据路径。生成结果始终包含：
+清单只描述当前合同面。它不会启用 `MARKET_DATA_QUERY_V2_ENABLED`、`MARKET_DATA_ONLINE_FETCH_ENABLED` 或前端开关，也不会授权 `/investment/strategies` 使用生产数据路径；也不能证明私有 collector、shared payload/ref schema、BLOB hash 或 target receipt 重建。生成结果始终包含：
 
 ```json
 {
@@ -76,4 +76,4 @@
 | `SCOPE_MANIFEST_ROW_HASH_MISMATCH` | 某一产品行被改变而未重算证据 | 拒绝整份清单。 |
 | `SCOPE_MANIFEST_CONTENT_DRIFT` | 哈希自洽但不再能从当前源代码重建 | 重新审查并生成，不复用旧产物。 |
 
-本工具是迭代 196/197 集成候选的一项输入完整性闸门。它不能代替单 head Alembic 演练、真实 AkShare/OpenBB 数据回执、跨数据库 PIT 验证、浏览器灰度或策略工件的端到端验收。
+本工具是迭代 196/197 集成候选的一项输入完整性闸门。它不能代替私有 collector、shared payload/ref migration 或完整 receipt 重建的测试，也不能代替单 head Alembic 演练、真实 AkShare/OpenBB 数据回执、跨数据库 PIT 验证、浏览器灰度或策略工件的端到端验收。

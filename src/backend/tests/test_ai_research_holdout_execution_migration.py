@@ -15,7 +15,7 @@ from alembic import command
 _BACKEND_ROOT = Path(__file__).resolve().parents[1]
 _PREVIOUS = "20260908_ai_research_evidence_command"
 _HEAD = "20260908_ai_research_holdout_executions"
-_INTEGRATED_HEAD = "20260909_market_data_research_binding_consumers"
+_INTEGRATED_HEAD = "20260910_market_data_shared_source_payloads"
 _TABLE = "ai_research_holdout_executions"
 _COLUMNS = {
     "id",

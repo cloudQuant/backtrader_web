@@ -83,7 +83,7 @@
 
 | 来源 | 方法和关键 source key | 可规划的产品 | 当前状态 |
 | --- | --- | --- | --- |
-| A 股宽表 | `stock_zh_a_spot_em()`；`代码`，无输出交易所和逐行时间 | stock quote、stock valuation | `IN_PROGRESS`：仅估值的私有离线 collector 已落地，输入必须是已捕获批次；固定 envelope/hash、冻结 `(venue, code)` mapping、`collector_observed` capture instant、unknown quarantine、2 MiB/10 MiB/32 MiB/16-target 写前边界和 durable-prefix 语义均已本地验证。它没有 provider route 或网络调用，公开 `stock.valuation` 保持 `NOT_CONFIGURED`。 |
+| A 股宽表 | `stock_zh_a_spot_em()`；`代码`，无输出交易所和逐行时间 | stock quote、stock valuation | `IN_PROGRESS`：仅估值的私有离线 collector 已落地，输入必须是已捕获批次；固定 envelope/hash、冻结 `(venue, code)` mapping、`collector_observed` capture instant、unknown quarantine、2 MiB/10 MiB/16-target 写前边界、共享 UTF-8 BLOB 引用和 durable-prefix 语义均有本地回归。它没有 provider route 或网络调用，公开 `stock.valuation` 保持 `NOT_CONFIGURED`。 |
 | ETF 宽表 | `fund_etf_spot_em()`；`代码`、数据日期、更新时间 | ETF quote | `NOT_CONFIGURED`：先验证更新时间原始单位/时区和 listing 映射。 |
 | 开放式基金净值 | `fund_open_fund_info_em()` 的“单位净值走势”与“累计净值走势” | fund NAV | `NOT_CONFIGURED`：不是 `[start,end)` exact API；仅可做有行数上限的双收据定时 importer。 |
 | 期货结算 legacy bridge | `FUTURES_DAILY_MARKET`，需 settle/previous settle/OI | futures settlement | `NOT_CONFIGURED`：只按 `(MARKET,SYMBOL,TRADE_DATE)` 导入，原表不是运行时查询源。 |
@@ -94,7 +94,9 @@ collector 无法获得可信 provider row time 时，`event_at` 只能被明确�
 
 已落地的 `StockValuationCollector` 不是页面 fallback。它只持久化私有 `market.stock_valuation_captured_snapshot / valuation_snapshot / snapshot`，由受控 scheduler 或测试夹具交付已捕获的 AkShare 宽表；默认入口零 fetch、零 HTTP、零 request-time provider route，且没有 public family、API、freshness 或 legacy bridge。处理前冻结 CN-SSE/CN-SZSE `(venue, code) → canonical identity` map、目标集合、四字段 profile、`local_only + display` 语义以及精确 aware `captured_at` 的一微秒选择窗口。宽表没有可信逐行来源事件时间，故 observation `event_at` 只表示 `collector_observed` capture instant，receipt 明确记录 `source_event_time=null` 和 `source_as_of=null`；它不能改写为交易所时间、日线 close、日历 event 或公开 `as_of`。
 
-capture envelope 固定 provider、`stock_zh_a_spot_em` endpoint、空 args/kwargs、collector version、source revision、captured_at、time basis 和自排除 batch SHA-256；构造时递归冻结 raw payload。已知 target 的 identity、重复、缺字段或规范化错误会整批零写入；未知结构有效的代码只留在 quarantine 与每 target 的 raw receipt。写入前严格限制 2 MiB source envelope、16 target、10 MiB 单条 receipt 和 32 MiB 精确复制 fan-out；生产级 content-addressed shared receipt 尚未实现。完整预检后各 target 独立 publication，后续失败返回 durable prefix；只有 publication 后的 Store `local_only` 重读才构成本地持久化证据。
+capture envelope 固定 provider、`stock_zh_a_spot_em` endpoint、空 args/kwargs、collector version、source revision、captured_at、time basis 和自排除 batch SHA-256；构造时递归冻结 raw payload。已知 target 的 identity、重复、缺字段或规范化错误会整批零写入；未知结构有效的代码只留在 quarantine 与每个 target 的紧凑 receipt manifest。写入前严格限制 2 MiB source envelope、16 target 和 10 MiB 完整 target receipt。Store 从完整 receipt 自行提取唯一允许的 `source_batch` 段，按 canonical JSON UTF-8 字节建立或复用一条 `md_source_payloads` BLOB，并用 `md_source_snapshot_payload_refs` 关联每个 target snapshot；不同字节绝不共用一行。先用字节重算 BLOB `content_sha256` 和 `payload_bytes`，再把 JSON 解码的 BLOB 放回 manifest `receipt_payload`，规范化后的完整 receipt 必须重新得到 target snapshot 的 `payload_sha256`。共享内容不拥有 publication 或公开读取入口，publication、授权、quarantine 和部分发布语义仍逐 target 落在 source snapshot 上。完整预检后各 target 独立 publication，后续失败返回 durable prefix；只有 publication 后的 Store `local_only` 重读才构成本地持久化证据。
+
+复用 shared BLOB 前 Store 强制从数据库重读，避免长期 Session 复用已缓存的被篡改字节。迁移只增 child evidence 表；普通 MySQL `BLOB` 或 `LONGBLOB` 被识别为与 `MEDIUMBLOB` 不同的 drift。非空表 downgrade 仍失败关闭；PostgreSQL 在证明空表和 DROP 前锁定两张 child 表，真实 MySQL/PostgreSQL 演练保持 `NOT_RUN`。
 
 本地 139 条聚焦 pytest 已覆盖默认关闭、网络防护、身份、封装、时间语义、quarantine、预算、部分发布、递归冻结和 Store 回读。真实 AkShare、scheduler、许可、calendar、MySQL/PostgreSQL、浏览器与策略/回测仍为 `NOT_RUN`；即使内部候选通过离线回归，公开 `stock.valuation` 仍不是可用能力。
 
@@ -140,7 +142,7 @@ capture envelope 固定 provider、`stock_zh_a_spot_em` endpoint、空 args/kwar
 | large-file ratchet | `BLOCKED / NO-GO`（L-197-18） | 当前 38 项超限，未改写 baseline；该全仓质量闸门恢复前不得作发布签收。 |
 | 真实 AkShare exact route | `NOT_RUN` | 每条 route 的实际请求/回执、字段和身份 mismatch 反例、限流与错误码证据。 |
 | F2 collector 宽表刷新 | `IN_PROGRESS` | 离线 schedule/shadow snapshot importer 候选已存在，但没有 route 或网络调用；真实 feed-level singleflight、raw snapshot、ambiguous-row quarantine、首次导入后第二次同请求零网络仍为 `NOT_RUN`。 |
-| A 股 `stock.valuation` 预捕获宽表采集候选 | `PASS`（本地开发回归，139 条聚焦 pytest） | 私有 `market.stock_valuation_captured_snapshot / valuation_snapshot / snapshot` 默认关闭 collector 已验证零 fetch/HTTP、封装 hash、递归冻结、精确 collector-observed capture instant、unknown quarantine、2 MiB/10 MiB/32 MiB/16-target 写前限制、部分发布与 Store 回读；共享内容寻址 receipt 仍非本候选能力，公开 `stock.valuation` 仍非 `ready`。真实 source/database/browser/scheduler 仍 `NOT_RUN`。 |
+| A 股 `stock.valuation` 预捕获宽表采集候选 | `PASS`（L-197-21，本地开发回归） | 私有 `market.stock_valuation_captured_snapshot / valuation_snapshot / snapshot` 默认关闭 collector 已验证零 fetch/HTTP、封装 hash、递归冻结、精确 collector-observed capture instant、unknown quarantine、2 MiB/10 MiB/16-target 写前限制、每宽表一份 canonical UTF-8 BLOB、target receipt 重建 hash、部分发布与 Store 回读；公开 `stock.valuation` 仍非 `ready`。真实 source/database/browser/scheduler 仍 `NOT_RUN`。 |
 | OpenBB operator runner | `NOT_RUN` | 独立环境、provider allow-list、extension 版本、许可证/凭据、子进程隔离和真实 data receipt。 |
 | 真实数据库迁移与 PIT | `BLOCKED` | 196/197 共同 migration head、MySQL 精度/索引检查、升级/降级或恢复演练、publication recovery。 |
 | `/data/market` 浏览器灰度 | `NOT_RUN` | V1/V2 双路径、未配置展示、bars 非实时标签、网络观察和回滚。 |

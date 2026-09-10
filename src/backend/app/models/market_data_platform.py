@@ -24,6 +24,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    LargeBinary,
     String,
     Text,
     UniqueConstraint,
@@ -50,6 +51,9 @@ CALENDAR_SOURCE_GOVERNANCE_STATE_UNVERIFIED_COMPATIBILITY = "UNVERIFIED_COMPATIB
 # makes an explicit one-microsecond ordering guarantee, so all Iteration 197
 # evidence timestamps must retain microseconds on that dialect as well.
 PITDateTime = DateTime(timezone=True).with_variant(mysql.DATETIME(fsp=6), "mysql")
+# MySQL ``BLOB`` only holds 64 KiB, below Store's 10 MiB source-payload
+# boundary.  Keep identical canonical UTF-8 evidence bytes across engines.
+CanonicalPayloadBytes = LargeBinary().with_variant(mysql.MEDIUMBLOB, "mysql")
 
 
 def _uuid() -> str:
@@ -404,6 +408,46 @@ class MdDataSeries(Base):
     )
 
 
+class MdSourcePayload(Base):
+    """One immutable content-addressed raw payload shared by source receipts.
+
+    A provider may return one bounded wide response that is normalized into
+    several canonical target-series receipts.  The shared object holds that
+    complete response once; every referencing ``MdSourceSnapshot`` retains
+    the target-specific request, authorization, and normalization evidence.
+    It has no direct publication record and is reachable only through an
+    authorized published source snapshot.
+    """
+
+    __tablename__ = "md_source_payloads"
+    __table_args__ = (
+        CheckConstraint(
+            f"length(content_sha256) = {_SHA256_LENGTH}",
+            name="ck_md_source_payload_content_sha256_length",
+        ),
+        CheckConstraint(
+            "length(payload_format) > 0",
+            name="ck_md_source_payload_format_nonempty",
+        ),
+        CheckConstraint(
+            "payload_bytes > 0",
+            name="ck_md_source_payload_bytes_positive",
+        ),
+    )
+
+    content_sha256 = Column(String(_SHA256_LENGTH), primary_key=True)
+    payload_format = Column(String(128), nullable=False)
+    canonical_payload_bytes = Column(CanonicalPayloadBytes, nullable=False)
+    payload_bytes = Column(BigInteger, nullable=False)
+    created_at = Column(PITDateTime, default=_utcnow, nullable=False)
+
+    source_snapshot_references = relationship(
+        "MdSourceSnapshotPayloadRef",
+        back_populates="source_payload",
+        passive_deletes=True,
+    )
+
+
 class MdSourceSnapshot(Base):
     """Immutable raw-source receipt with query, provider-call, and payload evidence.
 
@@ -533,11 +577,64 @@ class MdSourceSnapshot(Base):
     created_at = Column(PITDateTime, default=_utcnow, nullable=False)
 
     provider = relationship("DgProvider")
+    shared_source_payload_ref = relationship(
+        "MdSourceSnapshotPayloadRef",
+        back_populates="source_snapshot",
+        passive_deletes=True,
+        uselist=False,
+    )
     observation_revisions = relationship(
         "MdObservationRevision",
         back_populates="source_snapshot",
         passive_deletes=True,
     )
+
+
+class MdSourceSnapshotPayloadRef(Base):
+    """Immutable one-to-one link from a source receipt to shared raw evidence.
+
+    The association is deliberately a child table rather than a new column on
+    ``md_source_snapshots``.  Older populated SQLite deployments can therefore
+    gain shared-receipt support without rebuilding the parent evidence table
+    that already has observation and calendar foreign-key dependents.
+    """
+
+    __tablename__ = "md_source_snapshot_payload_refs"
+    __table_args__ = (
+        CheckConstraint(
+            f"length(content_sha256) = {_SHA256_LENGTH}",
+            name="ck_md_source_snapshot_payload_ref_sha256_length",
+        ),
+        CheckConstraint(
+            "payload_role = 'source_batch'",
+            name="ck_md_source_snapshot_payload_ref_role",
+        ),
+        Index("ix_md_source_snapshot_payload_ref_content", "content_sha256"),
+    )
+
+    source_snapshot_id = Column(
+        String(36),
+        ForeignKey(
+            "md_source_snapshots.id",
+            name="fk_md_source_snapshot_payload_ref_snapshot",
+            ondelete="RESTRICT",
+        ),
+        primary_key=True,
+    )
+    content_sha256 = Column(
+        String(_SHA256_LENGTH),
+        ForeignKey(
+            "md_source_payloads.content_sha256",
+            name="fk_md_source_snapshot_payload_ref_payload",
+            ondelete="RESTRICT",
+        ),
+        nullable=False,
+    )
+    payload_role = Column(String(128), nullable=False)
+    created_at = Column(PITDateTime, default=_utcnow, nullable=False)
+
+    source_snapshot = relationship("MdSourceSnapshot", back_populates="shared_source_payload_ref")
+    source_payload = relationship("MdSourcePayload", back_populates="source_snapshot_references")
 
 
 class MdObservationRevision(Base):
@@ -1021,7 +1118,9 @@ def _deny_research_binding_mutation(
 
 for _immutable_model in (
     MdDataSeries,
+    MdSourcePayload,
     MdSourceSnapshot,
+    MdSourceSnapshotPayloadRef,
     MdObservationRevision,
     MdCalendarSnapshot,
     MdCalendarEvent,

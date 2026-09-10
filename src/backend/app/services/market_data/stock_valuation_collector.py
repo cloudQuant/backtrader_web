@@ -34,6 +34,7 @@ from app.services.market_data.providers import (
     MarketDataProviderRequest,
     ProviderFetchResult,
     ProviderMarketObservation,
+    SharedSourcePayloadSegment,
 )
 from app.services.market_data.query_resolution import ResolvedMarketDataQueryContext
 from app.services.market_data.snapshot_importer import (
@@ -71,11 +72,11 @@ _MAX_TARGETS_PER_BATCH = 16
 _MAX_SOURCE_BATCH_BYTES = 2 * 1024 * 1024
 # Each receipt must remain within the Store's 10 MiB immutable raw-payload boundary.
 _MAX_SINGLE_RECEIPT_BYTES = MAX_SOURCE_PAYLOAD_BYTES
-# The exact target-specific raw receipts may use at most 32 MiB in total.
-_MAX_REPLICATED_RECEIPT_BYTES = 32 * 1024 * 1024
 _MAX_NESTING_DEPTH = 32
 _STOCK_CODE = re.compile(r"^[0-9]{6}$")
 _NONFINITE_NUMERIC_SENTINEL = "__market_data_nonfinite_numeric__"
+_SHARED_SOURCE_PAYLOAD_FORMAT = "canonical-json-utf8-v1"
+_SHARED_SOURCE_PAYLOAD_ROLE = "source_batch"
 
 
 class StockValuationCollectorError(ValueError):
@@ -691,26 +692,21 @@ def _assert_receipt_fanout_budget(
     normalized: _NormalizedBatch,
     plan: _PreparedCollection,
 ) -> None:
-    """Preflight 10 MiB-per-receipt and 32 MiB-total immutable evidence.
+    """Preflight compact target-specific receipt evidence before persistence.
 
     ``MarketDataStore`` deliberately seals one immutable source snapshot for
-    every series publication.  This candidate retains the full source batch
-    in each such snapshot for traceability, so it calculates the complete
-    target-specific payload rather than estimating from the source batch size.
-    A shared content-addressed receipt store is intentionally deferred.
+    every series publication.  The complete bounded source envelope has
+    already been verified independently and is content-addressed once; this
+    check protects only each per-target receipt from bypassing the Store's raw
+    payload ceiling.
     """
-    total_bytes = 0
     for provider_symbol in sorted(plan.targets_by_symbol):
         target = plan.targets_by_symbol[provider_symbol]
-        total_bytes += len(
-            _canonical_json(
-                _receipt_raw_payload(normalized=normalized, plan=plan, target=target),
-                maximum_bytes=_MAX_SINGLE_RECEIPT_BYTES,
-                overflow_code="STOCK_VALUATION_RECEIPT_EVIDENCE_TOO_LARGE",
-            )
+        _canonical_json(
+            _receipt_raw_payload(normalized=normalized, plan=plan, target=target),
+            maximum_bytes=_MAX_SINGLE_RECEIPT_BYTES,
+            overflow_code="STOCK_VALUATION_RECEIPT_EVIDENCE_TOO_LARGE",
         )
-        if total_bytes > _MAX_REPLICATED_RECEIPT_BYTES:
-            raise StockValuationCollectorError("STOCK_VALUATION_RECEIPT_EVIDENCE_TOO_LARGE")
 
 
 def _assert_capture_envelope(
@@ -795,7 +791,7 @@ def _provider_result_for_target(
     target: StockValuationCollectionTarget,
     imported: ImportedSnapshotObservation,
 ) -> ProviderFetchResult:
-    """Project one importer result while retaining the full safe source batch."""
+    """Project one importer result with a shared immutable source payload."""
     context = target.context
     fields = {
         field_name: imported.observation.fields[field_name]
@@ -844,6 +840,11 @@ def _provider_result_for_target(
             "STOCK_VALUATION_COLLECTOR_OBSERVED",
             "STOCK_VALUATION_CAPTURE_INSTANT_NOT_SOURCE_EVENT",
         ),
+        shared_source_payload_segment=SharedSourcePayloadSegment(
+            segment_key="source_batch",
+            payload_format=_SHARED_SOURCE_PAYLOAD_FORMAT,
+            payload_role=_SHARED_SOURCE_PAYLOAD_ROLE,
+        ),
     )
 
 
@@ -853,7 +854,7 @@ def _receipt_raw_payload(
     plan: _PreparedCollection,
     target: StockValuationCollectionTarget,
 ) -> Mapping[str, object]:
-    """Return the complete immutable raw payload that one target receipt retains."""
+    """Return a compact target receipt that points to the shared source payload."""
     return {
         "collector": {
             "contract_version": STOCK_VALUATION_COLLECTOR_VERSION,

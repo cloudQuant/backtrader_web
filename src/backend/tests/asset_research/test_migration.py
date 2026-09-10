@@ -20,7 +20,8 @@ _HEAD = "20260908_ai_research_approval_authority"
 _MARKET_DATA_HEAD = "20260909_market_data_constraint_name_portability"
 _MERGE_REVISION = "20260909_ai_research_market_data_merge"
 _RESEARCH_BINDINGS_REVISION = "20260909_market_data_research_bindings"
-_INTEGRATED_HEAD = "20260909_market_data_research_binding_consumers"
+_BINDING_CONSUMERS_REVISION = "20260909_market_data_research_binding_consumers"
+_INTEGRATED_HEAD = "20260910_market_data_shared_source_payloads"
 _LEGACY_HEAD = "20260805_asset_research_outcome_reliability"
 _TABLES = {
     "asset_instruments",
@@ -115,14 +116,17 @@ def test_asset_research_graph_has_one_integrated_head() -> None:
     script = ScriptDirectory.from_config(_config("sqlite://"))
     merge_revision = script.get_revision(_MERGE_REVISION)
     research_bindings_revision = script.get_revision(_RESEARCH_BINDINGS_REVISION)
+    binding_consumers_revision = script.get_revision(_BINDING_CONSUMERS_REVISION)
     integrated_head = script.get_revision(_INTEGRATED_HEAD)
 
     assert merge_revision is not None
     assert merge_revision.down_revision == (_HEAD, _MARKET_DATA_HEAD)
     assert research_bindings_revision is not None
     assert research_bindings_revision.down_revision == _MERGE_REVISION
+    assert binding_consumers_revision is not None
+    assert binding_consumers_revision.down_revision == _RESEARCH_BINDINGS_REVISION
     assert integrated_head is not None
-    assert integrated_head.down_revision == _RESEARCH_BINDINGS_REVISION
+    assert integrated_head.down_revision == _BINDING_CONSUMERS_REVISION
     assert script.get_heads() == [_INTEGRATED_HEAD]
 
 

@@ -24,6 +24,8 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Literal, Protocol
 
+from app.services.market_data.shared_payload import SharedSourcePayloadSegment
+
 OPENBB_RUNNER_PROTOCOL_VERSION = "openbb-market-data-v1"
 _MAX_RUNNER_OUTPUT_BYTES = 10 * 1024 * 1024
 _MAX_OPENBB_RAW_PAYLOAD_BYTES = 4 * 1024 * 1024
@@ -450,6 +452,7 @@ class ProviderFetchResult:
     raw_payload: Mapping[str, Any]
     request: MarketDataProviderRequest
     warnings: tuple[str, ...] = ()
+    shared_source_payload_segment: SharedSourcePayloadSegment | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -470,6 +473,12 @@ class ProviderFetchResult:
             raise TypeError("raw_payload must be a mapping")
         if not isinstance(self.request, MarketDataProviderRequest):
             raise TypeError("request must be the original MarketDataProviderRequest")
+        if self.shared_source_payload_segment is not None and not isinstance(
+            self.shared_source_payload_segment, SharedSourcePayloadSegment
+        ):
+            raise TypeError(
+                "shared_source_payload_segment must be SharedSourcePayloadSegment or None"
+            )
         warnings = tuple(_require_text(item, field_name="warning") for item in self.warnings)
         object.__setattr__(self, "observations", observations)
         object.__setattr__(self, "raw_payload", MappingProxyType(dict(self.raw_payload)))

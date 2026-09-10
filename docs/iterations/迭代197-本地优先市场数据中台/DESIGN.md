@@ -95,11 +95,17 @@ source-policy 配置摘要与 access grant 摘要是不同维度：前者描述�
 | --- | --- |
 | `md_data_series` | 一个完整语义数据系列；哈希包含数据集、canonical identity、主数据版本、数据种类、频率、来源策略和口径，不包含请求时间窗或字段投影。 |
 | `md_source_snapshots` | 一次来源请求的不可变回执：公共 query fingerprint、一次性 provider request ID、完整 provider DTO hash、载荷 hash、提供方、适配器、端点版本、有界原始载荷封套或受控引用、来源授权 provenance。 |
+| `md_source_payloads` | 仅供允许的宽表段使用的内容寻址原始载荷：规范化 JSON 的 UTF-8 原始字节、字节数、格式和字节 SHA-256。SQLite 使用 BLOB、PostgreSQL 使用 BYTEA、MySQL 使用 MEDIUMBLOB，避免普通 MySQL BLOB 的 64 KiB 上限。 |
+| `md_source_snapshot_payload_refs` | source snapshot 到 shared payload 的不可变一对一子引用。`source_snapshot_id` 是主键，`payload_role` 固定为 `source_batch`；该子表避免改写已被观测和日历表引用的 `md_source_snapshots` 父表。 |
 | `md_observation_revisions` | 每个事件的不可变规范化修订：字段、字段哈希、质量、应用收据时间、来源自报可用时间、来源回执和规范化版本。 |
 | `md_publications` | 每个来源 snapshot、calendar snapshot 或 identity revision 的 pending / post-commit visibility receipt；`entity_sha256` 绑定实体，`published_at` 是唯一严格读取闸门。 |
 | `md_calendar_snapshots` / `md_calendar_events` | 版本化、显式覆盖范围与频率网格的交易日历和事件，不按周末规则或其它粒度推断。 |
 
-`MdDataSeries`、来源回执、观测修订、calendar facts 和 identity projections 通过 ORM 禁止更新/删除。修正以新增修订表达；`MdPublication.published_at` 是仅限事务 B 的受保护状态转换。
+`MdDataSeries`、来源回执、shared payload、payload ref、观测修订、calendar facts 和 identity projections 通过 ORM 禁止更新/删除。修正以新增修订表达；`MdPublication.published_at` 是仅限事务 B 的受保护状态转换。
+
+正常 provider receipt 保持内联 `raw_payload`。只有 `ProviderFetchResult` 显式声明固定的 `source_batch / canonical-json-utf8-v1 / source_batch` 段时，Store 才会深度 JSON-safe 化该段、从实际 UTF-8 字节自行计算内容地址和字节数，并写入 shared payload。调用方不能提交独立 payload、digest 或大小声明。source snapshot manifest 改为紧凑的 target receipt 加 shared descriptor；审计先验证 child ref 和 descriptor 的 `content_sha256`、format、bytes、role 一致，再对 BLOB 复算 SHA-256 和长度，最后将 JSON 解码的 BLOB 放回 `receipt_payload.source_batch`。这个完整 DTO 的 canonical SHA-256 必须等于 `MdSourceSnapshot.payload_sha256`。每个 target snapshot 仍保留自己的请求、授权、quarantine 和规范化证据，并单独接受 publication；shared blob 从不直接 publication，也没有公开读取 API，只能经已授权的已发布 source snapshot 审计访问。
+
+shared payload 的自然键复用每次都以 `populate_existing` 从数据库重读，再逐字节、格式、大小和 SHA-256 校验，不能相信长期 Session 的 identity map。迁移只新增两个 child evidence 表，不重写 `md_source_snapshots`；启动时 schema drift 检查把 MySQL `BLOB`、`MEDIUMBLOB`、`LONGBLOB` 区分为不同类型，普通 BLOB 或 LONGBLOB 不能冒充 10 MiB 上限所需的 MEDIUMBLOB。非空 evidence 表禁止 downgrade；PostgreSQL 在空表证明和 DROP 之前以已设置的短 `lock_timeout` 取得两张 child 表的 `ACCESS EXCLUSIVE` 锁，MySQL 则要求运维完成 writer-drain fence。真实 MySQL/PostgreSQL 演练仍是 `NOT_RUN`。
 
 PIT 使用**两事务 publication protocol**，而不是把 Python `created_at`、flush 时间或应用收到响应的时刻称为“已提交”：
 
@@ -159,8 +165,8 @@ PIT 使用**两事务 publication protocol**，而不是把 Python `created_at`�
 1. 解析服务器维护的来源策略，确认 policy 允许本次 `purpose`，并从精确资产、市场、频率、字段口径中选择显式 capable route；没有路由返回稳定拒绝码，绝不猜测 provider 或扩展。
 2. `local_first` 只在覆盖不完整或未知时补齐；`local_only` 永远不触网；`refresh` 对完整窗口请求新修订并另行报告 `fresh_complete`、`fresh_incomplete` 或 `fresh_unknown_calendar`。严格请求已有 `knowledge_cutoff` 时不能进行交互式在线补齐。
 3. 在发送网络请求前，逐个验证 route 预期的 receipt provider 已在治理目录注册且处于活动状态。构造包含精确 canonical identity、显示代码、市场、频率、时间窗、字段、口径、source policy、query fingerprint、一次性 request ID 和当前 access-grant 摘要的 provider 请求。
-4. 适配器必须回显同一个不可变请求；编排层和存储层分别校验 receipt 与 route/context 的所有身份、窗口和语义维度，并由存储层重算完整 provider DTO hash。错配、越界、重复事件、超大载荷、错误 request ID/DTO hash 或不可序列化字段一律不落库。
-5. 存储层在事务 A 写入回执、观测和 pending publication 前，再以当前 registry 复核冻结的 `MarketDataSourceAuthorization`；授权已变化、未注册或 descriptor 不一致时拒绝写入。A 提交后，事务 B 才追加 post-commit visibility receipt。提供方自报时间仅作为 provenance，不允许它改变 PIT 可见性。
+4. 适配器必须回显同一个不可变请求；编排层和存储层分别校验 receipt 与 route/context 的所有身份、窗口和语义维度，并由存储层重算完整 provider DTO hash。对允许的宽表段，Store 还在任意事实写入前提取原始 `source_batch`、计算 canonical UTF-8 内容地址并制作紧凑 receipt manifest。错配、越界、重复事件、超大载荷、错误 request ID/DTO hash、非法 segment descriptor 或不可序列化字段一律不落库。
+5. 存储层在事务 A 写入或复用 shared payload、source snapshot、payload ref、观测和 pending publication 前，再以当前 registry 复核冻结的 `MarketDataSourceAuthorization`；授权已变化、未注册或 descriptor 不一致时拒绝写入。相同内容地址在复用前逐字节、格式、大小和 hash 再核验；冲突或损坏不能被自然键查找掩盖。A 提交后，事务 B 才追加 target source snapshot 的 post-commit visibility receipt。提供方自报时间仅作为 provenance，不允许它改变 PIT 可见性。
 6. 重新从已发布的本地证据读出并计算覆盖，响应永远以已写入且已发布的数据为准；提供方内存结果不会直接返回。
 
 策略页的非交互输入校验和普通预检固定为 `local_only + research + strict`，因此不会因输入、去抖、定时检查或普通预检启动 provider。只有用户明确点击 `warmAIResearchLocalCache` 的“补齐本地缓存”操作才异步发出 `research_cache_fill` 请求；它使用受控 v2 contract、覆盖规划、lease、receipt 和写后本地重读路径。页面在显示 fetch receipt 或“本地优先”前，必须把响应的 canonical identity、dataset、asset type、主数据版本、kind/frequency、source policy 与 family/version 逐项和该 exact contract 比较；不兼容响应失败关闭，不能被 receipt 存在掩盖。该按钮可在 `query_v2 + online_fetch + cache_fill` 有效而 bridge 关闭时使用；成功后页面仅针对同一冻结预检快照做 `local_only + research + strict` 的本地 v2 复读，不发送 bridge marker，也不创建研究/回测工件。响应含 fetch receipt 时只显示“已补齐并持久化”，无 fetch 的完整本地命中显示“本地优先”。任何 503、授权、覆盖不完整或取消都不修改 196 的 precheck、研究、回测或审批状态。
@@ -214,7 +220,7 @@ source 不是 collector 构造参数。当前静态 reviewed-source registry 为
 
 每个 target 必须预先冻结 CN-SSE/CN-SZSE listing identity、私有 dataset、`valuation_snapshot / snapshot`、四个估值字段、`local_only + display` 和与 `captured_at` 完全一致的 `[captured_at, captured_at + 1µs)` 选择窗口。写入 observation 的 `event_at` 和 `available_at` 都是精确采集时刻，并在 receipt 中同时记录 `source_event_time=null`、`source_as_of=null` 与 `collector_observed`；这不是来源事件、交易日 close、daily coverage 或 public `as_of`。已知 target 行的缺失、重复、错配或字段错误会在写入前整批失败。未知但结构有效的代码可带稳定原因写入 receipt-local quarantine，永不创建 identity、series 或 observation。
 
-任何授权或持久化前，collector 对完整来源封装执行 2 MiB 上限、最多 16 target、每条 target receipt 10 MiB（Store 上限）和精确复制 payload 总量 32 MiB 的预检；任一失败整批零写入。每个 target receipt 仍内联完整 safe source batch，因此这些上限不是共享 receipt 存储；生产级 content-addressed shared receipt 留给后续迭代。完整预检后每个 target 独立执行事实事务 A 与 publication 事务 B：后续 target 失败或取消时报告已经 durable 的 prefix，绝不宣称跨标的原子性；成功 target 可由 Store `local_only` 复读。当前 139 条离线聚焦回归覆盖这些本地边界，但真实 AkShare、scheduler 身份、访问条款、日线 calendar、MySQL/PostgreSQL、浏览器、策略/回测和发布验收仍未运行；公开 `stock.valuation` 与所有 request-time/legacy fallback 继续 `NOT_CONFIGURED`。
+任何授权或持久化前，collector 对完整来源封装执行 2 MiB 上限、最多 16 target 和每条完整 target receipt 10 MiB（Store 上限）的预检；任一失败整批零写入。完整 `source_batch` 只作为规范化 UTF-8 BLOB 存一次，每个 target source snapshot 只保存小型 receipt manifest 与受控引用。审计首先校验 ref/descriptor 一致、BLOB 的内容 hash 和字节数，再将 JSON 解码的 BLOB 加回 `receipt_payload.source_batch`，完整 DTO 的 canonical SHA-256 必须匹配 snapshot 的 `payload_sha256`；collector 自排除的 capture-envelope digest 不能替代 BLOB 内容地址。完整预检后每个 target 独立执行事实事务 A 与 publication 事务 B：后续 target 失败或取消时报告已经 durable 的 prefix，绝不宣称跨标的原子性；成功 target 可由 Store `local_only` 复读。当前离线回归覆盖这些本地边界，但真实 AkShare、scheduler 身份、访问条款、日线 calendar、MySQL/PostgreSQL、浏览器、策略/回测和发布验收仍未运行；公开 `stock.valuation` 与所有 request-time/legacy fallback 继续 `NOT_CONFIGURED`。
 
 ### 5.2 OpenBB
 
@@ -271,12 +277,12 @@ source 不是 collector 构造参数。当前静态 reviewed-source registry 为
 
 ### 7.1 迭代 196/197 迁移整合
 
-196 的冻结候选已作为集成基线。`20260909_ai_research_market_data_merge` 使用两个 `down_revision` 显式合并 196 研究审批链与 197 数据中台链；`20260909_market_data_research_bindings` 创建 binding receipt，`20260909_market_data_research_binding_consumers` 继续创建 scope、consumer 和 revocation receipt。不得任选一个历史 head、`stamp` 掉另一个分支或直接对生产库运行旧独立链。候选发布仍须在空数据库执行 `alembic heads`（恰一个 head）和 `alembic upgrade head`，再在可恢复的 MySQL/PostgreSQL 副本做同样演练；详情和证据格式见 [验收文档](ACCEPTANCE.md#7-数据库迁移与灾备验收)。
+196 的冻结候选已作为集成基线。`20260909_ai_research_market_data_merge` 使用两个 `down_revision` 显式合并 196 研究审批链与 197 数据中台链；`20260909_market_data_research_bindings` 创建 binding receipt，`20260909_market_data_research_binding_consumers` 继续创建 scope、consumer 和 revocation receipt，`20260910_market_data_shared_source_payloads` 再只创建 shared payload 与子引用表。不得任选一个历史 head、`stamp` 掉另一个分支或直接对生产库运行旧独立链。最后一项不回填历史内联 receipt，也不重建 `md_source_snapshots`；其 downgrade 只有两张新表均为空时允许。候选发布仍须在空数据库执行 `alembic heads`（恰一个 head）和 `alembic upgrade head`，再在可恢复的 MySQL/PostgreSQL 副本做同样演练；详情和证据格式见 [验收文档](ACCEPTANCE.md#7-数据库迁移与灾备验收)。
 
 ### 7.2 发布前操作顺序
 
 1. 复核 196 冻结基线、建立 196/197 集成候选并完成单 head 迁移修订；记录候选 SHA、`git status --short`、`alembic heads` 和备份标识。
-2. 在空库和经批准的可恢复副本执行 `alembic upgrade head`；审计 `dg_*`/`md_*` 的列、索引、外键、检查约束、时间字段与遗留 AkShare 表的行数/校验和。MySQL 执行 exact-identity DDL 前必须停止 writer 并设置 `MARKET_DATA_EXACT_IDENTITY_MAINTENANCE_FENCE=confirmed`；任何执行 portability revision 的 MySQL upgrade 都必须先 drain writer 并设置 `MARKET_DATA_CONSTRAINT_NAME_PORTABILITY_MAINTENANCE_FENCE=confirmed`，即使检查结果看来无需变更也不能跳过，避免检查与 DDL 间的 TOCTOU。两个 revision 的有界 `GET_LOCK` 只串行化迁移运行，不能替代停止 writer。审计四个身份字段实际为 `utf8mb4_bin`，PostgreSQL 为 `C`，再验证每个应用连接的 UTC session time zone 与跨连接 PIT 读取。
+2. 在空库和经批准的可恢复副本执行 `alembic upgrade head`；审计 `dg_*`/`md_*` 的列、索引、外键、检查约束、时间字段与遗留 AkShare 表的行数/校验和。MySQL 执行 exact-identity DDL 前必须停止 writer 并设置 `MARKET_DATA_EXACT_IDENTITY_MAINTENANCE_FENCE=confirmed`；任何执行 portability revision 的 MySQL upgrade 都必须先 drain writer 并设置 `MARKET_DATA_CONSTRAINT_NAME_PORTABILITY_MAINTENANCE_FENCE=confirmed`；shared payload revision 同样必须先 drain market-data writer 并设置 `MARKET_DATA_SHARED_SOURCE_PAYLOAD_MAINTENANCE_FENCE=confirmed`。这些有界 `GET_LOCK` 只串行化迁移运行，不能替代停止 writer。审计四个身份字段实际为 `utf8mb4_bin`，PostgreSQL 为 `C`，再验证每个应用连接的 UTC session time zone 与跨连接 PIT 读取。
 3. 在维护窗口依次运行 `bootstrap_market_data_platform.py` 的 dry-run 和 `--apply`，注册逻辑数据集、唯一主存储和活动 provider；未注册或已停用的 provider 在网络请求前即被拒绝。
 4. 对审核过的主数据 manifest 运行 `import_market_data_master_data.py` 的 dry-run 和 `--apply`，再对既有权威身份使用 `backfill_market_data_lookup_keys.py` 的受限批次 dry-run/`--apply`。导入器不创建猜测 identity。
 5. 按每个已启用 `(market, data_kind, frequency)` 导入版本化日历 manifest。日线、周线、月线和任何分钟频率都要分别提供完整显式网格；只导入市场交易日而没有相应频率 grid 时不得启用该请求组合。
@@ -287,4 +293,4 @@ source 不是 collector 构造参数。当前静态 reviewed-source registry 为
 
 ## 8. 可观测性
 
-必须记录但不暴露敏感值的指标包括：本地命中率、按 `(market, data_kind, frequency)` 分组的日历未知率和 `CALENDAR_GRID_UNAVAILABLE`、每提供方请求/失败/延迟、写入行数、质量拒绝原因、因字段集选择旧但完整修订的数量、索引回填进度、来源策略或用途拒绝、provider 活动预检拒绝、receipt/request 错配、冻结游标读取、singleflight leader/follower 数量、fetch-lease acquire owner/follower/conflict、expiry takeover、fence lost、release lost 与数据库 UTC clock 失败，以及 OpenBB 协议、静态构件未认证、空 permit、日对齐/3650 天窗口拒绝、原始载荷 hash 和受控 HOME/工作目录失败。数据质量告警以稳定机器码聚合，而不是解析异常文本。
+必须记录但不暴露敏感值的指标包括：本地命中率、按 `(market, data_kind, frequency)` 分组的日历未知率和 `CALENDAR_GRID_UNAVAILABLE`、每提供方请求/失败/延迟、写入行数、质量拒绝原因、因字段集选择旧但完整修订的数量、索引回填进度、来源策略或用途拒绝、provider 活动预检拒绝、receipt/request 错配、shared payload 新建/复用、内容完整性冲突、冻结游标读取、singleflight leader/follower 数量、fetch-lease acquire owner/follower/conflict、expiry takeover、fence lost、release lost 与数据库 UTC clock 失败，以及 OpenBB 协议、静态构件未认证、空 permit、日对齐/3650 天窗口拒绝、原始载荷 hash 和受控 HOME/工作目录失败。数据质量告警以稳定机器码聚合，而不是解析异常文本。

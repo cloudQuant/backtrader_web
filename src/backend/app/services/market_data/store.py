@@ -31,7 +31,9 @@ from app.models.market_data_platform import (
     MdDataSeries,
     MdObservationRevision,
     MdPublication,
+    MdSourcePayload,
     MdSourceSnapshot,
+    MdSourceSnapshotPayloadRef,
     calendar_coverage_descriptor,
     calendar_coverage_event_key,
 )
@@ -55,7 +57,11 @@ from app.services.market_data.field_quality import (
     is_usable_field_value,
     normalize_provider_fields,
 )
-from app.services.market_data.providers import ProviderFetchResult, ProviderMarketObservation
+from app.services.market_data.providers import (
+    ProviderFetchResult,
+    ProviderMarketObservation,
+    SharedSourcePayloadSegment,
+)
 from app.services.market_data.publication import (
     PUBLICATION_CALENDAR_SNAPSHOT,
     PUBLICATION_SOURCE_SNAPSHOT,
@@ -221,6 +227,19 @@ class _ValidatedProviderFetch:
     provider_request_id: str
     provider_request_fingerprint_sha256: str
     query_fingerprint_sha256: str
+    shared_source_payload: _ValidatedSharedSourcePayload | None
+
+
+@dataclass(frozen=True, slots=True)
+class _ValidatedSharedSourcePayload:
+    """An integrity-checked content-addressed wide-provider response."""
+
+    content_sha256: str
+    payload_format: str
+    payload_role: str
+    payload_bytes: int
+    canonical_payload_bytes: bytes
+    receipt_payload: Mapping[str, object]
 
 
 @dataclass(frozen=True, slots=True)
@@ -419,6 +438,9 @@ class MarketDataStore:
             async with self._db.begin_nested():
                 series = await self.get_or_create_series(context)
                 series = await self._lock_series_for_revision(series, context)
+                shared_source_payload = await self._get_or_create_shared_source_payload(
+                    validated.shared_source_payload
+                )
                 source_snapshot = self._make_source_snapshot(
                     context,
                     provider,
@@ -427,9 +449,19 @@ class MarketDataStore:
                     source_authorization=authorization,
                     local_received_at=local_received_at,
                     fetch_lease=fetch_lease,
+                    shared_source_payload=shared_source_payload,
                 )
                 self._db.add(source_snapshot)
                 await self._db.flush()
+                if shared_source_payload is not None:
+                    self._db.add(
+                        MdSourceSnapshotPayloadRef(
+                            source_snapshot_id=source_snapshot.id,
+                            content_sha256=shared_source_payload.content_sha256,
+                            payload_role=validated.shared_source_payload.payload_role,
+                        )
+                    )
+                    await self._db.flush()
                 publication = await self._publications.stage(
                     entity_type=PUBLICATION_SOURCE_SNAPSHOT,
                     entity_id=source_snapshot.id,
@@ -1107,6 +1139,56 @@ class MarketDataStore:
             provenance=MappingProxyType(provenance),
         )
 
+    async def _get_or_create_shared_source_payload(
+        self,
+        validated: _ValidatedSharedSourcePayload | None,
+    ) -> MdSourcePayload | None:
+        """Persist one validated raw response once within the fact transaction.
+
+        The payload cannot be published or queried independently.  It becomes
+        reachable only through the source snapshots created in the same outer
+        transaction.  A matching content address is revalidated before reuse
+        so an unexpected manual/database corruption cannot be hidden by its
+        natural-key lookup.
+        """
+        if validated is None:
+            return None
+
+        existing = await self._load_shared_source_payload(validated.content_sha256)
+        if existing is not None:
+            _assert_shared_source_payload_matches(existing, validated)
+            return existing
+
+        payload = MdSourcePayload(
+            content_sha256=validated.content_sha256,
+            payload_format=validated.payload_format,
+            payload_bytes=validated.payload_bytes,
+            canonical_payload_bytes=validated.canonical_payload_bytes,
+        )
+        try:
+            # The nested savepoint lets a concurrent identical content write
+            # resolve to the committed payload without rolling back the
+            # enclosing source-snapshot transaction.  An operational lock is
+            # deliberately surfaced as a normal write conflict for a retry.
+            async with self._db.begin_nested():
+                self._db.add(payload)
+                await self._db.flush()
+        except IntegrityError:
+            existing = await self._load_shared_source_payload(validated.content_sha256)
+            if existing is None:
+                raise MarketDataStoreError("SHARED_SOURCE_PAYLOAD_WRITE_CONFLICT") from None
+            _assert_shared_source_payload_matches(existing, validated)
+            return existing
+        return payload
+
+    async def _load_shared_source_payload(self, content_sha256: str) -> MdSourcePayload | None:
+        """Re-read a shared blob instead of trusting a long-lived identity map."""
+        return await self._db.scalar(
+            select(MdSourcePayload)
+            .where(MdSourcePayload.content_sha256 == content_sha256)
+            .execution_options(populate_existing=True)
+        )
+
     def _make_source_snapshot(
         self,
         context: ResolvedMarketDataQueryContext,
@@ -1117,6 +1199,7 @@ class MarketDataStore:
         source_authorization: _ValidatedSourceAuthorization,
         local_received_at: datetime,
         fetch_lease: MarketDataFetchLeaseHandle | None,
+        shared_source_payload: MdSourcePayload | None,
     ) -> MdSourceSnapshot:
         provider_id = _require_text(result.provider_id, field_name="provider_id", maximum=255)
         platform = _require_text(
@@ -1137,11 +1220,24 @@ class MarketDataStore:
             },
             field_name="source request",
         )
-        payload_manifest = {
+        payload_manifest: dict[str, object] = {
             "format": "inline-json",
             "raw_payload": dict(validated.raw_payload),
             "observation_count": len(validated.observations),
         }
+        if shared_source_payload is not None:
+            shared = validated.shared_source_payload
+            if shared is None:
+                raise MarketDataStoreError("SHARED_SOURCE_PAYLOAD_INTEGRITY_CONFLICT")
+            payload_manifest["format"] = "content-addressed-source-batch-v1"
+            payload_manifest["receipt_payload"] = dict(shared.receipt_payload)
+            payload_manifest.pop("raw_payload")
+            payload_manifest["shared_source_payload"] = {
+                "content_sha256": shared_source_payload.content_sha256,
+                "payload_format": shared_source_payload.payload_format,
+                "payload_bytes": shared_source_payload.payload_bytes,
+                "payload_role": shared.payload_role,
+            }
         provenance = {
             "provider_id": provider.provider_id,
             "source_revision": source_revision,
@@ -1493,6 +1589,10 @@ def _validate_provider_fetch(
     canonical_raw_payload = _canonical_json(raw_payload, field_name="provider raw_payload")
     if len(canonical_raw_payload.encode("utf-8")) > MAX_SOURCE_PAYLOAD_BYTES:
         raise MarketDataStoreError("PROVIDER_PAYLOAD_TOO_LARGE")
+    shared_source_payload = _validate_shared_source_payload(
+        raw_payload,
+        result.shared_source_payload_segment,
+    )
     observations: list[_ValidatedProviderObservation] = []
     seen_events: set[datetime] = set()
     required_fields = frozenset(context.query.required_fields)
@@ -1557,7 +1657,66 @@ def _validate_provider_fetch(
             "provider_request_fingerprint_sha256"
         ],
         query_fingerprint_sha256=provider_request_evidence["query_fingerprint_sha256"],
+        shared_source_payload=shared_source_payload,
     )
+
+
+def _validate_shared_source_payload(
+    raw_payload: Mapping[str, object],
+    segment: SharedSourcePayloadSegment | None,
+) -> _ValidatedSharedSourcePayload | None:
+    """Extract and content-address one fixed raw segment before any write."""
+    if segment is None:
+        return None
+    if not isinstance(segment, SharedSourcePayloadSegment):
+        raise TypeError("shared_source_payload_segment must be SharedSourcePayloadSegment or None")
+    if (
+        segment.segment_key != "source_batch"
+        or segment.payload_format != "canonical-json-utf8-v1"
+        or segment.payload_role != "source_batch"
+    ):
+        raise MarketDataStoreError("SHARED_SOURCE_PAYLOAD_SEGMENT_INVALID")
+    source_batch = raw_payload.get(segment.segment_key)
+    if not isinstance(source_batch, Mapping):
+        raise MarketDataStoreError("SHARED_SOURCE_PAYLOAD_SEGMENT_MISSING")
+    payload_json = _json_safe_mapping(source_batch, field_name="shared source payload")
+    canonical_payload_bytes = _canonical_json(
+        payload_json,
+        field_name="shared source payload",
+    ).encode("utf-8")
+    payload_bytes = len(canonical_payload_bytes)
+    if payload_bytes > MAX_SOURCE_PAYLOAD_BYTES:
+        raise MarketDataStoreError("SHARED_SOURCE_PAYLOAD_TOO_LARGE")
+    receipt_payload = dict(raw_payload)
+    del receipt_payload[segment.segment_key]
+    return _ValidatedSharedSourcePayload(
+        content_sha256=hashlib.sha256(canonical_payload_bytes).hexdigest(),
+        payload_format=segment.payload_format,
+        payload_role=segment.payload_role,
+        payload_bytes=payload_bytes,
+        canonical_payload_bytes=canonical_payload_bytes,
+        receipt_payload=MappingProxyType(receipt_payload),
+    )
+
+
+def _assert_shared_source_payload_matches(
+    stored: MdSourcePayload,
+    expected: _ValidatedSharedSourcePayload,
+) -> None:
+    """Fail closed if a natural-key payload does not exactly match its address."""
+    try:
+        stored_payload = bytes(stored.canonical_payload_bytes)
+    except (TypeError, ValueError) as exc:
+        raise MarketDataStoreError("SHARED_SOURCE_PAYLOAD_INTEGRITY_CONFLICT") from exc
+    if (
+        stored.content_sha256 != expected.content_sha256
+        or stored.payload_format != expected.payload_format
+        or stored.payload_bytes != expected.payload_bytes
+        or len(stored_payload) != stored.payload_bytes
+        or hashlib.sha256(stored_payload).hexdigest() != stored.content_sha256
+        or stored_payload != expected.canonical_payload_bytes
+    ):
+        raise MarketDataStoreError("SHARED_SOURCE_PAYLOAD_INTEGRITY_CONFLICT")
 
 
 def _validated_provider_request_evidence(

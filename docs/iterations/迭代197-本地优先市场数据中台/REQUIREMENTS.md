@@ -70,9 +70,11 @@
 作为平台，我在允许在线获取时依次尝试来源策略批准的适配器。每次成功响应必须：
 
 1. 校验请求的精确标的、时间窗、事件唯一性和字段；
-2. 保存来源回执、公共查询指纹、一次性 provider request ID、完整 provider DTO 的 SHA-256、有界原始载荷封套或受控引用及其 SHA-256、适配器/端点版本、获取时间和警告；公共查询语义与单次外部调用必须分开保存，不能把二者复用为同一个指纹。OpenBB 运行器须先返回预规范化 records 封套及 SHA-256，父进程复算一致后才接收；
+2. 保存来源回执、公共查询指纹、一次性 provider request ID、完整 provider DTO 的 SHA-256、有界原始载荷封套或受控引用及其 SHA-256、适配器/端点版本、获取时间和警告；公共查询语义与单次外部调用必须分开保存，不能把二者复用为同一个指纹。对于审核允许的宽表 `source_batch`，系统必须从完整 DTO 自行提取并规范化 JSON UTF-8 字节，按字节 SHA-256 在不可变 shared payload 表去重，再以 source snapshot 的子引用关联；不得信任调用方提交的独立 digest、字节数或第二份原始载荷。审计必须先验证 child ref、manifest descriptor、BLOB 格式/字节数与 BLOB SHA-256 一致，再把 JSON 解码的 BLOB 放回紧凑 receipt 的 `source_batch`，规范化后的完整 DTO 必须匹配 target source snapshot 的 `payload_sha256`。相同 canonical bytes 只能共用一条 payload，不同 bytes 必须新建 payload；publication 和读取授权始终附着 target source snapshot，shared payload 不提供单独的公开查询。OpenBB 运行器须先返回预规范化 records 封套及 SHA-256，父进程复算一致后才接收；
 3. 追加不可变观测修订，保存字段哈希、质量判定、可用时间和规范化版本；读取每一事件时选择满足本次字段集和质量门槛的最新可用修订，不能让较新的窄字段修订遮蔽较早但完整的修订，也不能混合不同修订的字段；
 4. 重新从本地读取并计算覆盖结果，不直接把网络响应绕过存储层返回。
+
+共享 `source_batch` 的迁移必须仅新增 child evidence 表而不改写已有 source snapshot；它必须精确拒绝 MySQL `BLOB` 或 `LONGBLOB` 代替 `MEDIUMBLOB` 的 schema drift。含任一 immutable payload/ref 的 downgrade 必须失败关闭；PostgreSQL 的空表检查与 DROP 必须在两张 child 表的排他锁内完成，MySQL 必须先完成受控 writer-drain fence。上述真实数据库行为在本候选中仍为 `NOT_RUN`。
 
 失败来源只产生稳定错误码和经截断的运维细节，不泄露凭据、原始异常堆栈或其他用户数据。
 
@@ -185,7 +187,7 @@ calendar snapshot 也必须声明其 `source_registry_id`、被冻结的治理 p
 
 - **正确性**：数据库排序规则不能将近似大小写或代码当成精确匹配；所有时间统一 UTC，并在 API 边界要求时区。
 - **并发性**：身份版本切换和索引写入使用保存点；失败后外层事务继续提交也不能留下半成品。观测写入只追加，不覆盖旧事实。同进程请求按指纹 singleflight；跨 worker 的 provider 补齐按 durable fetch lease 协调，事实与 publication 分别做 fence 检查。follower 必须在复读前结束可能持有的认证只读事务，避免 MySQL `REPEATABLE READ` 使用提交前快照。候选代码与 SQLite 回归只能证明协议；在真实多 worker、MySQL/PostgreSQL 和故障接管证据完成前，不能把“同一缺口只访问一次网络”列为已验收需求。
-- **可审计性**：每一返回行可回溯到数据系列、来源回执、字段哈希、质量策略和可用时间。
+- **可审计性**：每一返回行可回溯到数据系列、来源回执、字段哈希、质量策略和可用时间。共享宽表载荷仅经已授权 source snapshot 可达；其内容 hash、格式、字节数和完整 receipt 重建校验必须可审计，且不能形成跨租户或未发布证据的存在性探针。
 - **性能**：三元组查询使用物化索引，不扫描整个交易所；直接在线窗口有上限；分页和等待参数不改变数据语义。
 - **时间与数据库**：应用边界使用带时区 UTC；MySQL `DATETIME` 不保存时区，因此候选部署必须对每个应用连接验证 UTC session time zone，并在真实 MySQL/PostgreSQL 上完成跨连接的 PIT 写入/读取演练。SQLite 或离线 DDL 不能替代该证据。
 - **安全性**：不在源码中写入密钥；OpenBB 运行器命令由运维环境配置；无 shell 拼接执行；原始数据输出受大小限制。环境白名单和受控 `cwd` 不是容器/用户边界，必须由部署账户、不可变镜像、挂载、动态扩展导入闭包、最小出网策略与密钥策略共同保证。候选构件的静态哈希验证不是这些运行时边界的替代品。

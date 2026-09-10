@@ -7,7 +7,7 @@
 - [需求文档](REQUIREMENTS.md)：范围、用户故事、行为边界和验收口径。
 - [设计文档](DESIGN.md)：数据模型、读取/写入流程、接口、迁移和运维设计。
 - [验收文档](ACCEPTANCE.md)：自动化证据、待验证外部依赖和迭代 196 的整合闸门。
-- [范围清单闸门](SCOPE_MANIFEST.md)：从 21 个家族合同和当前 UI/API 输入生成可复核清单；当前候选已按迭代 196 冻结收据重新生成并验证范围产物。
+- [范围清单闸门](SCOPE_MANIFEST.md)：从 21 个家族合同和当前 UI/API 输入生成可复核清单；当前候选已按迭代 196 冻结收据重新生成并验证范围产物。它不覆盖私有估值 collector、shared payload/ref 迁移或完整回执重建，这些另有存储与迁移回归。
 - [数据产品扩展计划](PRODUCT_EXPANSION_PLAN.md)：21 个页面家族的实际能力台账，以及 11 个单记录和 4 个多记录产品的后续模型、来源与验收要求。
 - [并行设计基线整合记录](DOCUMENT_INTEGRATION_20260909.md)：保留独立设计工作区的同名文档基线及当前实现候选文档的对应关系。
 
@@ -15,7 +15,7 @@
 
 当 `local_first` 收到来源回执但 coverage 仍不完整时，行情页会显示“已记录回执；本地覆盖不足”的非成功状态，不能标为“已获取并入库”或完整本地缓存。该状态同样不触发 legacy price/K 线对 NAV 的替代展示。
 
-`stock.valuation` 仍是公开 API 的 `unconfigured` family，公开合同固定为 `market.valuation / reference_series / 1d`，没有 route、source policy、freshness 或页面入口。已落地的内部候选是私有逻辑数据集 `market.stock_valuation_captured_snapshot / valuation_snapshot / snapshot`，只接受受控 scheduler 或测试夹具**已经捕获**的 AkShare `stock_zh_a_spot_em` 宽表；它不发起 fetch/HTTP，不注册 request-time adapter、public family 或 API。每个 target 必须冻结精确 CN-SSE/CN-SZSE listing identity，并使用精确 UTC `captured_at` 及仅用于选择该记录的 `[captured_at, captured_at + 1µs)` 窗口。宽表没有可信逐行来源时间时，`event_at` 明确是 `collector_observed` 的采集瞬时证据，`source_event_time` 和 `source_as_of` 均为 `null`；它绝不能变成交易所时间、日频事实或公开 `as_of`。批次封装固定校验 provider、endpoint、空 request shape、collector version、source revision、captured_at、time basis 与自排除 SHA-256。已知 target 的 identity、重复或字段问题整批失败关闭；未知但结构有效的代码只进入 quarantine，不能生成 canonical series。任何授权或写入之前均检查最多 16 个 target、完整来源批次最多 2 MiB、单条 receipt 最多 Store 的 10 MiB、精确复制 fan-out 总量最多 32 MiB；超限整批零写入。构造时递归冻结原始 payload，避免外部嵌套引用在验证前改写证据；生产级 content-addressed shared receipt 仍是后续工作。全批校验后仍按 target 独立 publication，后续失败必须报告 durable prefix；只有已发布 target 才可由 Store `local_only` 复读。本地 139 条聚焦回归只证明离线 SQLite fixture 边界，不能构成真实来源、日线 calendar coverage、`/data/market`、`/investment/strategies`、严格 PIT 或发布验收；`stock.valuation` 保持 `NOT_CONFIGURED`。
+`stock.valuation` 仍是公开 API 的 `unconfigured` family，公开合同固定为 `market.valuation / reference_series / 1d`，没有 route、source policy、freshness 或页面入口。已落地的内部候选是私有逻辑数据集 `market.stock_valuation_captured_snapshot / valuation_snapshot / snapshot`，只接受受控 scheduler 或测试夹具**已经捕获**的 AkShare `stock_zh_a_spot_em` 宽表；它不发起 fetch/HTTP，不注册 request-time adapter、public family 或 API。每个 target 必须冻结精确 CN-SSE/CN-SZSE listing identity，并使用精确 UTC `captured_at` 及仅用于选择该记录的 `[captured_at, captured_at + 1µs)` 窗口。宽表没有可信逐行来源时间时，`event_at` 明确是 `collector_observed` 的采集瞬时证据，`source_event_time` 和 `source_as_of` 均为 `null`；它绝不能变成交易所时间、日频事实或公开 `as_of`。批次封装固定校验 provider、endpoint、空 request shape、collector version、source revision、captured_at、time basis 与自排除 SHA-256。已知 target 的 identity、重复或字段问题整批失败关闭；未知但结构有效的代码只进入 quarantine，不能生成 canonical series。任何授权或写入之前均检查最多 16 个 target、完整来源批次最多 2 MiB、完整 target receipt 最多 Store 的 10 MiB；超限整批零写入。构造时递归冻结原始 payload，避免外部嵌套引用在验证前改写证据。对该固定宽表段，Store 将规范化 JSON 的 UTF-8 字节按 SHA-256 仅存入一条 `md_source_payloads`，并以 `md_source_snapshot_payload_refs` 把每个 target 的不可变 source snapshot 指向它；不同字节不能共用该行。审计时先从 child ref 取得 `content_sha256`，核验 BLOB 的格式、字节数和 SHA-256 与 ref/manifest descriptor 一致，再把 JSON 解码的 BLOB 放回 manifest `receipt_payload.source_batch`，规范化后的完整 DTO 必须匹配 target snapshot 的 `payload_sha256`。`MdPublication` 始终只绑定 target source snapshot，shared blob 没有公开读取路由或独立 publication。全批校验后仍按 target 独立 publication，后续失败必须报告 durable prefix；只有已发布 target 才可由 Store `local_only` 复读。本地回归只证明离线 SQLite fixture 边界，不能构成真实来源、日线 calendar coverage、`/data/market`、`/investment/strategies`、严格 PIT 或发布验收；`stock.valuation` 保持 `NOT_CONFIGURED`。
 
 > 当前候选仍处于实现与离线验证阶段，不能视为发布验收通过。OpenBB runtime permit matrix 仍为空；fork `24d06a7657ab9e19d07b5ba4f801394a440287a1` 的 `openbb-yfinance 1.6.3.post1` 只是一份待封装的运行构件候选，不安装到主应用，也不注册 route 或 permit。该候选仅定义 UTC 日对齐、最长 3650 天的 `1d` 窗口，并把 OpenBB 的包含式日终转换为 yfinance 的排他 `end`；在完成隔离动态扩展导入闭包、镜像、AGPL-3.0-only 许可证和出网审计前，任何正常请求仍在导入前拒绝。没有执行 OpenBB/yfinance 真实网络调用。跨 MySQL/PostgreSQL 的 PIT 验证、OpenBB 的操作系统级隔离、真实 provider 回执和浏览器灰度仍保留为 `NOT_RUN` 或 `BLOCKED`，具体证据边界见 [验收文档](ACCEPTANCE.md)。
 
@@ -24,7 +24,7 @@
 
 ## 迭代边界
 
-迭代 196 已按冻结收据 `3ebe7717f6f901932591f59e6f1bb8244827b493` 固化为集成基线，且其候选已通过 `fec74728ad4469ae6481b134323a6dd7d1401d32` 并入 `dev`。197 的独立数据中台链已由显式 Alembic merge revision `20260909_ai_research_market_data_merge` 接入，后续的 `20260909_market_data_research_bindings` 和 `20260909_market_data_research_binding_consumers` 只在该合并 head 上追加。策略页桥接仍默认关闭；只有服务端重新解析合同、当前权限和严格本地 PIT 视图，生成并在任务创建与子进程启动前复核不可变 CSV 绑定后才可进入回测。真实 MySQL/PostgreSQL、提供方和页面灰度验收仍是单独闸门。
+迭代 196 已按冻结收据 `3ebe7717f6f901932591f59e6f1bb8244827b493` 固化为集成基线，且其候选已通过 `fec74728ad4469ae6481b134323a6dd7d1401d32` 并入 `dev`。197 的独立数据中台链已由显式 Alembic merge revision `20260909_ai_research_market_data_merge` 接入，后续依次追加 `20260909_market_data_research_bindings`、`20260909_market_data_research_binding_consumers` 和 `20260910_market_data_shared_source_payloads`；最后一项只增加共享原始载荷和子引用表，不改写已有 `md_source_snapshots`。策略页桥接仍默认关闭；只有服务端重新解析合同、当前权限和严格本地 PIT 视图，生成并在任务创建与子进程启动前复核不可变 CSV 绑定后才可进入回测。真实 MySQL/PostgreSQL、提供方和页面灰度验收仍是单独闸门。
 
 ## 核心约束
 

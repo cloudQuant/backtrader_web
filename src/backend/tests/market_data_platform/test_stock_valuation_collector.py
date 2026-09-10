@@ -17,7 +17,13 @@ import app.services.market_data.stock_valuation_collector as collector_module
 from app.db.database import async_session_maker
 from app.models.asset_research import AssetDataSourceRegistry
 from app.models.data_governance import DgDataset, DgProvider
-from app.models.market_data_platform import MdObservationRevision, MdPublication, MdSourceSnapshot
+from app.models.market_data_platform import (
+    MdObservationRevision,
+    MdPublication,
+    MdSourcePayload,
+    MdSourceSnapshot,
+    MdSourceSnapshotPayloadRef,
+)
 from app.schemas.asset_research import InstrumentIdentity, StockIdentityDetails
 from app.schemas.market_data_platform import MarketDataQueryRequest, ResolvedMarketDataQuery
 from app.services.market_data.access import MarketDataSourceAuthorization
@@ -386,8 +392,9 @@ async def test_offline_batch_persists_two_known_targets_and_quarantines_unknown(
         await _seed_control_plane(db)
         store = MarketDataStore(db, clock=lambda: LOCAL_RECEIVED_AT)
         monkeypatch.setattr(socket, "create_connection", unexpected_network)
+        batch = _batch([_row("600000"), _row("000001"), _row("600123")])
         report = await _collector(store=store).publish_captured_batch(
-            batch=_batch([_row("600000"), _row("000001"), _row("600123")]),
+            batch=batch,
             targets=targets,
         )
         first_rows = await store.read_observation_revisions(
@@ -401,6 +408,8 @@ async def test_offline_batch_persists_two_known_targets_and_quarantines_unknown(
             allowed_source_registry_ids=frozenset({PROVIDER_ID}),
         )
         snapshots = list((await db.execute(select(MdSourceSnapshot))).scalars())
+        shared_payloads = list((await db.execute(select(MdSourcePayload))).scalars())
+        payload_refs = list((await db.execute(select(MdSourceSnapshotPayloadRef))).scalars())
 
     assert report.published_target_count == 2
     assert report.source_row_count == 3
@@ -419,11 +428,43 @@ async def test_offline_batch_persists_two_known_targets_and_quarantines_unknown(
     }
     assert "as_of" not in first_rows[0].fields
     assert len(snapshots) == 2
-    payloads = [snapshot.payload_manifest_json["raw_payload"] for snapshot in snapshots]
+    assert len(shared_payloads) == 1
+    assert len(payload_refs) == 2
+    shared_payload = shared_payloads[0]
+    source_batch = json.loads(bytes(shared_payload.canonical_payload_bytes).decode("utf-8"))
+    assert bytes(shared_payload.canonical_payload_bytes) == collector_module._canonical_json(
+        batch.raw_payload,
+        maximum_bytes=collector_module._MAX_SOURCE_BATCH_BYTES,  # noqa: SLF001
+        overflow_code="STOCK_VALUATION_SOURCE_RESPONSE_TOO_LARGE",
+    )
+    assert hashlib.sha256(bytes(shared_payload.canonical_payload_bytes)).hexdigest() == (
+        shared_payload.content_sha256
+    )
+    assert shared_payload.payload_format == "canonical-json-utf8-v1"
+    assert {item.content_sha256 for item in payload_refs} == {shared_payload.content_sha256}
+    assert {item.payload_role for item in payload_refs} == {"source_batch"}
+    payloads = [snapshot.payload_manifest_json["receipt_payload"] for snapshot in snapshots]
     assert {payload["collector"]["source_batch_sha256"] for payload in payloads} == {
         report.source_batch_sha256
     }
-    for payload in payloads:
+    for snapshot, payload in zip(snapshots, payloads, strict=True):
+        manifest = snapshot.payload_manifest_json
+        assert manifest["format"] == "content-addressed-source-batch-v1"
+        assert manifest["shared_source_payload"] == {
+            "content_sha256": shared_payload.content_sha256,
+            "payload_format": "canonical-json-utf8-v1",
+            "payload_bytes": len(bytes(shared_payload.canonical_payload_bytes)),
+            "payload_role": "source_batch",
+        }
+        reconstructed = dict(payload)
+        reconstructed["source_batch"] = source_batch
+        assert hashlib.sha256(
+            collector_module._canonical_json(
+                reconstructed,
+                maximum_bytes=collector_module._MAX_SINGLE_RECEIPT_BYTES,  # noqa: SLF001
+                overflow_code="STOCK_VALUATION_RECEIPT_EVIDENCE_TOO_LARGE",
+            )
+        ).hexdigest() == snapshot.payload_sha256
         collector = payload["collector"]
         assert collector["time_basis"] == "collector_observed"
         assert collector["source_event_time"] is None
@@ -518,6 +559,7 @@ async def test_unknown_invalid_rows_are_safely_quarantined_without_blocking_know
             allowed_source_registry_ids=frozenset({PROVIDER_ID}),
         )
         snapshot = await db.scalar(select(MdSourceSnapshot))
+        shared_payload = await db.scalar(select(MdSourcePayload))
         counts = await _counts(db)
 
     assert len(local_rows) == 1
@@ -527,7 +569,7 @@ async def test_unknown_invalid_rows_are_safely_quarantined_without_blocking_know
         ("600124", "STOCK_VALUATION_UNKNOWN_ROW_REQUIRED_FIELD_MISSING"),
     ]
     assert snapshot is not None
-    receipt = snapshot.payload_manifest_json["raw_payload"]
+    receipt = snapshot.payload_manifest_json["receipt_payload"]
     assert receipt["collector"]["quarantined_provider_symbols"] == ["600123", "600124"]
     assert receipt["collector"]["quarantined_rows"] == [
         {
@@ -541,7 +583,8 @@ async def test_unknown_invalid_rows_are_safely_quarantined_without_blocking_know
             "reason_code": "STOCK_VALUATION_UNKNOWN_ROW_REQUIRED_FIELD_MISSING",
         },
     ]
-    assert "nan" not in json.dumps(receipt["source_batch"], ensure_ascii=False).lower()
+    assert shared_payload is not None
+    assert "nan" not in bytes(shared_payload.canonical_payload_bytes).decode("utf-8").lower()
 
 
 @pytest.mark.asyncio
@@ -727,7 +770,7 @@ async def test_identity_authorization_and_sensitive_payload_fail_before_persiste
 
 
 @pytest.mark.asyncio
-async def test_source_receipt_fanout_budgets_and_target_limit_fail_before_store_write(
+async def test_source_receipt_and_target_limits_fail_before_store_write(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """All byte limits preflight exact evidence before authorization or persistence."""
@@ -770,15 +813,6 @@ async def test_source_receipt_fanout_budgets_and_target_limit_fail_before_store_
         counts_after_single_receipt = await _counts(db)
 
         monkeypatch.setattr(collector_module, "_MAX_SINGLE_RECEIPT_BYTES", 10 * 1024 * 1024)
-        monkeypatch.setattr(collector_module, "_MAX_REPLICATED_RECEIPT_BYTES", 1)
-        with pytest.raises(StockValuationCollectorError) as budget_rejected:
-            await _collector(store=store).publish_captured_batch(
-                batch=_batch([_row("600000"), _row("000001")]),
-                targets=targets,
-            )
-        counts_after_budget = await _counts(db)
-
-        monkeypatch.setattr(collector_module, "_MAX_REPLICATED_RECEIPT_BYTES", 32 * 1024 * 1024)
         monkeypatch.setattr(collector_module, "_MAX_TARGETS_PER_BATCH", 1)
         with pytest.raises(StockValuationCollectorError) as target_rejected:
             await _collector(store=store).publish_captured_batch(
@@ -789,13 +823,11 @@ async def test_source_receipt_fanout_budgets_and_target_limit_fail_before_store_
 
     assert source_budget_rejected.value.code == "STOCK_VALUATION_SOURCE_RESPONSE_TOO_LARGE"
     assert single_receipt_rejected.value.code == "STOCK_VALUATION_RECEIPT_EVIDENCE_TOO_LARGE"
-    assert budget_rejected.value.code == "STOCK_VALUATION_RECEIPT_EVIDENCE_TOO_LARGE"
     assert target_rejected.value.code == "STOCK_VALUATION_TARGETS_TOO_MANY"
     assert persist_calls == 0
     assert (
         counts_after_source_budget
         == counts_after_single_receipt
-        == counts_after_budget
         == counts_after_target_limit
         == (0, 0, 0)
     )

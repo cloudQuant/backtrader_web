@@ -36,14 +36,20 @@ CONSTRAINT_NAME_PORTABILITY_REVISION = "20260909_market_data_constraint_name_por
 AI_RESEARCH_APPROVAL_REVISION = "20260908_ai_research_approval_authority"
 MERGE_REVISION = "20260909_ai_research_market_data_merge"
 RESEARCH_BINDINGS_REVISION = "20260909_market_data_research_bindings"
-INTEGRATED_HEAD_REVISION = "20260909_market_data_research_binding_consumers"
-STORAGE_TABLES = {
+RESEARCH_BINDING_CONSUMERS_REVISION = "20260909_market_data_research_binding_consumers"
+SHARED_SOURCE_PAYLOADS_REVISION = "20260910_market_data_shared_source_payloads"
+INTEGRATED_HEAD_REVISION = SHARED_SOURCE_PAYLOADS_REVISION
+OBSERVATION_STORAGE_TABLES = {
     "md_instrument_lookup_keys",
     "md_data_series",
     "md_source_snapshots",
     "md_observation_revisions",
     "md_calendar_snapshots",
     "md_calendar_events",
+}
+STORAGE_TABLES = OBSERVATION_STORAGE_TABLES | {
+    "md_source_payloads",
+    "md_source_snapshot_payload_refs",
 }
 
 
@@ -108,6 +114,21 @@ def _load_source_receipt_evidence_migration() -> ModuleType:
     )
     spec = importlib.util.spec_from_file_location(
         "iteration197_source_receipt_evidence_migration", migration_path
+    )
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _load_shared_source_payloads_migration() -> ModuleType:
+    """Load the child-evidence migration for direct schema-drift probes."""
+    migration_path = (
+        BACKEND_ROOT / "alembic" / "versions" / "20260910_market_data_shared_source_payloads.py"
+    )
+    spec = importlib.util.spec_from_file_location(
+        "iteration197_shared_source_payloads_migration", migration_path
     )
     assert spec is not None
     assert spec.loader is not None
@@ -643,7 +664,9 @@ def test_storage_models_register_generic_cross_asset_fact_tables() -> None:
         MdFetchLease,
         MdInstrumentLookupKey,
         MdObservationRevision,
+        MdSourcePayload,
         MdSourceSnapshot,
+        MdSourceSnapshotPayloadRef,
     )
 
     assert STORAGE_TABLES <= set(Base.metadata.tables)
@@ -681,6 +704,20 @@ def test_storage_models_register_generic_cross_asset_fact_tables() -> None:
         "fetch_lease_fence_token",
         "provenance_json",
     } <= set(MdSourceSnapshot.__table__.c.keys())
+    assert {
+        "content_sha256",
+        "payload_format",
+        "canonical_payload_bytes",
+        "payload_bytes",
+    } <= set(MdSourcePayload.__table__.c.keys())
+    assert {"source_snapshot_id", "content_sha256", "payload_role"} <= set(
+        MdSourceSnapshotPayloadRef.__table__.c.keys()
+    )
+    assert any(
+        index.name == "ix_md_source_snapshot_payload_ref_content"
+        and tuple(column.name for column in index.columns) == ("content_sha256",)
+        for index in MdSourceSnapshotPayloadRef.__table__.indexes
+    )
     assert any(
         index.name == "ix_md_source_snapshot_provider_request_id"
         and tuple(column.name for column in index.columns)
@@ -1134,7 +1171,7 @@ def test_observation_migration_upgrades_and_downgrades_sqlite_without_legacy_rew
 
         command.upgrade(config, OBSERVATIONS_REVISION)
         inspector = inspect(engine)
-        assert STORAGE_TABLES <= set(inspector.get_table_names())
+        assert OBSERVATION_STORAGE_TABLES <= set(inspector.get_table_names())
         assert {
             "uq_md_instrument_lookup_key_active",
             "uq_md_data_series_semantic_key_sha256",
@@ -1160,7 +1197,7 @@ def test_observation_migration_upgrades_and_downgrades_sqlite_without_legacy_rew
         )
 
         command.downgrade(config, CATALOG_REVISION)
-        assert not (STORAGE_TABLES & set(inspect(engine).get_table_names()))
+        assert not (OBSERVATION_STORAGE_TABLES & set(inspect(engine).get_table_names()))
         assert engine.connect().execute(
             text("SELECT symbol, close FROM legacy_market_facts")
         ).one() == (
@@ -1235,6 +1272,8 @@ def test_constraint_name_portability_revision_extends_the_integrated_storage_gra
     constraint_name_portability_revision = script.get_revision(CONSTRAINT_NAME_PORTABILITY_REVISION)
     merge_revision = script.get_revision(MERGE_REVISION)
     research_bindings_revision = script.get_revision(RESEARCH_BINDINGS_REVISION)
+    research_binding_consumers_revision = script.get_revision(RESEARCH_BINDING_CONSUMERS_REVISION)
+    shared_source_payloads_revision = script.get_revision(SHARED_SOURCE_PAYLOADS_REVISION)
     integrated_head_revision = script.get_revision(INTEGRATED_HEAD_REVISION)
     assert shared_revision is not None
     assert shared_revision.down_revision == OBSERVATIONS_REVISION
@@ -1257,9 +1296,247 @@ def test_constraint_name_portability_revision_extends_the_integrated_storage_gra
     )
     assert research_bindings_revision is not None
     assert research_bindings_revision.down_revision == MERGE_REVISION
+    assert research_binding_consumers_revision is not None
+    assert research_binding_consumers_revision.down_revision == RESEARCH_BINDINGS_REVISION
+    assert shared_source_payloads_revision is not None
+    assert shared_source_payloads_revision.down_revision == RESEARCH_BINDING_CONSUMERS_REVISION
     assert integrated_head_revision is not None
-    assert integrated_head_revision.down_revision == RESEARCH_BINDINGS_REVISION
+    assert integrated_head_revision.down_revision == RESEARCH_BINDING_CONSUMERS_REVISION
     assert script.get_heads() == [INTEGRATED_HEAD_REVISION]
+
+
+def test_shared_source_payload_migration_adds_child_evidence_without_parent_rewrite(
+    tmp_path: Path,
+) -> None:
+    """A populated SQLite source parent upgrades with foreign keys enabled."""
+    database_path = tmp_path / "market-data-shared-source-payloads.sqlite3"
+    config = _config(f"sqlite+aiosqlite:///{database_path}")
+    engine = create_engine(f"sqlite:///{database_path}")
+    receipt_at = datetime(2026, 9, 10, 9, tzinfo=timezone.utc)
+    try:
+        command.upgrade(config, RESEARCH_BINDING_CONSUMERS_REVISION)
+        with engine.begin() as connection:
+            connection.exec_driver_sql("PRAGMA foreign_keys=ON")
+            connection.execute(
+                text(
+                    "INSERT INTO dg_providers "
+                    "(id, provider_id, name, category, auth_type, rate_limit, is_active, created_at) "
+                    "VALUES ('provider-shared-payload', 'akshare', 'AkShare', 'market', "
+                    "'none', 60, 1, :now)"
+                ),
+                {"now": receipt_at},
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO md_source_snapshots "
+                    "(id, provider_id, platform, source_id, adapter_id, endpoint_version, "
+                    "request_fingerprint_sha256, payload_sha256, request_json, "
+                    "payload_manifest_json, provenance_json, retrieved_at, created_at) "
+                    "VALUES ('snapshot-shared-payload', 'provider-shared-payload', 'akshare', "
+                    "'akshare', 'akshare.market-data', 'v1', :query_hash, :payload_hash, "
+                    "'{}', '{}', '{}', :now, :now)"
+                ),
+                {
+                    "query_hash": _sha("shared-payload-query"),
+                    "payload_hash": _sha("shared-payload-receipt"),
+                    "now": receipt_at,
+                },
+            )
+        source_columns_before = {
+            column["name"] for column in inspect(engine).get_columns("md_source_snapshots")
+        }
+
+        with engine.begin() as connection:
+            connection.exec_driver_sql("PRAGMA foreign_keys=ON")
+            config.attributes["connection"] = connection
+            command.upgrade(config, SHARED_SOURCE_PAYLOADS_REVISION)
+        config.attributes.pop("connection", None)
+
+        inspector = inspect(engine)
+        assert source_columns_before == {
+            column["name"] for column in inspector.get_columns("md_source_snapshots")
+        }
+        assert {"md_source_payloads", "md_source_snapshot_payload_refs"} <= set(
+            inspector.get_table_names()
+        )
+        assert {
+            "content_sha256",
+            "payload_format",
+            "canonical_payload_bytes",
+            "payload_bytes",
+            "created_at",
+        } == {column["name"] for column in inspector.get_columns("md_source_payloads")}
+        assert {
+            "source_snapshot_id",
+            "content_sha256",
+            "payload_role",
+            "created_at",
+        } == {
+            column["name"]
+            for column in inspector.get_columns("md_source_snapshot_payload_refs")
+        }
+        with engine.connect() as connection:
+            assert connection.execute(
+                text("SELECT count(*) FROM md_source_snapshots WHERE id = 'snapshot-shared-payload'")
+            ).scalar_one() == 1
+
+        payload_hash = _sha("shared-payload-blob")
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "INSERT INTO md_source_payloads "
+                    "(content_sha256, payload_format, canonical_payload_bytes, payload_bytes, created_at) "
+                    "VALUES (:hash, 'canonical-json-utf8-v1', :payload, 2, :now)"
+                ),
+                {"hash": payload_hash, "payload": b"{}", "now": receipt_at},
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO md_source_snapshot_payload_refs "
+                    "(source_snapshot_id, content_sha256, payload_role, created_at) "
+                    "VALUES ('snapshot-shared-payload', :hash, 'source_batch', :now)"
+                ),
+                {"hash": payload_hash, "now": receipt_at},
+            )
+        with pytest.raises(RuntimeError, match="MARKET_DATA_SHARED_SOURCE_PAYLOAD_DOWNGRADE_BLOCKED"):
+            command.downgrade(config, RESEARCH_BINDING_CONSUMERS_REVISION)
+    finally:
+        config.attributes.pop("connection", None)
+        engine.dispose()
+
+
+@pytest.mark.parametrize(
+    ("wrong_binary_type", "wrong_type_name"),
+    [(mysql.BLOB(), "BLOB"), (mysql.LONGBLOB(), "LONGBLOB")],
+)
+def test_shared_source_payload_migration_rejects_mysql_binary_payload_schema_drift(
+    monkeypatch: pytest.MonkeyPatch,
+    wrong_binary_type: sa.types.TypeEngine[object],
+    wrong_type_name: str,
+) -> None:
+    """MySQL BLOB widths cannot masquerade as the required MEDIUMBLOB."""
+    migration = _load_shared_source_payloads_migration()
+    dialect = mysql.dialect()
+
+    class _Inspector:
+        def has_table(self, table_name: str) -> bool:
+            return table_name in migration._TABLE_SPECS
+
+        def get_columns(self, table_name: str) -> list[dict[str, object]]:
+            spec = migration._TABLE_SPECS[table_name]
+            columns = spec["columns"]
+            assert isinstance(columns, dict)
+            rendered: list[dict[str, object]] = []
+            for column_name, definition in columns.items():
+                expected_type, nullable = definition
+                assert isinstance(expected_type, sa.types.TypeEngine)
+                actual_type = expected_type.dialect_impl(dialect)
+                if (
+                    table_name == migration._PAYLOADS
+                    and column_name == "canonical_payload_bytes"
+                ):
+                    actual_type = wrong_binary_type
+                rendered.append(
+                    {
+                        "name": column_name,
+                        "type": actual_type,
+                        "nullable": nullable,
+                        "default": None,
+                    }
+                )
+            return rendered
+
+        def get_pk_constraint(self, table_name: str) -> dict[str, object]:
+            spec = migration._TABLE_SPECS[table_name]
+            return {"constrained_columns": spec["primary_key"]}
+
+        def get_check_constraints(self, table_name: str) -> list[dict[str, object]]:
+            spec = migration._TABLE_SPECS[table_name]
+            checks = spec["checks"]
+            assert isinstance(checks, dict)
+            return [{"name": name, "sqltext": expression} for name, expression in checks.items()]
+
+        def get_indexes(self, table_name: str) -> list[dict[str, object]]:
+            spec = migration._TABLE_SPECS[table_name]
+            indexes = spec["indexes"]
+            assert isinstance(indexes, dict)
+            return [
+                {"name": name, "column_names": columns, "unique": unique}
+                for name, (columns, unique) in indexes.items()
+            ]
+
+        def get_foreign_keys(self, table_name: str) -> list[dict[str, object]]:
+            spec = migration._TABLE_SPECS[table_name]
+            foreign_keys = spec["foreign_keys"]
+            assert isinstance(foreign_keys, dict)
+            return [
+                {
+                    "name": name,
+                    "constrained_columns": columns,
+                    "referred_table": referred_table,
+                    "referred_columns": referred_columns,
+                    "options": {"ondelete": ondelete},
+                }
+                for name, (columns, referred_table, referred_columns, ondelete) in foreign_keys.items()
+            ]
+
+    bind = SimpleNamespace(dialect=dialect)
+    monkeypatch.setattr(migration.sa, "inspect", lambda _bind: _Inspector())
+
+    with pytest.raises(RuntimeError, match="MARKET_DATA_SHARED_SOURCE_PAYLOAD_SCHEMA_DRIFT") as drift:
+        migration._require_absent_or_exact_tables(bind)
+
+    assert "canonical_payload_bytes" in str(drift.value)
+    assert "MEDIUMBLOB" in str(drift.value)
+    assert wrong_type_name in str(drift.value)
+
+
+def test_shared_source_payload_downgrade_locks_postgresql_evidence_before_empty_check(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """PostgreSQL writers cannot insert evidence between proof and DROP."""
+    migration = _load_shared_source_payloads_migration()
+    calls: list[str] = []
+
+    class _PostgresBind:
+        dialect = postgresql.dialect()
+
+        def execute(self, statement: object, *_args: object, **_kwargs: object) -> None:
+            calls.append(str(statement))
+
+    bind = _PostgresBind()
+
+    def _assert_empty(observed_bind: object) -> None:
+        assert observed_bind is bind
+        calls.append("EMPTY_CHECK")
+
+    monkeypatch.setattr(migration, "_is_offline", lambda: False)
+    monkeypatch.setattr(migration, "_require_absent_or_exact_tables", lambda _bind: True)
+    monkeypatch.setattr(migration, "_assert_downgrade_safe", _assert_empty)
+    monkeypatch.setattr(
+        migration,
+        "op",
+        SimpleNamespace(
+            get_bind=lambda: bind,
+            drop_index=lambda *_args, **_kwargs: calls.append("DROP_INDEX"),
+            drop_table=lambda table_name: calls.append(f"DROP_TABLE:{table_name}"),
+        ),
+    )
+
+    migration.downgrade()
+
+    lock_statement = (
+        "LOCK TABLE md_source_payloads, md_source_snapshot_payload_refs "
+        "IN ACCESS EXCLUSIVE MODE"
+    )
+    assert "SET LOCAL lock_timeout = '5s'" in calls
+    assert lock_statement in calls
+    assert calls.index(lock_statement) < calls.index("EMPTY_CHECK")
+    assert calls[-3:] == [
+        "DROP_INDEX",
+        "DROP_TABLE:md_source_snapshot_payload_refs",
+        "DROP_TABLE:md_source_payloads",
+    ]
 
 
 def test_exact_identity_collation_migration_accepts_sqlite_binary_defaults_and_blocks_evidence_rollback(
@@ -2134,6 +2411,35 @@ def test_observation_migration_renders_for_supported_server_dialects(database_ur
     assert "CREATE TABLE md_instrument_lookup_keys" in rendered
     assert "CREATE TABLE md_observation_revisions" in rendered
     assert "legacy_market_facts" not in rendered
+
+
+@pytest.mark.parametrize(
+    ("database_url", "payload_type"),
+    [
+        ("mysql+aiomysql://market_data:fixture@localhost/market_data", "MEDIUMBLOB"),
+        ("postgresql+asyncpg://market_data:fixture@localhost/market_data", "BYTEA"),
+    ],
+)
+def test_shared_source_payload_migration_renders_portable_child_evidence(
+    database_url: str,
+    payload_type: str,
+) -> None:
+    """Offline review renders BLOB/BYTEA child tables without parent-table DDL."""
+    output = StringIO()
+    config = _config(database_url)
+    config.output_buffer = output
+
+    command.upgrade(
+        config,
+        f"{RESEARCH_BINDING_CONSUMERS_REVISION}:{SHARED_SOURCE_PAYLOADS_REVISION}",
+        sql=True,
+    )
+
+    rendered = output.getvalue()
+    assert "CREATE TABLE md_source_payloads" in rendered
+    assert "CREATE TABLE md_source_snapshot_payload_refs" in rendered
+    assert payload_type in rendered
+    assert "ALTER TABLE md_source_snapshots" not in rendered
 
 
 @pytest.mark.parametrize(

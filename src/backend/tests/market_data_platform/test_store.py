@@ -21,7 +21,9 @@ from app.models.market_data_platform import (
     MdDataSeries,
     MdObservationRevision,
     MdPublication,
+    MdSourcePayload,
     MdSourceSnapshot,
+    MdSourceSnapshotPayloadRef,
 )
 from app.schemas.asset_research import InstrumentIdentity, StockIdentityDetails
 from app.schemas.market_data_platform import MarketDataQueryRequest, ResolvedMarketDataQuery
@@ -44,6 +46,7 @@ from app.services.market_data.providers import (
     MarketDataProviderRequest,
     ProviderFetchResult,
     ProviderMarketObservation,
+    SharedSourcePayloadSegment,
 )
 from app.services.market_data.publication import (
     PUBLICATION_CALENDAR_SNAPSHOT,
@@ -307,6 +310,7 @@ def _result(
     source_revision: str = "v1",
     request_provider: str = "akshare",
     raw_payload: dict[str, object] | None = None,
+    shared_source_payload_segment: SharedSourcePayloadSegment | None = None,
     request: MarketDataProviderRequest | None = None,
     context: ResolvedMarketDataQueryContext | None = None,
 ) -> ProviderFetchResult:
@@ -337,6 +341,7 @@ def _result(
             unit=context.query.unit,
             source_policy_id=context.query.source_policy_id,
         ),
+        shared_source_payload_segment=shared_source_payload_segment,
     )
 
 
@@ -1305,6 +1310,328 @@ async def test_store_bounds_inline_raw_payload_before_writing_source_evidence(mo
 
     assert too_large.value.code == "PROVIDER_PAYLOAD_TOO_LARGE"
     assert count == 0
+
+
+@pytest.mark.asyncio
+async def test_store_content_addresses_one_source_batch_for_multiple_source_receipts() -> None:
+    """Target receipts retain full hashes while their wide batch is stored once."""
+    context = _context()
+    raw_payload = {
+        "collector": {"batch_id": "wide-batch-1", "target_scope": "stock"},
+        "source_batch": {
+            "capture": {"provider": "akshare", "captured_at": _at(12).isoformat()},
+            "response_rows": [{"symbol": "600000", "close": "10.00"}],
+        },
+    }
+    segment = SharedSourcePayloadSegment(
+        segment_key="source_batch",
+        payload_format="canonical-json-utf8-v1",
+        payload_role="source_batch",
+    )
+
+    async with async_session_maker() as db:
+        await _seed_dataset_and_provider(db)
+        store = MarketDataStore(db)
+        first = await store.persist_provider_result(
+            context,
+            _result(
+                retrieved_at=_at(12),
+                observations=(
+                    _observation(event_at=_at(10), available_at=_at(11), fields={"close": "10.00"}),
+                ),
+                raw_payload=raw_payload,
+                shared_source_payload_segment=segment,
+            ),
+            received_at=_at(12),
+            unverified_compatibility_reason=UNVERIFIED_COMPATIBILITY_REASON_LEGACY_IMPORT,
+        )
+        second = await store.persist_provider_result(
+            context,
+            _result(
+                retrieved_at=_at(13),
+                source_revision="v2",
+                observations=(
+                    _observation(event_at=_at(10), available_at=_at(11), fields={"close": "10.10"}),
+                ),
+                raw_payload=raw_payload,
+                shared_source_payload_segment=segment,
+            ),
+            received_at=_at(13),
+            unverified_compatibility_reason=UNVERIFIED_COMPATIBILITY_REASON_LEGACY_IMPORT,
+        )
+        payloads = list((await db.execute(select(MdSourcePayload))).scalars())
+        refs = list((await db.execute(select(MdSourceSnapshotPayloadRef))).scalars())
+        snapshots = list(
+            (
+                await db.execute(
+                    select(MdSourceSnapshot).order_by(MdSourceSnapshot.retrieved_at)
+                )
+            ).scalars()
+        )
+        publication_count = int(
+            await db.scalar(select(func.count()).select_from(MdPublication)) or 0
+        )
+
+    assert len(payloads) == 1
+    assert len(refs) == 2
+    assert {item.source_snapshot_id for item in refs} == {
+        first.source_snapshot_id,
+        second.source_snapshot_id,
+    }
+    assert {item.payload_role for item in refs} == {"source_batch"}
+    refs_by_snapshot_id = {item.source_snapshot_id: item for item in refs}
+    shared_payload = payloads[0]
+    canonical_source_batch = json.dumps(
+        raw_payload["source_batch"],
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    assert bytes(shared_payload.canonical_payload_bytes) == canonical_source_batch
+    assert shared_payload.payload_bytes == len(canonical_source_batch)
+    assert shared_payload.content_sha256 == hashlib.sha256(canonical_source_batch).hexdigest()
+    assert publication_count == 2
+    for snapshot in snapshots:
+        manifest = snapshot.payload_manifest_json
+        assert manifest["format"] == "content-addressed-source-batch-v1"
+        assert "raw_payload" not in manifest
+        assert manifest["receipt_payload"] == {"collector": raw_payload["collector"]}
+        assert manifest["shared_source_payload"] == {
+            "content_sha256": shared_payload.content_sha256,
+            "payload_format": "canonical-json-utf8-v1",
+            "payload_bytes": len(canonical_source_batch),
+            "payload_role": "source_batch",
+        }
+        ref = refs_by_snapshot_id[snapshot.id]
+        assert ref.content_sha256 == manifest["shared_source_payload"]["content_sha256"]
+        assert ref.payload_role == manifest["shared_source_payload"]["payload_role"]
+        reconstructed = dict(manifest["receipt_payload"])
+        reconstructed["source_batch"] = json.loads(canonical_source_batch.decode("utf-8"))
+        assert snapshot.payload_sha256 == hashlib.sha256(
+            json.dumps(
+                reconstructed,
+                ensure_ascii=False,
+                separators=(",", ":"),
+                sort_keys=True,
+            ).encode("utf-8")
+        ).hexdigest()
+
+
+@pytest.mark.asyncio
+async def test_store_never_reuses_a_shared_payload_for_different_canonical_bytes() -> None:
+    """Content addressing shares only exactly identical normalized source batches."""
+    context = _context()
+    segment = SharedSourcePayloadSegment(
+        segment_key="source_batch",
+        payload_format="canonical-json-utf8-v1",
+        payload_role="source_batch",
+    )
+    first_payload = {
+        "collector": {"batch_id": "wide-batch-a"},
+        "source_batch": {"response_rows": [{"symbol": "600000", "close": "10.00"}]},
+    }
+    second_payload = {
+        "collector": {"batch_id": "wide-batch-b"},
+        "source_batch": {"response_rows": [{"symbol": "600000", "close": "10.01"}]},
+    }
+
+    async with async_session_maker() as db:
+        await _seed_dataset_and_provider(db)
+        store = MarketDataStore(db)
+        await store.persist_provider_result(
+            context,
+            _result(
+                retrieved_at=_at(12),
+                observations=(
+                    _observation(event_at=_at(10), available_at=_at(11), fields={"close": "10.00"}),
+                ),
+                raw_payload=first_payload,
+                shared_source_payload_segment=segment,
+            ),
+            received_at=_at(12),
+            unverified_compatibility_reason=UNVERIFIED_COMPATIBILITY_REASON_LEGACY_IMPORT,
+        )
+        await store.persist_provider_result(
+            context,
+            _result(
+                retrieved_at=_at(13),
+                source_revision="v2",
+                observations=(
+                    _observation(event_at=_at(10), available_at=_at(11), fields={"close": "10.01"}),
+                ),
+                raw_payload=second_payload,
+                shared_source_payload_segment=segment,
+            ),
+            received_at=_at(13),
+            unverified_compatibility_reason=UNVERIFIED_COMPATIBILITY_REASON_LEGACY_IMPORT,
+        )
+        payloads = list((await db.execute(select(MdSourcePayload))).scalars())
+        refs = list((await db.execute(select(MdSourceSnapshotPayloadRef))).scalars())
+
+    assert len(payloads) == 2
+    assert len(refs) == 2
+    assert {payload.content_sha256 for payload in payloads} == {
+        hashlib.sha256(
+            json.dumps(
+                payload["source_batch"], ensure_ascii=False, separators=(",", ":"), sort_keys=True
+            ).encode("utf-8")
+        ).hexdigest()
+        for payload in (first_payload, second_payload)
+    }
+
+
+@pytest.mark.asyncio
+async def test_store_rejects_invalid_shared_payload_segment_before_writing_evidence() -> None:
+    """A caller cannot select arbitrary receipt sections for content addressing."""
+    context = _context()
+    invalid_segment = SharedSourcePayloadSegment(
+        segment_key="records",
+        payload_format="canonical-json-utf8-v1",
+        payload_role="source_batch",
+    )
+
+    async with async_session_maker() as db:
+        await _seed_dataset_and_provider(db)
+        with pytest.raises(MarketDataStoreError) as rejected:
+            await MarketDataStore(db).persist_provider_result(
+                context,
+                _result(
+                    retrieved_at=_at(12),
+                    observations=(
+                        _observation(
+                            event_at=_at(10),
+                            available_at=_at(11),
+                            fields={"close": "10.00"},
+                        ),
+                    ),
+                    raw_payload={"records": [{"close": "10.00"}], "source_batch": {}},
+                    shared_source_payload_segment=invalid_segment,
+                ),
+                received_at=_at(12),
+                unverified_compatibility_reason=UNVERIFIED_COMPATIBILITY_REASON_LEGACY_IMPORT,
+            )
+        counts = (
+            int(await db.scalar(select(func.count()).select_from(MdSourcePayload)) or 0),
+            int(await db.scalar(select(func.count()).select_from(MdSourceSnapshotPayloadRef)) or 0),
+            int(await db.scalar(select(func.count()).select_from(MdSourceSnapshot)) or 0),
+        )
+
+    assert rejected.value.code == "SHARED_SOURCE_PAYLOAD_SEGMENT_INVALID"
+    assert counts == (0, 0, 0)
+
+
+@pytest.mark.asyncio
+async def test_store_rejects_corrupted_existing_shared_payload_before_new_receipt() -> None:
+    """Natural-key reuse cannot conceal a tampered immutable payload row."""
+    context = _context()
+    raw_payload = {"collector": {"batch_id": "tamper-check"}, "source_batch": {"rows": []}}
+    segment = SharedSourcePayloadSegment(
+        segment_key="source_batch",
+        payload_format="canonical-json-utf8-v1",
+        payload_role="source_batch",
+    )
+    observation = _observation(event_at=_at(10), available_at=_at(11), fields={"close": "10.00"})
+
+    async with async_session_maker() as db:
+        await _seed_dataset_and_provider(db)
+        store = MarketDataStore(db)
+        await store.persist_provider_result(
+            context,
+            _result(
+                retrieved_at=_at(12),
+                observations=(observation,),
+                raw_payload=raw_payload,
+                shared_source_payload_segment=segment,
+            ),
+            received_at=_at(12),
+            unverified_compatibility_reason=UNVERIFIED_COMPATIBILITY_REASON_LEGACY_IMPORT,
+        )
+        payload = await db.scalar(select(MdSourcePayload))
+        assert payload is not None
+        await db.execute(
+            update(MdSourcePayload)
+            .where(MdSourcePayload.content_sha256 == payload.content_sha256)
+            .values(canonical_payload_bytes=b"{\"tampered\":true}")
+        )
+        await db.commit()
+        with pytest.raises(MarketDataStoreError) as rejected:
+            await store.persist_provider_result(
+                context,
+                _result(
+                    retrieved_at=_at(13),
+                    source_revision="v2",
+                    observations=(observation,),
+                    raw_payload=raw_payload,
+                    shared_source_payload_segment=segment,
+                ),
+                received_at=_at(13),
+                unverified_compatibility_reason=UNVERIFIED_COMPATIBILITY_REASON_LEGACY_IMPORT,
+            )
+        await db.rollback()
+        snapshot_count = int(await db.scalar(select(func.count()).select_from(MdSourceSnapshot)) or 0)
+
+    assert rejected.value.code == "SHARED_SOURCE_PAYLOAD_INTEGRITY_CONFLICT"
+    assert snapshot_count == 1
+
+
+@pytest.mark.asyncio
+async def test_store_revalidates_shared_payload_after_another_session_tampers() -> None:
+    """A long-lived store session cannot reuse an identity-mapped stale blob."""
+    context = _context()
+    raw_payload = {"collector": {"batch_id": "cross-session-tamper"}, "source_batch": {"rows": []}}
+    segment = SharedSourcePayloadSegment(
+        segment_key="source_batch",
+        payload_format="canonical-json-utf8-v1",
+        payload_role="source_batch",
+    )
+    observation = _observation(event_at=_at(10), available_at=_at(11), fields={"close": "10.00"})
+
+    async with async_session_maker() as stale_db:
+        await _seed_dataset_and_provider(stale_db)
+        store = MarketDataStore(stale_db)
+        await store.persist_provider_result(
+            context,
+            _result(
+                retrieved_at=_at(12),
+                observations=(observation,),
+                raw_payload=raw_payload,
+                shared_source_payload_segment=segment,
+            ),
+            received_at=_at(12),
+            unverified_compatibility_reason=UNVERIFIED_COMPATIBILITY_REASON_LEGACY_IMPORT,
+        )
+        payload = await stale_db.scalar(select(MdSourcePayload))
+        assert payload is not None
+        await stale_db.commit()
+
+        async with async_session_maker() as tamper_db:
+            await tamper_db.execute(
+                update(MdSourcePayload)
+                .where(MdSourcePayload.content_sha256 == payload.content_sha256)
+                .values(canonical_payload_bytes=b'{"tampered":true}')
+            )
+            await tamper_db.commit()
+
+        with pytest.raises(MarketDataStoreError) as rejected:
+            await store.persist_provider_result(
+                context,
+                _result(
+                    retrieved_at=_at(13),
+                    source_revision="v2",
+                    observations=(observation,),
+                    raw_payload=raw_payload,
+                    shared_source_payload_segment=segment,
+                ),
+                received_at=_at(13),
+                unverified_compatibility_reason=UNVERIFIED_COMPATIBILITY_REASON_LEGACY_IMPORT,
+            )
+        await stale_db.rollback()
+        snapshot_count = int(
+            await stale_db.scalar(select(func.count()).select_from(MdSourceSnapshot)) or 0
+        )
+
+    assert rejected.value.code == "SHARED_SOURCE_PAYLOAD_INTEGRITY_CONFLICT"
+    assert snapshot_count == 1
 
 
 @pytest.mark.asyncio

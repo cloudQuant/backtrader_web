@@ -111,7 +111,7 @@ _SENSITIVE_PATH_PART_RE = re.compile(r"(?:^|[._-])(env|secret|credential|token|p
 # This is the only migration head that includes both the frozen Iteration 196
 # authority chain and the Iteration 197 governed-data/binding chain.  A sole,
 # arbitrary older head is not acceptable evidence.
-EXPECTED_ALEMBIC_HEAD = "20260909_market_data_research_binding_consumers"
+EXPECTED_ALEMBIC_HEAD = "20260910_market_data_shared_source_payloads"
 REQUIRED_ALEMBIC_REVISIONS = frozenset(
     {
         "20260908_ai_research_approval_authority",
@@ -122,6 +122,7 @@ REQUIRED_ALEMBIC_REVISIONS = frozenset(
         "20260909_ai_research_market_data_merge",
         "20260909_market_data_research_bindings",
         "20260909_market_data_research_binding_consumers",
+        "20260910_market_data_shared_source_payloads",
     }
 )
 
