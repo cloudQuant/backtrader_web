@@ -9631,12 +9631,17 @@ describe('StrategyPage', () => {
   })
 
   it.each([
-    ['daily', '1d'],
-    ['weekly', '1w'],
-    ['monthly', '1mo'],
-  ])('uses crypto.range for crypto %s research bars and fails closed while it is unconfigured', async (
+    ['daily', '1d', 'FastAPI detail', { detail: { code: 'DATA_FAMILY_UNCONFIGURED' } }],
+    ['daily', '1d', 'normalized details', { details: { code: 'DATA_FAMILY_UNCONFIGURED' } }],
+    ['weekly', '1w', 'FastAPI detail', { detail: { code: 'DATA_FAMILY_UNCONFIGURED' } }],
+    ['weekly', '1w', 'normalized details', { details: { code: 'DATA_FAMILY_UNCONFIGURED' } }],
+    ['monthly', '1mo', 'FastAPI detail', { detail: { code: 'DATA_FAMILY_UNCONFIGURED' } }],
+    ['monthly', '1mo', 'normalized details', { details: { code: 'DATA_FAMILY_UNCONFIGURED' } }],
+  ])('uses crypto.range for crypto %s research bars and fails closed with a %s envelope', async (
     period,
     timeframe,
+    _envelope,
+    errorData,
   ) => {
     enableMarketDataBridge()
     const wrapper = doMount()
@@ -9647,7 +9652,7 @@ describe('StrategyPage', () => {
       queryLocalFirst.mockClear()
       lookupInstrument.mockClear()
       getQueryContract.mockRejectedValue({
-        response: { status: 422, data: { details: { code: 'DATA_FAMILY_UNCONFIGURED' } } },
+        response: { status: 422, data: errorData },
       })
       vm.aiResearchForm.symbol = 'BTCUSDT'
       vm.aiResearchForm.market_data_asset_type = 'crypto'
