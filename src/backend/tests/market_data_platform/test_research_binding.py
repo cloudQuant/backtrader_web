@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 from collections.abc import Awaitable, Callable
+from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
@@ -52,6 +53,7 @@ from app.services.market_data.query_service import MarketDataQueryExecution
 from app.services.market_data.research_binding import (
     MarketDataResearchBindingError,
     MarketDataResearchBindingService,
+    _canonical_sha256,
     _strict_research_bars_family_id,
     build_market_data_research_binding_service,
 )
@@ -114,6 +116,57 @@ class _ContractResolver:
         }
 
 
+class _FamilyContractResolver:
+    """Return one exact ready-bars family and reject a retargeted request."""
+
+    def __init__(self, *, asset_type: str) -> None:
+        self.asset_type = asset_type
+        self.family_id = f"{asset_type}.realtime"
+        self.calls: list[dict[str, str | None]] = []
+
+    async def resolve(
+        self,
+        *,
+        asset_type: str,
+        symbol: str,
+        period: str,
+        family_id: str | None = None,
+    ) -> dict[str, Any] | None:
+        self.calls.append(
+            {
+                "asset_type": asset_type,
+                "symbol": symbol,
+                "period": period,
+                "family_id": family_id,
+            }
+        )
+        if (
+            asset_type != self.asset_type
+            or symbol != "600000"
+            or period != "1d"
+            or family_id != self.family_id
+        ):
+            return None
+        return {
+            "version": "market-data-v2",
+            "request": {
+                "identity": {"canonical_id": _canonical_id_for_asset_type(asset_type)},
+                "dataset_code": "market.bars",
+                "data_kind": "bars",
+                "frequency": "1d",
+                "required_fields": ["close"],
+                "adjustment": "qfq",
+                "price_basis": "close",
+                "currency": "CNY",
+                "unit": "share",
+                "source_policy_id": "market-default-v1",
+                "mode": "local_first",
+                "family_id": family_id,
+                "family_contract_version": "market-data-family-v1",
+            },
+        }
+
+
 class _LocalOnlyQueryService:
     def __init__(
         self,
@@ -122,6 +175,7 @@ class _LocalOnlyQueryService:
         execution_error: Exception | None = None,
         close_adjustment: float = 0.0,
         on_execute: Callable[[MarketDataQueryRequest], Awaitable[None]] | None = None,
+        asset_type: str = "stock",
     ) -> None:
         self.requests: list[MarketDataQueryRequest] = []
         self.accesses: list[MarketDataQueryAccess | None] = []
@@ -129,6 +183,7 @@ class _LocalOnlyQueryService:
         self.execution_error = execution_error
         self.close_adjustment = close_adjustment
         self.on_execute = on_execute
+        self.asset_type = asset_type
         self.online_fetch_attempts = 0
 
     async def execute(
@@ -147,6 +202,7 @@ class _LocalOnlyQueryService:
             request,
             missing_ohlc=self.missing_ohlc,
             close_adjustment=self.close_adjustment,
+            asset_type=self.asset_type,
         )
 
 
@@ -324,6 +380,130 @@ def _identity() -> InstrumentIdentity:
     )
 
 
+def _canonical_id_for_asset_type(asset_type: str) -> str:
+    if asset_type == "stock":
+        return CANONICAL_ID
+    return f"instrument:{asset_type}:TEST:600000"
+
+
+def _identity_for_asset_type(asset_type: str) -> InstrumentIdentity:
+    """Build a valid typed identity for each ready strict-bars test family."""
+    if asset_type == "stock":
+        return _identity()
+
+    common: dict[str, object] = {
+        "asset_type": asset_type,
+        "canonical_id": _canonical_id_for_asset_type(asset_type),
+        "display_symbol": "600000",
+        "timezone": "Asia/Shanghai",
+        "identifier_type": "EXCHANGE_SYMBOL",
+        "identifier_value": "600000",
+        "metadata_version": f"{asset_type}-v1",
+    }
+    if asset_type == "futures":
+        return InstrumentIdentity.model_validate(
+            {
+                **common,
+                "identity_level": "PRODUCT",
+                "name": "测试期货",
+                "venue": "CFFEX",
+                "currency": "CNY",
+                "product_type": "FUTURES",
+                "details": {
+                    "kind": "FUTURES",
+                    "product_code": "IF",
+                    "trading_calendar_id": "CFFEX",
+                },
+            }
+        )
+    if asset_type == "bond":
+        return InstrumentIdentity.model_validate(
+            {
+                **common,
+                "identity_level": "PRODUCT",
+                "name": "测试债券",
+                "venue": "CN-SSE",
+                "currency": "CNY",
+                "product_type": "BOND",
+                "details": {
+                    "kind": "BOND",
+                    "bond_identity_kind": "LISTING",
+                    "issuer_id": "issuer-test",
+                },
+            }
+        )
+    if asset_type == "fund":
+        return InstrumentIdentity.model_validate(
+            {
+                **common,
+                "identity_level": "PRODUCT",
+                "name": "测试基金",
+                "venue": "CN-SSE",
+                "currency": "CNY",
+                "product_type": "ETF",
+                "details": {
+                    "kind": "FUND",
+                    "fund_identity_kind": "LISTING",
+                    "fund_id": "fund-test",
+                    "share_class_id": "share-class-test",
+                },
+            }
+        )
+    if asset_type == "option":
+        return InstrumentIdentity.model_validate(
+            {
+                **common,
+                "identity_level": "CONTRACT",
+                "name": "测试期权",
+                "venue": "CFFEX",
+                "currency": "CNY",
+                "product_type": "OPTION",
+                "details": {
+                    "kind": "OPTION",
+                    "option_contract_id": "600000",
+                    "exchange": "CFFEX",
+                    "underlying_instrument_id": CANONICAL_ID,
+                    "underlying_contract_id": CANONICAL_ID,
+                    "expiry_at": NOW + timedelta(days=30),
+                    "last_trade_at": NOW + timedelta(days=29),
+                    "strike": "100",
+                    "option_right": "CALL",
+                    "exercise_style": "EUROPEAN",
+                    "contract_multiplier": "100",
+                    "settlement_type": "CASH",
+                    "deliverable": "cash",
+                    "quote_unit": "CNY",
+                    "tick_size": "0.01",
+                    "trading_calendar_id": "CFFEX",
+                    "automatic_exercise_rule": "test-rule",
+                    "position_limit_rule": "test-rule",
+                    "margin_rule_version": "test-v1",
+                },
+            }
+        )
+    if asset_type == "fx":
+        return InstrumentIdentity.model_validate(
+            {
+                **common,
+                "identity_level": "PRODUCT",
+                "name": "测试外汇",
+                "venue": "OTC",
+                "currency": "USD",
+                "product_type": "SPOT",
+                "details": {
+                    "kind": "FX",
+                    "base_currency": "CNY",
+                    "quote_currency": "USD",
+                    "settlement_type": "SPOT",
+                    "settlement_currency": "USD",
+                    "calendar_id": "OTC",
+                    "price_convention": "DIRECT",
+                },
+            }
+        )
+    raise AssertionError(f"test fixture does not define {asset_type}")
+
+
 @pytest.mark.asyncio
 async def test_production_binding_builder_rejects_settings_only_enablement_before_writes(
     tmp_path: Path,
@@ -363,20 +543,24 @@ def _execution_for(
     *,
     missing_ohlc: bool,
     close_adjustment: float = 0.0,
+    asset_type: str = "stock",
 ) -> MarketDataQueryExecution:
+    canonical_id = _canonical_id_for_asset_type(asset_type)
+    identity = _identity_for_asset_type(asset_type)
+    assert request.identity.canonical_id == canonical_id
     resolved_query = ResolvedMarketDataQuery.from_request(
         request,
-        canonical_id=CANONICAL_ID,
+        canonical_id=canonical_id,
         dataset_code="market.bars",
-        instrument_metadata_version="stock-v1",
+        instrument_metadata_version=identity.metadata_version,
     )
-    identity = ResolvedMarketDataIdentity(
+    resolved_identity = ResolvedMarketDataIdentity(
         instrument_id="11111111-1111-1111-1111-111111111111",
-        canonical_id=CANONICAL_ID,
-        asset_type="stock",
-        metadata_version="stock-v1",
-        venue="CN-SSE",
-        identity=_identity(),
+        canonical_id=canonical_id,
+        asset_type=asset_type,
+        metadata_version=identity.metadata_version,
+        venue=identity.venue,
+        identity=identity,
         valid_from=START - timedelta(days=10),
         valid_to=None,
         known_at=START - timedelta(days=10),
@@ -384,11 +568,11 @@ def _execution_for(
     )
     coverage_identity = QueryIdentity(
         dataset_code="market.bars",
-        canonical_id=CANONICAL_ID,
-        asset_type="stock",
-        instrument_metadata_version="stock-v1",
+        canonical_id=canonical_id,
+        asset_type=asset_type,
+        instrument_metadata_version=identity.metadata_version,
         data_kind="bars",
-        market="CN-SSE",
+        market=identity.venue or "OTC",
         frequency="1d",
         source_policy_id="market-default-v1",
         adjustment="qfq",
@@ -398,7 +582,7 @@ def _execution_for(
     )
     context = ResolvedMarketDataQueryContext(
         query=resolved_query,
-        identity=identity,
+        identity=resolved_identity,
         storage=DatasetStorageResolution(
             dataset_id="dataset-market-bars",
             dataset_code="market.bars",
@@ -480,6 +664,51 @@ def test_strict_research_bars_family_selection_is_explicit(
 ) -> None:
     """A snapshot family can never become the strict-backtest bars fallback."""
     assert _strict_research_bars_family_id(asset_type) == expected_family_id
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("asset_type", ("stock", "futures", "bond", "fund", "option", "fx"))
+async def test_bind_request_uses_each_ready_strict_bars_family(
+    tmp_path: Path,
+    asset_type: str,
+) -> None:
+    """Every ready asset keeps its own server-selected local strict bars route."""
+    user = await _user(username=f"binding-ready-bars-{asset_type}")
+    expected_family_id = f"{asset_type}.realtime"
+    contracts = _FamilyContractResolver(asset_type=asset_type)
+    query_service = _LocalOnlyQueryService(asset_type=asset_type)
+    async with async_session_maker() as db:
+        service = MarketDataResearchBindingService(
+            db,
+            query_service,
+            contracts,
+            MarketDataAccessAuthorizer(db, clock=lambda: NOW),
+            tmp_path,
+            binding_signing_key=SIGNING_KEY,
+            clock=lambda: NOW,
+        )
+        bound = await service.bind_request(
+            user_id=user.id,
+            request=_request({"market_data_asset_type": asset_type}),
+            intent_id=f"ai-research-ready-bars-{asset_type}",
+        )
+
+    assert contracts.calls == [
+        {
+            "asset_type": asset_type,
+            "symbol": "600000",
+            "period": "1d",
+            "family_id": expected_family_id,
+        }
+    ]
+    assert len(query_service.requests) == 1
+    query = query_service.requests[0]
+    assert query.family_id == expected_family_id
+    assert query.mode == "local_only"
+    assert query.purpose == "backtest"
+    assert query.consistency == "strict"
+    assert query_service.online_fetch_attempts == 0
+    assert bound.data_config["market_data_asset_type"] == asset_type
 
 
 @pytest.mark.asyncio
@@ -729,6 +958,105 @@ async def test_runtime_binding_rechecks_owner_signature_subset_and_artifact_dige
                 intent_id=str(config["market_data_binding_intent_id"]),
             )
     assert tampered.value.code == "MARKET_DATA_BINDING_ARTIFACT_SIZE_MISMATCH"
+
+
+@pytest.mark.asyncio
+async def test_runtime_replay_rejects_injected_crypto_snapshot_family_before_query(
+    tmp_path: Path,
+) -> None:
+    """A coherently re-sealed family injection cannot retarget a stock replay."""
+    owner = await _user(username="binding-runtime-family-injection")
+    contracts = _ContractResolver()
+    query_service = _LocalOnlyQueryService()
+    async with async_session_maker() as db:
+        service = MarketDataResearchBindingService(
+            db,
+            query_service,
+            contracts,
+            MarketDataAccessAuthorizer(db, clock=lambda: NOW),
+            tmp_path,
+            binding_signing_key=SIGNING_KEY,
+            clock=lambda: NOW,
+        )
+        bound = await service.bind_request(
+            user_id=owner.id,
+            request=_request(),
+            intent_id="ai-research-runtime-family-injection",
+        )
+        workspace_id, unit_id = await _attach_research_unit(
+            db=db,
+            service=service,
+            user=owner,
+            bound=bound,
+        )
+        resolve_kwargs = {
+            "user_id": owner.id,
+            "binding_id": str(bound.data_config["market_data_binding_id"]),
+            "binding_hash": str(bound.data_config["market_data_binding_hash"]),
+            "signature": str(bound.data_config["market_data_binding_signature"]),
+            "workspace_id": workspace_id,
+            "unit_id": unit_id,
+            "intent_id": str(bound.data_config["market_data_binding_intent_id"]),
+        }
+
+        runtime = await service.resolve_runtime_binding(**resolve_kwargs)
+        assert runtime.query_semantics["family_id"] == "stock.realtime"
+        resolver_calls_before_injection = len(contracts.calls)
+        query_calls_before_injection = len(query_service.requests)
+
+        binding = await db.get(MdResearchDataBinding, resolve_kwargs["binding_id"])
+        unit = await db.get(StrategyUnit, unit_id)
+        assert binding is not None
+        assert unit is not None
+        injected_manifest = deepcopy(binding.manifest_json)
+        material = injected_manifest["material"]
+        assert isinstance(material, dict)
+        semantics = material["query_semantics"]
+        assert isinstance(semantics, dict)
+        # Keep the ready stock asset type so the runtime reaches the exact
+        # family comparison. A literal crypto asset correctly stops earlier
+        # at crypto.range's unconfigured lifecycle gate.
+        semantics.update(
+            {
+                "asset_type": "stock",
+                "family_id": "crypto.realtime",
+                "data_kind": "bars",
+                "query_fingerprint": _canonical_sha256(
+                    {"test": "injected-crypto-realtime-family"}
+                ),
+            }
+        )
+        injected_binding_hash = _canonical_sha256(material)
+        injected_manifest["binding_hash"] = injected_binding_hash
+        injected_manifest_sha256 = _canonical_sha256(injected_manifest)
+        injected_config = dict(unit.data_config or {})
+        injected_config["market_data_binding_hash"] = injected_binding_hash
+        await db.execute(
+            update(MdResearchDataBinding)
+            .where(MdResearchDataBinding.id == binding.id)
+            .values(
+                binding_hash=injected_binding_hash,
+                family_id="crypto.realtime",
+                data_kind="bars",
+                query_fingerprint=semantics["query_fingerprint"],
+                manifest_json=injected_manifest,
+                manifest_sha256=injected_manifest_sha256,
+            )
+        )
+        await db.execute(
+            update(StrategyUnit)
+            .where(StrategyUnit.id == unit_id)
+            .values(data_config=injected_config)
+        )
+        await db.commit()
+        resolve_kwargs["binding_hash"] = injected_binding_hash
+
+        with pytest.raises(MarketDataResearchBindingError) as injected:
+            await service.resolve_runtime_binding(**resolve_kwargs)
+
+    assert injected.value.code == "MARKET_DATA_BINDING_RUNTIME_CONTRACT_MISMATCH"
+    assert len(contracts.calls) == resolver_calls_before_injection
+    assert len(query_service.requests) == query_calls_before_injection
 
 
 @pytest.mark.asyncio
