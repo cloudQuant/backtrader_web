@@ -52,6 +52,7 @@ from app.services.market_data.query_service import MarketDataQueryExecution
 from app.services.market_data.research_binding import (
     MarketDataResearchBindingError,
     MarketDataResearchBindingService,
+    _strict_research_bars_family_id,
     build_market_data_research_binding_service,
 )
 from app.services.market_data.store import LocalObservationRevision
@@ -275,10 +276,14 @@ async def _attach_research_unit(
     return workspace.id, unit.id
 
 
-def _request(data_config: dict[str, object] | None = None) -> AIStrategyResearchRunRequest:
+def _request(
+    data_config: dict[str, object] | None = None,
+    *,
+    timeframe: str = "1d",
+) -> AIStrategyResearchRunRequest:
     return AIStrategyResearchRunRequest(
         symbol="600000",
-        timeframe="1d",
+        timeframe=timeframe,
         timeframe_n=1,
         start_date="2026-01-05",
         end_date="2026-01-06",
@@ -455,6 +460,66 @@ def _execution_for(
         fetches=(),
         warnings=(),
     )
+
+
+@pytest.mark.parametrize(
+    ("asset_type", "expected_family_id"),
+    (
+        ("stock", "stock.realtime"),
+        ("futures", "futures.realtime"),
+        ("bond", "bond.realtime"),
+        ("fund", "fund.realtime"),
+        ("option", "option.realtime"),
+        ("fx", "fx.realtime"),
+        ("crypto", "crypto.range"),
+    ),
+)
+def test_strict_research_bars_family_selection_is_explicit(
+    asset_type: str,
+    expected_family_id: str,
+) -> None:
+    """A snapshot family can never become the strict-backtest bars fallback."""
+    assert _strict_research_bars_family_id(asset_type) == expected_family_id
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("timeframe", ("1d", "1w", "1mo"))
+async def test_bind_request_rejects_unconfigured_crypto_bars_before_contract_or_query(
+    tmp_path: Path,
+    timeframe: str,
+) -> None:
+    """Crypto range remains a fail-closed future bars route until explicitly enabled."""
+    user = await _user(username=f"binding-crypto-{timeframe}")
+    contracts = _ContractResolver()
+    query_service = _LocalOnlyQueryService()
+    artifact_root = tmp_path / "artifacts"
+    async with async_session_maker() as db:
+        service = MarketDataResearchBindingService(
+            db,
+            query_service,
+            contracts,
+            MarketDataAccessAuthorizer(db, clock=lambda: NOW),
+            artifact_root,
+            binding_signing_key=SIGNING_KEY,
+            clock=lambda: NOW,
+        )
+        with pytest.raises(MarketDataResearchBindingError) as failure:
+            await service.bind_request(
+                user_id=user.id,
+                request=_request(
+                    {"market_data_asset_type": "crypto"},
+                    timeframe=timeframe,
+                ),
+                intent_id=f"ai-research-crypto-{timeframe}",
+            )
+        binding_count = await db.scalar(select(func.count()).select_from(MdResearchDataBinding))
+
+    assert failure.value.code == "MARKET_DATA_BINDING_STRICT_BARS_FAMILY_UNCONFIGURED"
+    assert contracts.calls == []
+    assert query_service.requests == []
+    assert query_service.online_fetch_attempts == 0
+    assert binding_count == 0
+    assert not (artifact_root / "bindings").exists()
 
 
 @pytest.mark.asyncio

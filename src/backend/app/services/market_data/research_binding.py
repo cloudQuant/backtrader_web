@@ -49,6 +49,10 @@ from app.services.market_data.access import (
 )
 from app.services.market_data.capability_ledger import MarketDataCapabilityEvaluation
 from app.services.market_data.coverage import CoverageStatus
+from app.services.market_data.dataset_contracts import (
+    DEFAULT_DATASET_CONTRACT_REGISTRY,
+    DatasetContractRegistryError,
+)
 from app.services.market_data.identity import MarketDataIdentityResolutionError
 from app.services.market_data.query_resolution import MarketDataQueryResolutionError
 from app.services.market_data.query_service import (
@@ -68,6 +72,19 @@ _ASSET_TYPE_PATTERN = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
 _SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 _INTENT_ID_PATTERN = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
 _CAPABILITY_CONTEXT_SEAL = object()
+_STRICT_RESEARCH_BARS_FAMILY_BY_ASSET_TYPE = MappingProxyType(
+    {
+        "stock": "stock.realtime",
+        "futures": "futures.realtime",
+        "bond": "bond.realtime",
+        "fund": "fund.realtime",
+        "option": "option.realtime",
+        "fx": "fx.realtime",
+        # Crypto real-time data is a quote snapshot.  Research backtests need
+        # durable OHLC bars, so reserve the distinct range family instead.
+        "crypto": "crypto.range",
+    }
+)
 
 
 class MarketDataResearchBindingError(ValueError):
@@ -200,15 +217,20 @@ class MarketDataResearchBindingService:
             raise MarketDataResearchBindingError("MARKET_DATA_BINDING_ACCESS_DENIED") from exc
         self._require_capability_context(owner_id)
         access = MarketDataQueryAccess(principal=principal, authorizer=self._access_authorizer)
+        strict_bars_family_id = _require_strict_research_bars_family(
+            asset_type=asset_type,
+            timeframe=timeframe,
+        )
 
         contract = await self._resolve_contract(
             asset_type=asset_type,
             symbol=symbol,
             timeframe=timeframe,
+            family_id=strict_bars_family_id,
         )
         query = _strict_local_only_query(
             contract=contract,
-            expected_family_id=f"{asset_type}.realtime",
+            expected_family_id=strict_bars_family_id,
             start_at=start_at,
             end_at=end_at,
             knowledge_cutoff=cutoff,
@@ -816,14 +838,23 @@ class MarketDataResearchBindingService:
         start_at = _parse_runtime_timestamp(semantics["full_window_start"], "full_window_start")
         end_at = _parse_runtime_timestamp(semantics["full_window_end"], "full_window_end")
         cutoff = _stored_utc(binding.knowledge_cutoff, "knowledge_cutoff")
+        asset_type = str(semantics["asset_type"])
+        timeframe = str(semantics["timeframe"])
+        strict_bars_family_id = _require_strict_research_bars_family(
+            asset_type=asset_type,
+            timeframe=timeframe,
+        )
+        if semantics["family_id"] != strict_bars_family_id:
+            raise MarketDataResearchBindingError("MARKET_DATA_BINDING_RUNTIME_CONTRACT_MISMATCH")
         contract = await self._resolve_contract(
-            asset_type=str(semantics["asset_type"]),
+            asset_type=asset_type,
             symbol=str(semantics["symbol"]),
-            timeframe=str(semantics["timeframe"]),
+            timeframe=timeframe,
+            family_id=strict_bars_family_id,
         )
         query = _strict_local_only_query(
             contract=contract,
-            expected_family_id=str(semantics["family_id"]),
+            expected_family_id=strict_bars_family_id,
             start_at=start_at,
             end_at=end_at,
             knowledge_cutoff=cutoff,
@@ -950,13 +981,14 @@ class MarketDataResearchBindingService:
         asset_type: str,
         symbol: str,
         timeframe: str,
+        family_id: str,
     ) -> Mapping[str, object]:
         try:
             contract = await self._query_contracts.resolve(
                 asset_type=asset_type,
                 symbol=symbol,
                 period=timeframe,
-                family_id=f"{asset_type}.realtime",
+                family_id=family_id,
             )
         except Exception as exc:
             raise MarketDataResearchBindingError(
@@ -1543,6 +1575,37 @@ def _normalized_timeframe(value: object) -> str:
     if normalized not in {"1d", "1w", "1mo"}:
         raise MarketDataResearchBindingError("MARKET_DATA_BINDING_TIMEFRAME_UNSUPPORTED")
     return normalized
+
+
+def _strict_research_bars_family_id(asset_type: str) -> str:
+    """Return the server-owned family reserved for strict research OHLC bars."""
+    family_id = _STRICT_RESEARCH_BARS_FAMILY_BY_ASSET_TYPE.get(asset_type)
+    if family_id is None:
+        raise MarketDataResearchBindingError("MARKET_DATA_BINDING_STRICT_BARS_FAMILY_UNSUPPORTED")
+    return family_id
+
+
+def _require_strict_research_bars_family(*, asset_type: str, timeframe: str) -> str:
+    """Fail before contract, provider, or artifact I/O unless bars are executable."""
+    family_id = _strict_research_bars_family_id(asset_type)
+    try:
+        contract = DEFAULT_DATASET_CONTRACT_REGISTRY.ready_contract_for(
+            family_id=family_id,
+            asset_type=asset_type,
+        )
+    except DatasetContractRegistryError as exc:
+        if exc.code == "DATA_FAMILY_UNCONFIGURED":
+            raise MarketDataResearchBindingError(
+                "MARKET_DATA_BINDING_STRICT_BARS_FAMILY_UNCONFIGURED"
+            ) from exc
+        raise MarketDataResearchBindingError("MARKET_DATA_BINDING_STRICT_BARS_FAMILY_INVALID") from exc
+    if contract.data_kind != "bars":
+        raise MarketDataResearchBindingError("MARKET_DATA_BINDING_STRICT_BARS_FAMILY_INVALID")
+    if timeframe not in contract.frequencies:
+        raise MarketDataResearchBindingError(
+            "MARKET_DATA_BINDING_STRICT_BARS_TIMEFRAME_UNSUPPORTED"
+        )
+    return family_id
 
 
 def _normalized_asset_type(value: object) -> str:
