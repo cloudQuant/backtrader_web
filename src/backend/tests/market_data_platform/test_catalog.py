@@ -15,6 +15,7 @@ from app.db.database import Base, async_session_maker
 
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
 ITERATION_196_HEAD = "20260908_ai_research_approval_authority"
+INTEGRATED_HEAD = "20260911_market_data_semantic_record_keys"
 RESEARCH_BINDING_RECEIPT_TABLES = {
     "md_research_data_bindings",
     "md_research_data_binding_scopes",
@@ -292,15 +293,15 @@ def test_catalog_migration_creates_metadata_without_legacy_market_table_rewrite(
         engine.dispose()
 
 
-def test_catalog_migration_accepts_startup_created_schema_at_iteration_196_baseline(
+def test_catalog_migration_accepts_current_startup_created_schema_at_iteration_196_baseline(
     tmp_path: Path,
 ) -> None:
     """The integrated upgrade accepts an ORM-created schema baselined at Iteration 196.
 
     A deployment that created its Iteration 196 ORM schema before introducing
     Alembic must explicitly baseline that reviewed 196 state.  The unified
-    head then has to run only the Iteration 197 branch and merge revision; it
-    must not replay the already-materialized 196 branch into existing tables.
+    head then has to run only the Iteration 197 chain; it must not replay the
+    already-materialized 196 branch into existing tables.
     """
     database_path = tmp_path / "startup-created.sqlite3"
     sync_database_url = f"sqlite:///{database_path}"
@@ -318,6 +319,31 @@ def test_catalog_migration_accepts_startup_created_schema_at_iteration_196_basel
         inspector = inspect(engine)
         assert "dg_dataset_storages" in inspector.get_table_names()
         assert RESEARCH_BINDING_RECEIPT_TABLES <= set(inspector.get_table_names())
+        observation_columns = {
+            column["name"] for column in inspector.get_columns("md_observation_revisions")
+        }
+        assert {"semantic_record_key", "semantic_record_key_sha256"} <= observation_columns
+        observation_uniques = {
+            constraint["name"]: tuple(constraint.get("column_names") or ())
+            for constraint in inspector.get_unique_constraints("md_observation_revisions")
+        }
+        assert observation_uniques["uq_md_observation_revision_series_event_record_number"] == (
+            "series_id",
+            "event_time",
+            "semantic_record_key_sha256",
+            "revision_number",
+        )
+        observation_indexes = {
+            index["name"]: tuple(index.get("column_names") or ())
+            for index in inspector.get_indexes("md_observation_revisions")
+        }
+        assert observation_indexes["ix_md_observation_revision_series_event_record_available"] == (
+            "series_id",
+            "event_time",
+            "semantic_record_key_sha256",
+            "available_at",
+        )
+        assert ScriptDirectory.from_config(config).get_heads() == [INTEGRATED_HEAD]
 
         command.downgrade(config, ITERATION_196_HEAD)
         command.upgrade(config, "head")

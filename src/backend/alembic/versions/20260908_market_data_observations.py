@@ -11,6 +11,7 @@ summary tables.
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 import sqlalchemy as sa
@@ -339,15 +340,36 @@ _TABLE_FOREIGN_KEYS = {
         (["series_id"], "md_data_series", ["id"], "RESTRICT"),
         (["source_snapshot_id"], "md_source_snapshots", ["id"], "RESTRICT"),
     ],
-    "md_calendar_snapshots": [
-        (["source_snapshot_id"], "md_source_snapshots", ["id"], "RESTRICT")
-    ],
-    "md_calendar_events": [
-        (["calendar_snapshot_id"], "md_calendar_snapshots", ["id"], "RESTRICT")
-    ],
+    "md_calendar_snapshots": [(["source_snapshot_id"], "md_source_snapshots", ["id"], "RESTRICT")],
+    "md_calendar_events": [(["calendar_snapshot_id"], "md_calendar_snapshots", ["id"], "RESTRICT")],
 }
 _TABLE_PRIMARY_KEYS = dict.fromkeys(_TABLE_COLUMNS, ("id",))
 _TABLE_PRIMARY_KEYS["md_calendar_import_locks"] = ("calendar_code",)
+
+_B2_OBSERVATION_TABLE = "md_observation_revisions"
+_B2_LEGACY_UNIQUE = "uq_md_observation_revision_series_event_number"
+_B2_UNIQUE = "uq_md_observation_revision_series_event_record_number"
+_B2_UNIQUE_COLUMNS = (
+    "series_id",
+    "event_time",
+    "semantic_record_key_sha256",
+    "revision_number",
+)
+_B2_PIT_INDEX = "ix_md_observation_revision_series_event_record_available"
+_B2_PIT_INDEX_SPEC = (
+    ("series_id", "event_time", "semantic_record_key_sha256", "available_at"),
+    False,
+)
+_B2_COLUMNS = {
+    "semantic_record_key": sa.Text(),
+    "semantic_record_key_sha256": sa.String(length=_SHA256_LENGTH),
+}
+_B2_CHECKS = {
+    "ck_md_observation_revision_semantic_record_key_nonempty": ("length(semantic_record_key) > 0"),
+    "ck_md_observation_revision_semantic_record_key_sha256_length": (
+        f"length(semantic_record_key_sha256) = {_SHA256_LENGTH}"
+    ),
+}
 
 
 def _is_offline() -> bool:
@@ -363,13 +385,9 @@ def _column_definitions(
     columns: tuple[Any, ...],
 ) -> dict[str, sa.Column[Any]]:
     """Extract the authoritative column contract from this migration's DDL call."""
-    definitions = {
-        str(column.name): column for column in columns if isinstance(column, sa.Column)
-    }
+    definitions = {str(column.name): column for column in columns if isinstance(column, sa.Column)}
     if not definitions or set(definitions) != _TABLE_COLUMNS[table_name]:
-        raise RuntimeError(
-            f"MARKET_DATA_OBSERVATIONS_MIGRATION_CONTRACT_INVALID: {table_name}"
-        )
+        raise RuntimeError(f"MARKET_DATA_OBSERVATIONS_MIGRATION_CONTRACT_INVALID: {table_name}")
     return definitions
 
 
@@ -418,6 +436,27 @@ def _normalize_check_expression(expression: object) -> str:
     return normalized
 
 
+def _normalize_b2_successor_check_expression(expression: object) -> str:
+    """Normalize reflected B2 CHECK syntax without weakening the V1 contract.
+
+    PostgreSQL may render a string operand with a ``::text`` cast, while MySQL
+    can retain a character-set suffix or an enclosing parenthesis pair.  Those
+    are presentation differences for the two B2 integrity rules only.  The
+    historical migration's V1 CHECK comparison remains exact.
+    """
+    normalized = "".join(str(expression).split()).lower().replace('"', "").replace("`", "")
+    normalized = re.sub(r"::(?:text|charactervarying|varchar)(?:\[\])?", "", normalized)
+    normalized = re.sub(r"_(?:utf8mb4|utf8)(?=')", "", normalized)
+    normalized = re.sub(r"\(\(([a-z_][a-z0-9_]*)\)\)", r"(\1)", normalized)
+    while (
+        normalized.startswith("(")
+        and normalized.endswith(")")
+        and _outer_parentheses_wrap_expression(normalized)
+    ):
+        normalized = normalized[1:-1]
+    return normalized
+
+
 def _outer_parentheses_wrap_expression(expression: str) -> bool:
     """Return whether one outer parenthesis pair encloses the whole expression."""
     depth = 0
@@ -451,6 +490,56 @@ def _check_definitions(table_name: str, columns: tuple[Any, ...]) -> dict[str, s
     return definitions
 
 
+def _observation_b2_successor_is_complete(
+    bind: sa.Connection,
+    *,
+    observed_columns: dict[str, dict[str, object]],
+    observed_indexes: dict[str, tuple[tuple[str, ...], bool]],
+    observed_uniques: dict[str, tuple[str, ...]],
+    observed_checks: dict[str, str],
+    preserve_timestamp_timezone: bool,
+    preserve_timestamp_precision: bool,
+) -> bool:
+    """Recognize only a finalized B2 fact-identity successor.
+
+    The historic observation migration can occur after a startup-created ORM
+    schema is stamped at the Iteration 196 baseline.  That later schema is
+    allowed to stand in for the historic DDL only after its B2 record-identity
+    transition is complete.  A partial B2 DDL attempt must still fail closed.
+    """
+    if _B2_LEGACY_UNIQUE in observed_uniques:
+        return False
+    if observed_uniques.get(_B2_UNIQUE) != _B2_UNIQUE_COLUMNS:
+        return False
+    if observed_indexes.get(_B2_PIT_INDEX) != _B2_PIT_INDEX_SPEC:
+        return False
+
+    for column_name, expected_type in _B2_COLUMNS.items():
+        actual = observed_columns.get(column_name)
+        if actual is None or bool(actual.get("nullable")):
+            return False
+        expected_signature = _type_signature(
+            expected_type.dialect_impl(bind.dialect),
+            preserve_timestamp_timezone=preserve_timestamp_timezone,
+            preserve_timestamp_precision=preserve_timestamp_precision,
+        )
+        actual_signature = _type_signature(
+            actual["type"],
+            preserve_timestamp_timezone=preserve_timestamp_timezone,
+            preserve_timestamp_precision=preserve_timestamp_precision,
+        )
+        if actual_signature != expected_signature:
+            return False
+
+    for check_name, expression in _B2_CHECKS.items():
+        observed = observed_checks.get(check_name)
+        if observed is None or _normalize_b2_successor_check_expression(
+            observed
+        ) != _normalize_b2_successor_check_expression(expression):
+            return False
+    return True
+
+
 def _table_is_complete(table_name: str, columns: tuple[Any, ...]) -> tuple[bool, str]:
     """Recognize only complete startup-created evidence tables as already upgraded."""
     bind = op.get_bind()
@@ -458,9 +547,7 @@ def _table_is_complete(table_name: str, columns: tuple[Any, ...]) -> tuple[bool,
     preserve_timestamp_timezone = getattr(bind.dialect, "name", None) == "postgresql"
     preserve_timestamp_precision = getattr(bind.dialect, "name", None) == "mysql"
     expected_columns = _column_definitions(table_name, columns)
-    observed_columns = {
-        str(column["name"]): column for column in inspector.get_columns(table_name)
-    }
+    observed_columns = {str(column["name"]): column for column in inspector.get_columns(table_name)}
     observed_indexes = {
         str(index["name"]): (
             tuple(str(column) for column in index.get("column_names") or ()),
@@ -499,6 +586,18 @@ def _table_is_complete(table_name: str, columns: tuple[Any, ...]) -> tuple[bool,
     primary_key = tuple(
         str(column)
         for column in inspector.get_pk_constraint(table_name).get("constrained_columns") or ()
+    )
+    complete_b2_observation_successor = (
+        table_name == _B2_OBSERVATION_TABLE
+        and _observation_b2_successor_is_complete(
+            bind,
+            observed_columns=observed_columns,
+            observed_indexes=observed_indexes,
+            observed_uniques=observed_uniques,
+            observed_checks=observed_checks,
+            preserve_timestamp_timezone=preserve_timestamp_timezone,
+            preserve_timestamp_precision=preserve_timestamp_precision,
+        )
     )
 
     missing_columns = _TABLE_COLUMNS[table_name] - set(observed_columns)
@@ -547,6 +646,8 @@ def _table_is_complete(table_name: str, columns: tuple[Any, ...]) -> tuple[bool,
     }
     expected_uniques = _TABLE_UNIQUE_SPECS[table_name]
     missing_uniques = set(expected_uniques) - set(observed_uniques)
+    if complete_b2_observation_successor:
+        missing_uniques.discard(_B2_LEGACY_UNIQUE)
     invalid_uniques = {
         constraint_name: {
             "actual": observed_uniques[constraint_name],

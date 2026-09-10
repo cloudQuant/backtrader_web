@@ -496,6 +496,35 @@ def _publication_table_columns(
     return captured["md_publications"]
 
 
+def _observation_revision_table_columns(
+    monkeypatch: pytest.MonkeyPatch,
+    migration: ModuleType,
+) -> tuple[object, ...]:
+    """Capture the historical observation DDL for a successor-shape probe."""
+    captured: dict[str, tuple[object, ...]] = {}
+
+    class _CapturingOperations:
+        def __init__(self, operations: object) -> None:
+            del operations
+
+        def create_table(self, table_name: str, *columns: object, **kwargs: object) -> None:
+            del kwargs
+            captured[table_name] = columns
+
+        def create_index(
+            self,
+            index_name: str,
+            table_name: str,
+            columns: list[str],
+            **kwargs: object,
+        ) -> None:
+            del index_name, table_name, columns, kwargs
+
+    monkeypatch.setattr(migration, "_SchemaAwareOperations", _CapturingOperations)
+    migration.upgrade()
+    return captured["md_observation_revisions"]
+
+
 class _PreexistingPublicationInspector:
     """Offline inspector payload for a startup-created PostgreSQL publication table."""
 
@@ -592,6 +621,224 @@ def _preexisting_publication_contract(
     monkeypatch.setattr(migration, "op", SimpleNamespace(get_bind=lambda: bind))
     monkeypatch.setattr(migration.sa, "inspect", lambda bind: inspector)
     return migration._table_is_complete("md_publications", columns)
+
+
+class _PreexistingB2ObservationRevisionInspector:
+    """Reflect one exact B2 successor shape or a deliberately partial variant."""
+
+    def __init__(
+        self,
+        migration: ModuleType,
+        columns: tuple[object, ...],
+        *,
+        missing_b2_component: str | None = None,
+        wrong_b2_component: str | None = None,
+    ) -> None:
+        expected_columns = migration._column_definitions("md_observation_revisions", columns)
+        self._columns = [
+            {
+                "name": column_name,
+                "type": column.type,
+                "nullable": column.nullable,
+                "default": None,
+            }
+            for column_name, column in expected_columns.items()
+        ]
+        self._columns.extend(
+            [
+                {
+                    "name": "semantic_record_key",
+                    "type": sa.Text(),
+                    "nullable": False,
+                    "default": None,
+                },
+                {
+                    "name": "semantic_record_key_sha256",
+                    "type": sa.String(length=64),
+                    "nullable": False,
+                    "default": None,
+                },
+            ]
+        )
+        self._indexes = [
+            {
+                "name": index_name,
+                "column_names": list(specification[0]),
+                "unique": specification[1],
+            }
+            for index_name, specification in migration._TABLE_INDEX_SPECS[
+                "md_observation_revisions"
+            ].items()
+        ]
+        if missing_b2_component != "index":
+            self._indexes.append(
+                {
+                    "name": "ix_md_observation_revision_series_event_record_available",
+                    "column_names": [
+                        "series_id",
+                        "event_time",
+                        "semantic_record_key_sha256",
+                        "available_at",
+                    ],
+                    "unique": False,
+                }
+            )
+        self._uniques = [
+            {"name": name, "column_names": list(unique_columns)}
+            for name, unique_columns in migration._TABLE_UNIQUE_SPECS[
+                "md_observation_revisions"
+            ].items()
+            if name != "uq_md_observation_revision_series_event_number"
+        ]
+        if missing_b2_component != "unique":
+            self._uniques.append(
+                {
+                    "name": "uq_md_observation_revision_series_event_record_number",
+                    "column_names": [
+                        "series_id",
+                        "event_time",
+                        "semantic_record_key_sha256",
+                        "revision_number",
+                    ],
+                }
+            )
+        self._checks = [
+            {"name": name, "sqltext": str(constraint.sqltext)}
+            for name, constraint in (
+                (
+                    str(constraint.name),
+                    constraint,
+                )
+                for constraint in columns
+                if isinstance(constraint, sa.CheckConstraint)
+            )
+        ]
+        if missing_b2_component != "check":
+            self._checks.extend(
+                [
+                    {
+                        "name": "ck_md_observation_revision_semantic_record_key_nonempty",
+                        "sqltext": "length(semantic_record_key) > 0",
+                    },
+                    {
+                        "name": "ck_md_observation_revision_semantic_record_key_sha256_length",
+                        "sqltext": "length(semantic_record_key_sha256) = 64",
+                    },
+                ]
+            )
+        self._foreign_keys = [
+            {
+                "constrained_columns": list(local_columns),
+                "referred_table": referred_table,
+                "referred_columns": list(referred_columns),
+                "options": {"ondelete": ondelete},
+            }
+            for local_columns, referred_table, referred_columns, ondelete in migration._TABLE_FOREIGN_KEYS[
+                "md_observation_revisions"
+            ]
+        ]
+        if wrong_b2_component == "unique":
+            self._uniques[-1]["column_names"] = [
+                "series_id",
+                "event_time",
+                "revision_number",
+                "semantic_record_key_sha256",
+            ]
+        elif wrong_b2_component == "index":
+            self._indexes[-1]["unique"] = True
+        elif wrong_b2_component == "check":
+            next(
+                check
+                for check in self._checks
+                if check["name"] == "ck_md_observation_revision_semantic_record_key_sha256_length"
+            )["sqltext"] = "length(semantic_record_key_sha256) = 63"
+        elif wrong_b2_component == "hash_nullable":
+            next(
+                column for column in self._columns if column["name"] == "semantic_record_key_sha256"
+            )["nullable"] = True
+        elif wrong_b2_component == "hash_length":
+            next(
+                column for column in self._columns if column["name"] == "semantic_record_key_sha256"
+            )["type"] = sa.String(length=63)
+
+    def get_columns(self, table_name: str) -> list[dict[str, object]]:
+        assert table_name == "md_observation_revisions"
+        return self._columns
+
+    def get_indexes(self, table_name: str) -> list[dict[str, object]]:
+        assert table_name == "md_observation_revisions"
+        return self._indexes
+
+    def get_unique_constraints(self, table_name: str) -> list[dict[str, object]]:
+        assert table_name == "md_observation_revisions"
+        return self._uniques
+
+    def get_check_constraints(self, table_name: str) -> list[dict[str, object]]:
+        assert table_name == "md_observation_revisions"
+        return self._checks
+
+    def get_foreign_keys(self, table_name: str) -> list[dict[str, object]]:
+        assert table_name == "md_observation_revisions"
+        return self._foreign_keys
+
+    def get_pk_constraint(self, table_name: str) -> dict[str, list[str]]:
+        assert table_name == "md_observation_revisions"
+        return {"constrained_columns": ["id"]}
+
+
+def _preexisting_b2_observation_revision_contract(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    missing_b2_component: str | None = None,
+    wrong_b2_component: str | None = None,
+) -> tuple[bool, str]:
+    """Run the historical migration against an exact or interrupted B2 successor."""
+    migration = _load_observations_migration()
+    columns = _observation_revision_table_columns(monkeypatch, migration)
+    inspector = _PreexistingB2ObservationRevisionInspector(
+        migration,
+        columns,
+        missing_b2_component=missing_b2_component,
+        wrong_b2_component=wrong_b2_component,
+    )
+    bind = SimpleNamespace(dialect=sqlite.dialect())
+    monkeypatch.setattr(migration, "op", SimpleNamespace(get_bind=lambda: bind))
+    monkeypatch.setattr(migration.sa, "inspect", lambda bind: inspector)
+    return migration._table_is_complete("md_observation_revisions", columns)
+
+
+@pytest.mark.parametrize("missing_b2_component", [None, "unique", "check", "index"])
+def test_observation_schema_recovery_accepts_only_a_complete_b2_successor(
+    monkeypatch: pytest.MonkeyPatch,
+    missing_b2_component: str | None,
+) -> None:
+    """A stamped startup schema may skip V1 DDL only when its B2 shape is complete."""
+    complete, detail = _preexisting_b2_observation_revision_contract(
+        monkeypatch,
+        missing_b2_component=missing_b2_component,
+    )
+
+    if missing_b2_component is None:
+        assert complete, detail
+    else:
+        assert not complete
+
+
+@pytest.mark.parametrize(
+    "wrong_b2_component",
+    ["unique", "index", "check", "hash_nullable", "hash_length"],
+)
+def test_observation_schema_recovery_rejects_a_wrong_b2_successor_component(
+    monkeypatch: pytest.MonkeyPatch,
+    wrong_b2_component: str,
+) -> None:
+    """A B2 constraint name cannot conceal an altered identity contract."""
+    complete, _detail = _preexisting_b2_observation_revision_contract(
+        monkeypatch,
+        wrong_b2_component=wrong_b2_component,
+    )
+
+    assert not complete
 
 
 def test_observation_schema_recovery_rejects_postgresql_timestamp_without_timezone(

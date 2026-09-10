@@ -10,6 +10,7 @@ from pathlib import Path
 from types import ModuleType
 
 import pytest
+import sqlalchemy as sa
 from alembic.config import Config
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
@@ -469,6 +470,60 @@ def test_semantic_record_key_migration_resumes_after_the_old_unique_was_dropped(
             "semantic_record_key_sha256",
             "revision_number",
         )
+    finally:
+        engine.dispose()
+
+
+def test_semantic_record_key_migration_refuses_both_legacy_and_b2_fact_uniques(
+    tmp_path: Path,
+) -> None:
+    """A partially finalized B2 unique replacement cannot be treated as safe."""
+    database_path = tmp_path / "semantic-record-keys-both-uniques.sqlite3"
+    config = _config(f"sqlite+aiosqlite:///{database_path}")
+    engine = create_engine(f"sqlite:///{database_path}")
+    try:
+        command.upgrade(config, PREVIOUS_HEAD_REVISION)
+        with engine.begin() as connection:
+            operations = Operations(MigrationContext.configure(connection))
+            with operations.batch_alter_table(
+                "md_observation_revisions", recreate="always"
+            ) as batch:
+                batch.add_column(sa.Column("semantic_record_key", sa.Text(), nullable=False))
+                batch.add_column(
+                    sa.Column("semantic_record_key_sha256", sa.String(length=64), nullable=False)
+                )
+                batch.create_unique_constraint(
+                    "uq_md_observation_revision_series_event_record_number",
+                    [
+                        "series_id",
+                        "event_time",
+                        "semantic_record_key_sha256",
+                        "revision_number",
+                    ],
+                )
+                batch.create_check_constraint(
+                    "ck_md_observation_revision_semantic_record_key_nonempty",
+                    "length(semantic_record_key) > 0",
+                )
+                batch.create_check_constraint(
+                    "ck_md_observation_revision_semantic_record_key_sha256_length",
+                    "length(semantic_record_key_sha256) = 64",
+                )
+                batch.create_index(
+                    "ix_md_observation_revision_series_event_record_available",
+                    [
+                        "series_id",
+                        "event_time",
+                        "semantic_record_key_sha256",
+                        "available_at",
+                    ],
+                )
+
+        with pytest.raises(
+            RuntimeError,
+            match="MARKET_DATA_SEMANTIC_RECORD_KEY_SCHEMA_DRIFT: both legacy and B2",
+        ):
+            command.upgrade(config, SEMANTIC_RECORD_KEYS_REVISION)
     finally:
         engine.dispose()
 

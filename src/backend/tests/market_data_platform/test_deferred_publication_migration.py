@@ -17,6 +17,7 @@ from alembic import command
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
 PREVIOUS_REVISION = "20260910_market_data_capability_ledger"
 REVISION = "20260911_market_data_deferred_publications"
+INTEGRATED_HEAD_REVISION = "20260911_market_data_semantic_record_keys"
 TABLE = "md_publication_release_holds"
 UTC = timezone.utc
 NOW = datetime(2026, 9, 11, 12, tzinfo=UTC)
@@ -53,14 +54,16 @@ def _hold_values(
     }
 
 
-def test_deferred_publication_revision_is_the_single_alembic_head(tmp_path: Path) -> None:
-    """The additive child table advances the linear Iteration 197 graph."""
+def test_deferred_publication_revision_is_an_ancestor_of_the_single_alembic_head(
+    tmp_path: Path,
+) -> None:
+    """The additive child remains in the linear graph after the B2 successor."""
     script = ScriptDirectory.from_config(_config(tmp_path / "head.sqlite3"))
 
     revision = script.get_revision(REVISION)
     assert revision is not None
     assert revision.down_revision == PREVIOUS_REVISION
-    assert script.get_heads() == [REVISION]
+    assert script.get_heads() == [INTEGRATED_HEAD_REVISION]
 
 
 def test_sqlite_upgrade_keeps_evidence_parents_and_enforces_hold_state_contracts(
