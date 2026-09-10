@@ -35,6 +35,7 @@ from app.services.market_data.snapshot_importer import FrozenSnapshotIdentity
 from app.services.market_data.stock_valuation_collector import (
     STOCK_VALUATION_ADJUSTMENT,
     STOCK_VALUATION_CAPTURE_ENDPOINT,
+    STOCK_VALUATION_CAPTURE_SOURCE_REVISION,
     STOCK_VALUATION_COLLECTOR_VERSION,
     STOCK_VALUATION_CURRENCY,
     STOCK_VALUATION_DATASET_CODE,
@@ -57,7 +58,7 @@ CAPTURED_AT = datetime(2026, 9, 8, 7, 15, tzinfo=UTC)
 LOCAL_RECEIVED_AT = datetime(2026, 9, 8, 8, 0, tzinfo=UTC)
 DATASET_ID = "dataset-stock-valuation"
 PROVIDER_ID = "akshare"
-SOURCE_REVISION = "akshare.stock_zh_a_spot_em:captured-fixture-v1"
+SOURCE_REVISION = STOCK_VALUATION_CAPTURE_SOURCE_REVISION
 
 
 def _sha(value: str) -> str:
@@ -364,7 +365,9 @@ async def test_captured_batch_recursively_freezes_caller_owned_raw_payload() -> 
     async with async_session_maker() as db:
         await _seed_control_plane(db)
         store = MarketDataStore(db, clock=lambda: LOCAL_RECEIVED_AT)
-        report = await _collector(store=store).publish_captured_batch(batch=batch, targets=(target,))
+        report = await _collector(store=store).publish_captured_batch(
+            batch=batch, targets=(target,)
+        )
         local_rows = await store.read_observation_revisions(
             target.context,
             knowledge_cutoff=LOCAL_RECEIVED_AT + timedelta(seconds=1),
@@ -458,13 +461,16 @@ async def test_offline_batch_persists_two_known_targets_and_quarantines_unknown(
         }
         reconstructed = dict(payload)
         reconstructed["source_batch"] = source_batch
-        assert hashlib.sha256(
-            collector_module._canonical_json(
-                reconstructed,
-                maximum_bytes=collector_module._MAX_SINGLE_RECEIPT_BYTES,  # noqa: SLF001
-                overflow_code="STOCK_VALUATION_RECEIPT_EVIDENCE_TOO_LARGE",
-            )
-        ).hexdigest() == snapshot.payload_sha256
+        assert (
+            hashlib.sha256(
+                collector_module._canonical_json(
+                    reconstructed,
+                    maximum_bytes=collector_module._MAX_SINGLE_RECEIPT_BYTES,  # noqa: SLF001
+                    overflow_code="STOCK_VALUATION_RECEIPT_EVIDENCE_TOO_LARGE",
+                )
+            ).hexdigest()
+            == snapshot.payload_sha256
+        )
         collector = payload["collector"]
         assert collector["time_basis"] == "collector_observed"
         assert collector["source_event_time"] is None
@@ -602,7 +608,9 @@ async def test_unknown_invalid_rows_are_safely_quarantined_without_blocking_know
             "STOCK_VALUATION_SOURCE_REQUEST_INVALID",
         ),
         (
-            lambda capture: capture.__setitem__("request_shape", {"args": ["600000"], "kwargs": {}}),
+            lambda capture: capture.__setitem__(
+                "request_shape", {"args": ["600000"], "kwargs": {}}
+            ),
             None,
             "STOCK_VALUATION_SOURCE_REQUEST_INVALID",
         ),
@@ -651,6 +659,39 @@ async def test_forged_capture_envelope_rejects_before_persistence(
         counts = await _counts(db)
 
     assert rejected.value.code == expected_code
+    assert persist_calls == 0
+    assert counts == (0, 0, 0)
+
+
+@pytest.mark.asyncio
+async def test_source_revision_must_match_reviewed_capture_descriptor_before_store_io(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A caller cannot self-approve a new revision by rehashing its envelope."""
+    target = _target("600000", venue="CN-SSE")
+    persist_calls = 0
+
+    async with async_session_maker() as db:
+        await _seed_control_plane(db)
+        store = MarketDataStore(db, clock=lambda: LOCAL_RECEIVED_AT)
+
+        async def unexpected_persist(*_args: object, **_kwargs: object) -> object:
+            nonlocal persist_calls
+            persist_calls += 1
+            raise AssertionError("unreviewed source revision must fail before Store persistence")
+
+        monkeypatch.setattr(store, "persist_provider_result", unexpected_persist)
+        with pytest.raises(StockValuationCollectorError) as rejected:
+            await _collector(store=store).publish_captured_batch(
+                batch=_batch(
+                    [_row("600000")],
+                    source_revision="akshare.stock_zh_a_spot_em:unreviewed-v2",
+                ),
+                targets=(target,),
+            )
+        counts = await _counts(db)
+
+    assert rejected.value.code == "STOCK_VALUATION_SOURCE_DESCRIPTOR_MISMATCH"
     assert persist_calls == 0
     assert counts == (0, 0, 0)
 

@@ -1,6 +1,6 @@
 # 迭代 197：现状审计与 OpenBB 调研
 
-> 调研日期：2026-09-05。只读源码和文档调查；没有安装 OpenBB、连接业务数据库、请求真实行情或验收登录后的页面。
+> 调研日期：2026-09-05。只读源码和文档调查；没有安装 OpenBB、连接业务数据库、请求真实行情或验收登录后的页面。本文的 legacy online 分支描述是当日基线，不是当前运行合同；当前 `market-instruments/lookup?refresh_online=true` 已在 P0 收口中改为 I/O 前拒绝。
 > 本文中“已存在”指当前源码可定位，不等于生产启用或真实环境验收成功。
 
 ## 1. 证据基线
@@ -25,7 +25,8 @@ flowchart TD
     API --> ROUTE[api/data/base.py]
     ROUTE --> MI[MarketInstrumentService.lookup]
     MI --> W[akshare_data 旧表]
-    MI -->|refresh_online=true| AK[AkShare 同步函数]
+    MI -->|历史基线 refresh_online=true| AK[AkShare 同步函数]
+    MI -->|当前 refresh_online=true| REJECT[409 legacy online disabled]
     P[StrategyPage / useStrategyPage] --> PC[marketDataApi.runPrecheck]
     PC --> C[MarketDataPrecheckService]
     C --> CV[CSV / warehouse coverage 摘要]
@@ -41,7 +42,7 @@ flowchart TD
 | ID | 文件与定位 | 核验结论 | 197 处理 |
 | --- | --- | --- | --- |
 | E01 | `src/frontend/src/api/marketData.ts:10`；`src/frontend/src/views/data/useDataPage.ts:148,550` | 七类资产；行情周期日/周/月 | 七类统一能力账本与三种周期语义 |
-| E02 | `src/backend/app/services/market_instrument.py:265` 的 `lookup` | 默认只返仓库；`refresh_online=True` 即调用在线函数，未依据缺口决定是否联网 | 新默认 `local_first`，显式刷新单独建模 |
+| E02 | `src/backend/app/services/market_instrument.py` 的历史 `lookup` 基线 | 当时默认只返仓库；`refresh_online=True` 即调用在线函数，未依据缺口决定是否联网 | 当前 P0 已使 legacy `refresh_online=true` 在 I/O 前拒绝；新默认 `local_first` / `refresh` 只由 v2 受控路径建模。 |
 | E03 | 同文件 `:432,1049,1119` | 存在 `_fill_history_gap`、缓存读取和缓存写入；文件内没有主链调用 `_fill_history_gap` 的引用 | 不能把辅助代码当成主链已闭环；迁入统一 writer |
 | E04 | 同文件 `:404` 的 `_history_requires_refresh` | 主要检查日期交集及最后日期距请求末日的自然日容差；不证明头部、中间缺口或实际交易日完整性 | 按日历、字段、频率和版本计算缺口 |
 | E05 | 同文件 `:1049,1119` | 缓存查询 `LIMIT 260`；键为资产类型、symbol、period、date，缺市场、复权和真实来源；运行时建 MySQL 表 | 独立规范 series 身份、分页、DDL 迁移 |

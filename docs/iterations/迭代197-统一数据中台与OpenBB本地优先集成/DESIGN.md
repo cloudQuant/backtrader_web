@@ -374,7 +374,7 @@ Idempotency-Key 以 `(principal, operation, key)` 唯一；同 key 不同请求 
 
 | 现有接口 | 适配 |
 | --- | --- |
-| `GET /market-instruments/lookup` | `refresh_online=false/true` 维持旧的 local_only/refresh；新页面调用 `/queries`；返回现有 snapshot/history/indicators，并可加 meta |
+| `GET /market-instruments/lookup` | `refresh_online=false` 保持本地兼容读取；`refresh_online=true` 在 warehouse/provider I/O 前以 `MARKET_DATA_LEGACY_ONLINE_REFRESH_DISABLED` 拒绝。新页面的在线补齐只能调用 `/queries` 的受控 `local_first` / `refresh`；返回现有 snapshot/history/indicators，并可加 meta。 |
 | `GET /market-instruments/options` | 用统一主数据、可用市场与本地覆盖投影；不返回无来源样例作为真实可用标的 |
 | `GET /kline` | 股票 bars 的兼容 facade；保留 kline/records 格式、默认 qfq 在 query 中显式化；网络与持久化集中 |
 | `/trust/coverage`、`refresh-local/refresh-warehouse` | 返回兼容结构并附 version；refresh 覆盖是重新检查本地元数据，不默认触发线上回填 |

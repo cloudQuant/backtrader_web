@@ -13,6 +13,13 @@ from app.db.akshare_data_database import _get_akshare_data_engine
 
 MarketAssetType = Literal["stock", "futures", "bond", "fund", "option", "fx", "crypto"]
 
+
+class LegacyMarketDataOnlineRefreshDisabledError(RuntimeError):
+    """Raised when a legacy endpoint attempts an untracked online refresh."""
+
+    code = "MARKET_DATA_LEGACY_ONLINE_REFRESH_DISABLED"
+
+
 _BUILTIN_INSTRUMENTS: dict[MarketAssetType, tuple[tuple[str, str, str], ...]] = {
     "stock": (
         ("000001", "平安银行", "CN"),
@@ -273,31 +280,25 @@ class MarketInstrumentService:
         market: str | None = None,
         refresh_online: bool = False,
     ) -> dict[str, Any]:
-        """Read local warehouse data and optionally refresh it from AkShare.
+        """Read an exact instrument from the local warehouse.
 
-        The market-data page is deliberately local-first: initial page loads
-        must remain fast and deterministic even when the AkShare upstream is
-        slow or unavailable.  Only a user-initiated query sets
-        ``refresh_online`` and is therefore allowed to call AkShare.
+        The compatibility endpoint intentionally cannot perform an online
+        refresh.  Online provider I/O must use the v2 local-first query path,
+        which establishes source authorization, immutable receipts, and a
+        persisted local reread before returning a result.
         """
+        if asset_type not in _BUILTIN_INSTRUMENTS:
+            raise ValueError(f"Unsupported asset type: {asset_type}")
+        if refresh_online:
+            raise LegacyMarketDataOnlineRefreshDisabledError(
+                LegacyMarketDataOnlineRefreshDisabledError.code
+            )
+
         normalized_symbol = symbol.strip().upper()
         end = date.today()
         start = end - timedelta(days=90)
         normalized_period = _normalize_period(period)
         warnings: list[str] = []
-
-        lookup_map = {
-            "stock": self._lookup_stock,
-            "futures": self._lookup_futures,
-            "bond": self._lookup_bond,
-            "fund": self._lookup_fund,
-            "option": self._lookup_option,
-            "fx": self._lookup_fx,
-            "crypto": self._lookup_crypto,
-        }
-        online_lookup = lookup_map.get(asset_type)
-        if online_lookup is None:
-            raise ValueError(f"Unsupported asset type: {asset_type}")
 
         if asset_type == "option" and self._is_option_alias(normalized_symbol):
             warnings.append("期权查询必须使用精确合约代码；不支持主力或别名回退。")
@@ -335,51 +336,11 @@ class MarketInstrumentService:
             )
         elif not self._payload_has_data(warehouse_payload):
             warnings.append("本地行情未找到所请求的精确标的。")
-        if not refresh_online:
-            warehouse_payload["warnings"] = warnings
-            warehouse_payload["indicators"] = self._build_indicators(
-                warehouse_payload["history"]["rows"]
-            )
-            return warehouse_payload
-
-        online_warnings: list[str] = []
-        try:
-            online_payload = await asyncio.to_thread(
-                online_lookup,
-                symbol=normalized_symbol,
-                start_date=start_date or start,
-                end_date=end_date or end,
-                period=normalized_period,
-                market=market,
-                warnings=online_warnings,
-            )
-        except Exception:
-            online_payload = None
-            online_warnings.append("AkShare 在线查询失败，已保留本地 MySQL 数据。")
-
-        if online_payload and not self._payload_matches_request(
-            asset_type=asset_type,
-            symbol=normalized_symbol,
-            market=market,
-            payload=online_payload,
-        ):
-            online_payload = None
-            online_warnings.append("AkShare 未返回所请求的精确标的，已忽略该结果。")
-
-        warnings.extend(online_warnings)
-        if not online_payload or not self._payload_has_data(online_payload):
-            if not online_warnings:
-                warnings.append("AkShare 未返回可用数据，已保留本地 MySQL 数据。")
-            warehouse_payload["warnings"] = warnings
-            warehouse_payload["indicators"] = self._build_indicators(
-                warehouse_payload["history"]["rows"]
-            )
-            return warehouse_payload
-
-        warnings.append("已按查询请求从 AkShare 更新行情数据。")
-        online_payload["warnings"] = warnings
-        online_payload["indicators"] = self._build_indicators(online_payload["history"]["rows"])
-        return online_payload
+        warehouse_payload["warnings"] = warnings
+        warehouse_payload["indicators"] = self._build_indicators(
+            warehouse_payload["history"]["rows"]
+        )
+        return warehouse_payload
 
     async def _lookup_warehouse(
         self,
@@ -1441,69 +1402,35 @@ class MarketInstrumentService:
             {"code": code},
         )
 
-        history_table = (
-            "STOCK_ZH_A_HIST_TX"
-            if code == "000001"
-            else ("STOCK_ZH_A_DAILY" if code == "600000" else None)
+        rows = await self._fetch_rows(
+            """
+            SELECT *
+            FROM STOCK_ZH_A_HIST
+            WHERE (symbol = :code OR `股票代码` = :code)
+              AND STR_TO_DATE(`日期`, '%Y-%m-%d') BETWEEN :start AND :end
+            ORDER BY STR_TO_DATE(`日期`, '%Y-%m-%d') ASC
+            LIMIT 260
+            """,
+            {
+                "code": code,
+                "start": _sql_date_text(start_date, date.today()),
+                "end": _sql_date_text(end_date, date.today()),
+            },
         )
-        history_rows: list[dict[str, Any]] = []
-        if history_table:
-            rows = await self._fetch_rows(
-                f"""
-                SELECT *
-                FROM {history_table}
-                WHERE STR_TO_DATE(`date`, '%Y-%m-%d') BETWEEN :start AND :end
-                ORDER BY STR_TO_DATE(`date`, '%Y-%m-%d') ASC
-                LIMIT 260
-                """,
-                {
-                    "start": _sql_date_text(start_date, date.today()),
-                    "end": _sql_date_text(end_date, date.today()),
-                },
-            )
-            history_rows = self._normalize_warehouse_history(
-                rows,
-                date_key="date",
-                open_key="open",
-                high_key="high",
-                low_key="low",
-                close_key="close",
-                volume_key="volume",
-                turnover_key="amount",
-                turnover_rate_key="turnover",
-            )
-
-        if not history_rows:
-            rows = await self._fetch_rows(
-                """
-                SELECT *
-                FROM STOCK_ZH_A_HIST
-                WHERE (symbol = :code OR `股票代码` = :code)
-                  AND STR_TO_DATE(`日期`, '%Y-%m-%d') BETWEEN :start AND :end
-                ORDER BY STR_TO_DATE(`日期`, '%Y-%m-%d') ASC
-                LIMIT 260
-                """,
-                {
-                    "code": code,
-                    "start": _sql_date_text(start_date, date.today()),
-                    "end": _sql_date_text(end_date, date.today()),
-                },
-            )
-            history_rows = self._normalize_warehouse_history(
-                rows,
-                date_key="日期",
-                open_key="开盘",
-                high_key="最高",
-                low_key="最低",
-                close_key="收盘",
-                volume_key="成交量",
-                turnover_key="成交额",
-                change_key="涨跌额",
-                change_pct_key="涨跌幅",
-                turnover_rate_key="换手率",
-            )
-            if history_rows:
-                history_table = "STOCK_ZH_A_HIST"
+        history_rows = self._normalize_warehouse_history(
+            rows,
+            date_key="日期",
+            open_key="开盘",
+            high_key="最高",
+            low_key="最低",
+            close_key="收盘",
+            volume_key="成交量",
+            turnover_key="成交额",
+            change_key="涨跌额",
+            change_pct_key="涨跌幅",
+            turnover_rate_key="换手率",
+        )
+        history_table = "STOCK_ZH_A_HIST" if history_rows else None
 
         snapshot = self._snapshot_from_cn_quote(spot or {}, symbol=code) if spot else {}
         snapshot = snapshot or self._snapshot_from_latest_history(code, history_rows)

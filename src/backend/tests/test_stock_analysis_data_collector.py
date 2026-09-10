@@ -16,19 +16,16 @@ from app.services.stock_analysis.pipeline import StockAnalysisPipeline
 
 
 class _RefreshAwareMarketService:
-    """Expose whether the collector asks an explicit analysis request to refresh."""
+    """Expose whether the collector stays on the persisted market-data path."""
 
     async def lookup(self, **kwargs):
-        if kwargs["refresh_online"]:
-            history_date = "2026-07-30"
-            price = 11.61
-        else:
-            history_date = "2026-07-03"
-            price = 10.88
+        assert kwargs["refresh_online"] is False
+        history_date = "2026-07-30"
+        price = 11.61
         return {
             "symbol": "000001",
             "name": "平安银行",
-            "provider": "akshare",
+            "provider": "akshare_data",
             "snapshot": {
                 "symbol": "000001",
                 "name": "平安银行",
@@ -68,11 +65,11 @@ class _CompanyProfileMarketService:
     """Supply the sparse quote payload that previously caused the warning."""
 
     async def lookup(self, **kwargs):
-        assert kwargs["refresh_online"] is True
+        assert kwargs["refresh_online"] is False
         return {
             "symbol": "601398.SH",
             "name": "601398.SH",
-            "provider": "akshare",
+            "provider": "akshare_data",
             "snapshot": {
                 "symbol": "601398.SH",
                 "name": "601398.SH",
@@ -99,7 +96,7 @@ class _CompanyProfileMarketService:
 async def test_collect_uses_current_cn_market_financial_and_news_data(
     monkeypatch: pytest.MonkeyPatch,
 ):
-    """An explicit stock analysis must not silently reuse stale or empty local data."""
+    """A stock analysis reads its persisted market-data result through the local path."""
     financial_abstract = pd.DataFrame(
         [
             {"选项": "常用指标", "指标": "营业总收入", "20260331": 35.0, "20251231": 130.0},

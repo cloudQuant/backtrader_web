@@ -20,7 +20,11 @@ from app.db.database import get_db
 from app.services.market_data.access import MarketDataAccessAuthorizer, MarketDataAuthorizationError
 from app.services.market_data.dataset_contracts import DatasetContractRegistryError
 from app.services.market_data.legacy_contract import LegacyMarketDataQueryContractResolver
-from app.services.market_instrument import MarketAssetType, MarketInstrumentService
+from app.services.market_instrument import (
+    LegacyMarketDataOnlineRefreshDisabledError,
+    MarketAssetType,
+    MarketInstrumentService,
+)
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -219,7 +223,7 @@ async def lookup_market_instrument(
     market: str | None = Query(None, description="Futures market, default CF"),
     refresh_online: bool = Query(
         False,
-        description="Fetch the latest data from AkShare; only set by an explicit user query",
+        description="Deprecated legacy online refresh; use the v2 local-first query endpoint",
     ),
     current_user: typing.Any = Depends(get_current_user),
     service: MarketInstrumentService = Depends(get_market_instrument_service),
@@ -301,6 +305,8 @@ async def lookup_market_instrument(
                     payload["query_contract_symbol"] = symbol.strip()
                     payload["query_contract_canonical_id"] = canonical_id
         return payload
+    except LegacyMarketDataOnlineRefreshDisabledError as exc:
+        raise HTTPException(status_code=409, detail={"code": exc.code}) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

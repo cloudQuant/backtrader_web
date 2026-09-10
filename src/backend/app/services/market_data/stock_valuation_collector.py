@@ -54,6 +54,10 @@ UTC = timezone.utc
 STOCK_VALUATION_COLLECTOR_VERSION = "stock-valuation-captured-batch-v1"
 STOCK_VALUATION_PROVIDER_ID = "akshare"
 STOCK_VALUATION_CAPTURE_ENDPOINT = "stock_zh_a_spot_em"
+# The collector has no dynamic source registry or fetch seam.  A captured
+# batch therefore must name this reviewed descriptor revision exactly; a
+# caller-provided self-consistent envelope cannot select a new revision.
+STOCK_VALUATION_CAPTURE_SOURCE_REVISION = "akshare.stock_zh_a_spot_em:captured-batch-v1"
 STOCK_VALUATION_DATASET_CODE = "market.stock_valuation_captured_snapshot"
 STOCK_VALUATION_SOURCE_POLICY_ID = "market-stock-valuation-captured-batch-v1"
 STOCK_VALUATION_REQUIRED_FIELDS = frozenset({"market_cap", "float_market_cap", "pe", "pb"})
@@ -120,9 +124,8 @@ class StockValuationQuarantinedRow:
             object.__setattr__(self, "provider_symbol", _require_stock_code(self.provider_symbol))
         except StockValuationCollectorError as exc:
             raise ValueError("quarantined provider_symbol is invalid") from exc
-        if (
-            not isinstance(self.reason_code, str)
-            or not re.fullmatch(r"STOCK_VALUATION_[A-Z0-9_]{3,128}", self.reason_code)
+        if not isinstance(self.reason_code, str) or not re.fullmatch(
+            r"STOCK_VALUATION_[A-Z0-9_]{3,128}", self.reason_code
         ):
             raise ValueError("quarantined reason_code is invalid")
 
@@ -345,6 +348,8 @@ def _prepare_collection(
     """Freeze exact stock contexts before processing the captured source claim."""
     if batch.provider_id != STOCK_VALUATION_PROVIDER_ID:
         raise StockValuationCollectorError("STOCK_VALUATION_PROVIDER_UNSUPPORTED")
+    if batch.source_revision != STOCK_VALUATION_CAPTURE_SOURCE_REVISION:
+        raise StockValuationCollectorError("STOCK_VALUATION_SOURCE_DESCRIPTOR_MISMATCH")
     if not isinstance(targets, Sequence) or isinstance(targets, (str, bytes, bytearray)):
         raise StockValuationCollectorError("STOCK_VALUATION_TARGETS_INVALID")
     frozen_targets = tuple(targets)
@@ -971,10 +976,7 @@ def _require_text(value: object, *, field_name: str, maximum: int) -> str:
 
 def _require_lower_sha256(value: object, *, code: str) -> str:
     """Return one exact lower-case SHA-256 digest without exposing the source value."""
-    if (
-        not isinstance(value, str)
-        or not re.fullmatch(r"[0-9a-f]{64}", value)
-    ):
+    if not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{64}", value):
         raise StockValuationCollectorError(code)
     return value
 
@@ -1098,6 +1100,7 @@ async def _await_persistence_after_cancellation(
 __all__ = [
     "STOCK_VALUATION_ADJUSTMENT",
     "STOCK_VALUATION_CAPTURE_ENDPOINT",
+    "STOCK_VALUATION_CAPTURE_SOURCE_REVISION",
     "STOCK_VALUATION_COLLECTOR_VERSION",
     "STOCK_VALUATION_CURRENCY",
     "STOCK_VALUATION_DATASET_CODE",

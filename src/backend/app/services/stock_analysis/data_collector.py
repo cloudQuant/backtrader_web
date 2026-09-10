@@ -160,9 +160,9 @@ class StockAnalysisDataCollector:
                     start_date=start_date,
                     end_date=end_date,
                     period="daily",
-                    # Submitting a stock-analysis task is an explicit user query.
-                    # Do not let a stale warehouse snapshot masquerade as current data.
-                    refresh_online=True,
+                    # Legacy lookup is deliberately local-only. Provider I/O
+                    # must use the v2 local-first path with durable receipts.
+                    refresh_online=False,
                 ),
                 timeout=30,
             )

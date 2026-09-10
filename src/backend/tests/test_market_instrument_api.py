@@ -364,132 +364,23 @@ def disable_market_instrument_warehouse(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_market_instrument_lookup_returns_stock_snapshot_and_history(
-    client,
-    auth_headers,
-    dummy_akshare,
-):
-    response = await client.get(
-        "/api/v1/data/market-instruments/lookup",
-        headers=auth_headers,
-        params={
-            "asset_type": "stock",
-            "symbol": "000001.SZ",
-            "start_date": "2026-06-01",
-            "end_date": "2026-06-19",
-            "refresh_online": True,
-        },
-    )
-
-    assert response.status_code == 200
-    data = response.json()
-    assert data["asset_type"] == "stock"
-    assert data["name"] == "000001.SZ"
-    assert data["snapshot"]["price"] == 12.4
-    assert data["history"]["total"] == 2
-    assert data["indicators"]["latest_close"] == 12.4
-    assert "已按查询请求从 AkShare 更新行情数据。" in data["warnings"]
-
-
-@pytest.mark.asyncio
-async def test_explicit_market_refresh_replaces_snapshot_only_warehouse_data(
-    monkeypatch,
-    dummy_akshare,
-):
-    from app.services.market_instrument import MarketInstrumentService
-
-    def fail_spot_lookup():
-        raise AssertionError("stock snapshot lookup should not run when only filling history")
-
-    async def snapshot_only_warehouse_lookup(
-        self,
-        *,
-        asset_type,
-        symbol,
-        start_date,
-        end_date,
-        period,
-        market,
-        warnings,
-    ):
-        return self._payload(
-            asset_type=asset_type,
-            symbol=symbol,
-            name="万科A",
-            market=market or "CN",
-            snapshot={"symbol": symbol, "name": "万科A", "price": 3.05},
-            rows=[],
-            period=period,
-            provider="akshare_data",
-        )
-
-    monkeypatch.setattr(
-        MarketInstrumentService, "_lookup_warehouse", snapshot_only_warehouse_lookup
-    )
-    monkeypatch.setattr(dummy_akshare, "stock_zh_a_spot_em", fail_spot_lookup)
-
-    service = MarketInstrumentService()
-    payload = await service.lookup(
-        asset_type="stock",
-        symbol="000002",
-        start_date="2026-06-01",
-        end_date="2026-06-19",
-        refresh_online=True,
-    )
-
-    assert payload["snapshot"]["price"] == 12.4
-    assert payload["history"]["total"] == 2
-    assert payload["provider"] == "akshare"
-    assert payload["indicators"]["latest_close"] == 12.4
-    assert "已按查询请求从 AkShare 更新行情数据。" in payload["warnings"]
-
-
-@pytest.mark.asyncio
-async def test_market_instrument_lookup_returns_futures_snapshot_and_history(
-    client,
-    auth_headers,
-    dummy_akshare,
-):
-    response = await client.get(
-        "/api/v1/data/market-instruments/lookup",
-        headers=auth_headers,
-        params={
-            "asset_type": "futures",
-            "symbol": "RB2510",
-            "start_date": "2026-06-01",
-            "end_date": "2026-06-19",
-            "refresh_online": True,
-        },
-    )
-
-    assert response.status_code == 200
-    data = response.json()
-    assert data["asset_type"] == "futures"
-    assert data["snapshot"]["price"] == 2950
-    assert data["snapshot"]["open_interest"] == 7620
-    assert data["history"]["total"] == 2
-    assert data["indicators"]["return_pct"] < 0
-
-
-@pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ("asset_type", "symbol", "expected_price", "expected_history_total"),
+    ("asset_type", "symbol"),
     [
-        ("bond", "sh113527", 120.5, 2),
-        ("fund", "159915", 1.234, 2),
-        ("option", "10003889", 0.126, 2),
-        ("fx", "USDCNH", 7.18, 2),
-        ("crypto", "BTCJPY", 10000000, 0),
+        ("stock", "000001.SZ"),
+        ("futures", "RB2510"),
+        ("bond", "sh113527"),
+        ("fund", "159915"),
+        ("option", "10003889"),
+        ("fx", "USDCNH"),
+        ("crypto", "BTCJPY"),
     ],
 )
-async def test_market_instrument_lookup_returns_extended_asset_types(
+async def test_market_instrument_lookup_rejects_legacy_online_refresh(
     client,
     auth_headers,
-    dummy_akshare,
     asset_type,
     symbol,
-    expected_price,
-    expected_history_total,
 ):
     response = await client.get(
         "/api/v1/data/market-instruments/lookup",
@@ -503,12 +394,32 @@ async def test_market_instrument_lookup_returns_extended_asset_types(
         },
     )
 
+    assert response.status_code == 409
+    assert response.json()["details"] == {"code": "MARKET_DATA_LEGACY_ONLINE_REFRESH_DISABLED"}
+
+
+@pytest.mark.asyncio
+async def test_market_instrument_lookup_keeps_local_read_when_online_refresh_is_false(
+    client,
+    auth_headers,
+):
+    response = await client.get(
+        "/api/v1/data/market-instruments/lookup",
+        headers=auth_headers,
+        params={
+            "asset_type": "stock",
+            "symbol": "000001.SZ",
+            "start_date": "2026-06-01",
+            "end_date": "2026-06-19",
+            "refresh_online": False,
+        },
+    )
+
     assert response.status_code == 200
-    data = response.json()
-    assert data["asset_type"] == asset_type
-    assert data["snapshot"]["price"] == expected_price
-    assert data["history"]["total"] == expected_history_total
-    assert "已按查询请求从 AkShare 更新行情数据。" in data["warnings"]
+    payload = response.json()
+    assert payload["asset_type"] == "stock"
+    assert payload["provider"] == "akshare_data"
+    assert payload["history"]["total"] == 0
 
 
 @pytest.mark.asyncio
@@ -541,137 +452,3 @@ async def test_market_instrument_options_fall_back_without_warehouse(
     assert payload["asset_type"] == asset_type
     assert payload["total"] >= 1
     assert payload["items"][0]["source_table"] == "builtin_fallback"
-
-
-@pytest.mark.asyncio
-async def test_market_instrument_stock_lookup_uses_history_before_full_market_snapshot(
-    dummy_akshare,
-    monkeypatch,
-):
-    """Direct stock lookup must not fetch the full market just to show one symbol."""
-    from app.services.market_instrument import MarketInstrumentService
-
-    def full_market_snapshot_should_not_run():
-        raise AssertionError("full-market snapshot should not run when history is available")
-
-    monkeypatch.setattr(dummy_akshare, "stock_zh_a_spot_em", full_market_snapshot_should_not_run)
-
-    payload = await MarketInstrumentService().lookup(
-        asset_type="stock",
-        symbol="000001",
-        start_date="2026-06-01",
-        end_date="2026-06-19",
-        refresh_online=True,
-    )
-
-    assert payload["snapshot"]["price"] == 12.4
-    assert payload["history"]["total"] == 2
-    assert "已按查询请求从 AkShare 更新行情数据。" in payload["warnings"]
-
-
-@pytest.mark.asyncio
-async def test_market_instrument_stock_refresh_falls_back_to_tencent_history(
-    dummy_akshare,
-    monkeypatch,
-):
-    """An empty Eastmoney response must not make an explicit stock refresh look stale."""
-    from app.services.market_instrument import MarketInstrumentService
-
-    calls: list[dict[str, object]] = []
-
-    def empty_eastmoney_history(**_kwargs: object) -> pd.DataFrame:
-        return pd.DataFrame()
-
-    def tencent_history(**kwargs: object) -> pd.DataFrame:
-        calls.append(kwargs)
-        return pd.DataFrame(
-            [
-                {
-                    "date": "2026-07-22",
-                    "open": 12.1,
-                    "high": 12.5,
-                    "low": 12.0,
-                    "close": 12.4,
-                    "amount": 100,
-                },
-                {
-                    "date": "2026-07-23",
-                    "open": 12.4,
-                    "high": 12.8,
-                    "low": 12.3,
-                    "close": 12.7,
-                    "amount": 120,
-                },
-            ]
-        )
-
-    class EmptyWarehouseService(MarketInstrumentService):
-        async def _lookup_warehouse(self, **_kwargs):
-            return self._payload(
-                asset_type="stock",
-                symbol="000001",
-                name="000001",
-                market="CN",
-                snapshot={},
-                rows=[],
-                period="daily",
-                provider="akshare_data",
-            )
-
-    monkeypatch.setattr(dummy_akshare, "stock_zh_a_hist", empty_eastmoney_history)
-    monkeypatch.setattr(dummy_akshare, "stock_zh_a_hist_tx", tencent_history, raising=False)
-
-    payload = await EmptyWarehouseService().lookup(
-        asset_type="stock",
-        symbol="000001",
-        start_date="2026-07-01",
-        end_date="2026-07-24",
-        refresh_online=True,
-    )
-
-    assert calls == [
-        {
-            "symbol": "sz000001",
-            "start_date": "20260701",
-            "end_date": "20260724",
-            "adjust": "qfq",
-            "timeout": 10,
-        }
-    ]
-    assert payload["provider"] == "akshare"
-    assert payload["snapshot"]["price"] == 12.7
-    assert payload["snapshot"]["update_time"] == "2026-07-23"
-    assert payload["history"]["total"] == 2
-    assert "A 股东方财富日线未返回数据，已切换腾讯行情源。" in payload["warnings"]
-
-
-@pytest.mark.asyncio
-async def test_market_instrument_option_alias_does_not_resolve_to_a_different_contract(
-    dummy_akshare,
-    monkeypatch,
-):
-    """A main-contract alias cannot stand in for an exact option contract."""
-    from app.services.market_instrument import MarketInstrumentService
-
-    def alias_lookup_must_not_run(**_kwargs: object) -> pd.DataFrame:
-        raise AssertionError(
-            "a main-contract alias must not invoke an exact-contract provider route"
-        )
-
-    monkeypatch.setattr(
-        dummy_akshare, "option_cffex_zz1000_daily_sina", alias_lookup_must_not_run, raising=False
-    )
-
-    payload = await MarketInstrumentService().lookup(
-        asset_type="option",
-        symbol="MO",
-        start_date="2026-06-01",
-        end_date="2026-06-19",
-        refresh_online=True,
-    )
-
-    assert payload["symbol"] == "MO"
-    assert payload["snapshot"] == {}
-    assert payload["history"]["total"] == 0
-    assert payload["provider"] == "akshare_data"
-    assert payload["warnings"] == ["期权查询必须使用精确合约代码；不支持主力或别名回退。"]

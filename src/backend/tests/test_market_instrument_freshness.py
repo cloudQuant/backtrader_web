@@ -6,7 +6,10 @@ from datetime import date
 
 import pytest
 
-from app.services.market_instrument import MarketInstrumentService
+from app.services.market_instrument import (
+    LegacyMarketDataOnlineRefreshDisabledError,
+    MarketInstrumentService,
+)
 
 
 def test_history_refresh_rejects_legacy_rows_for_a_current_request():
@@ -83,90 +86,31 @@ async def test_default_market_lookup_reads_only_the_mysql_warehouse():
 
 
 @pytest.mark.asyncio
-async def test_user_requested_market_lookup_fetches_akshare_after_local_read():
-    """Only an explicit query action may refresh data from AkShare."""
+async def test_legacy_online_refresh_is_rejected_before_warehouse_or_provider_io():
+    """The legacy endpoint cannot bypass the v2 persistence and receipt boundary."""
 
     calls: list[str] = []
 
-    class UserRequestedRefreshService(MarketInstrumentService):
+    class LegacyOnlineRefreshService(MarketInstrumentService):
         async def _lookup_warehouse(self, **_kwargs):
-            return self._payload(
-                asset_type="stock",
-                symbol="000001",
-                name="平安银行",
-                market="CN",
-                snapshot={"symbol": "000001", "price": 10.0},
-                rows=[{"date": "2026-06-18", "close": 10.0}],
-                period="daily",
-                provider="akshare_data",
-            )
-
-        def _lookup_stock(self, **kwargs):
-            calls.append(kwargs["symbol"])
-            return self._payload(
-                asset_type="stock",
-                symbol="000001",
-                name="平安银行",
-                market="CN",
-                snapshot={"symbol": "000001", "price": 11.0},
-                rows=[{"date": "2026-06-19", "close": 11.0}],
-                period="daily",
-                provider="akshare",
-            )
-
-    payload = await UserRequestedRefreshService().lookup(
-        asset_type="stock",
-        symbol="000001",
-        start_date="2026-06-01",
-        end_date="2026-06-19",
-        refresh_online=True,
-    )
-
-    assert calls == ["000001"]
-    assert payload["provider"] == "akshare"
-    assert payload["snapshot"]["price"] == 11.0
-
-
-@pytest.mark.asyncio
-async def test_empty_akshare_response_keeps_the_mysql_market_data():
-    """Identity-only AkShare responses must not replace a usable local result."""
-
-    class EmptyOnlineRefreshService(MarketInstrumentService):
-        async def _lookup_warehouse(self, **_kwargs):
-            return self._payload(
-                asset_type="stock",
-                symbol="000001",
-                name="平安银行",
-                market="CN",
-                snapshot={"symbol": "000001", "price": 10.0},
-                rows=[{"date": "2026-06-18", "close": 10.0}],
-                period="daily",
-                provider="akshare_data",
-            )
+            calls.append("warehouse")
+            raise AssertionError("legacy online refresh must not read the warehouse")
 
         def _lookup_stock(self, **_kwargs):
-            return self._payload(
-                asset_type="stock",
-                symbol="000001",
-                name="000001",
-                market="CN",
-                snapshot={"symbol": "000001", "name": "000001"},
-                rows=[],
-                period="daily",
-                provider="akshare",
-            )
+            calls.append("provider")
+            raise AssertionError("legacy online refresh must not call a provider")
 
-    payload = await EmptyOnlineRefreshService().lookup(
-        asset_type="stock",
-        symbol="000001",
-        start_date="2026-06-01",
-        end_date="2026-06-19",
-        refresh_online=True,
-    )
+    with pytest.raises(LegacyMarketDataOnlineRefreshDisabledError) as exc_info:
+        await LegacyOnlineRefreshService().lookup(
+            asset_type="stock",
+            symbol="000001",
+            start_date="2026-06-01",
+            end_date="2026-06-19",
+            refresh_online=True,
+        )
 
-    assert payload["provider"] == "akshare_data"
-    assert payload["history"]["total"] == 1
-    assert "AkShare 未返回可用数据，已保留本地 MySQL 数据。" in payload["warnings"]
+    assert str(exc_info.value) == "MARKET_DATA_LEGACY_ONLINE_REFRESH_DISABLED"
+    assert calls == []
 
 
 @pytest.mark.asyncio
@@ -217,50 +161,6 @@ async def test_local_lookup_discards_a_payload_for_a_different_instrument(
 
 
 @pytest.mark.asyncio
-async def test_refresh_discards_an_online_payload_for_a_different_instrument():
-    """An online refresh must not replace local data with another symbol's result."""
-
-    class MismatchedOnlineService(MarketInstrumentService):
-        async def _lookup_warehouse(self, **kwargs):
-            return self._payload(
-                asset_type="stock",
-                symbol=kwargs["symbol"],
-                name=kwargs["symbol"],
-                market="CN",
-                snapshot={},
-                rows=[],
-                period=kwargs["period"],
-                provider="akshare_data",
-            )
-
-        def _lookup_stock(self, **kwargs):
-            return self._payload(
-                asset_type="stock",
-                symbol="600519",
-                name="600519",
-                market="CN",
-                snapshot={"symbol": "600519", "price": 99.0},
-                rows=[{"date": "2026-06-19", "close": 99.0}],
-                period=kwargs["period"],
-                provider="akshare",
-            )
-
-    payload = await MismatchedOnlineService().lookup(
-        asset_type="stock",
-        symbol="000001",
-        start_date="2026-06-01",
-        end_date="2026-06-19",
-        refresh_online=True,
-    )
-
-    assert payload["symbol"] == "000001"
-    assert payload["snapshot"] == {}
-    assert payload["history"]["total"] == 0
-    assert "本地行情未找到所请求的精确标的。" in payload["warnings"]
-    assert "AkShare 未返回所请求的精确标的，已忽略该结果。" in payload["warnings"]
-
-
-@pytest.mark.asyncio
 async def test_stock_warehouse_does_not_substitute_recent_rows_outside_the_requested_window():
     """A history miss must retain its requested time window instead of showing stale bars."""
 
@@ -284,6 +184,9 @@ async def test_stock_warehouse_does_not_substitute_recent_rows_outside_the_reque
     )
 
     assert payload["history"]["total"] == 0
-    assert len(queries) == 2
-    assert all("BETWEEN :start AND :end" in query for query in queries)
-    assert not any("LIMIT 120" in query for query in queries)
+    assert len(queries) == 1
+    assert "(symbol = :code OR `股票代码` = :code)" in queries[0]
+    assert "BETWEEN :start AND :end" in queries[0]
+    assert "STOCK_ZH_A_HIST_TX" not in queries[0]
+    assert "STOCK_ZH_A_DAILY" not in queries[0]
+    assert "LIMIT 120" not in queries[0]

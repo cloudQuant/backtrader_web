@@ -28,7 +28,7 @@ AI for Investor 面向量化交易者与投研团队，将自然语言研究、�
 | 领域 | 能力 |
 | --- | --- |
 | AI 与知识 | 知识库、文档索引、引用型问答、词法检索、可选语义检索、策略构思与审查、AI 投研 |
-| 数据可信度 | MySQL 行情仓本地优先、AkShare 显式刷新、覆盖矩阵、质量检查、历史补齐缓存与回测前预检 |
+| 数据可信度 | 本地行情仓优先、v2 受控补齐、覆盖矩阵、质量检查、持久化回读与回测前预检 |
 | 策略与回测 | Backtrader、策略版本、内置模板、统一指标、回测报告、研究工作区、稳健性验证与参数优化 |
 | 交易与组合 | 研究/交易工作区、模拟运行、网关状态、账户/持仓/成交、累计 P&L、回撤和资产配置 |
 | 工程化 | FastAPI、Vue 3、SQLAlchemy、SQLite/PostgreSQL/MySQL、pytest、Vitest、Playwright 与 OpenTelemetry |
@@ -55,7 +55,7 @@ cd src/backend
 python -m venv .venv
 source .venv/bin/activate  # Windows: .venv\Scripts\activate
 pip install -e ".[dev,backtrader]"
-# 需要在线 AkShare 查询时：pip install -e ".[dev,backtrader,data]"
+# 需要进行受控 v2 AkShare provider 验证时：pip install -e ".[dev,backtrader,data]"
 # 需要语义向量检索时：pip install -e ".[dev,backtrader,rag]"
 cp .env.example .env
 
@@ -98,7 +98,7 @@ docker compose -f docker/docker-compose.yml -f docker/compose/prod.yml up -d
 ## 首次体验建议
 
 1. 在 **数据 → 市场数据**选择资产类别和标的，检查数据覆盖和质量。
-2. 需要最新行情时点击**查询**；这才会请求 AkShare，普通页面打开与标的切换优先读取本地 MySQL 行情仓。
+2. 点击**查询**会优先读取已持久化的本地行情；仅当服务端 v2 能力、授权和在线补齐开关均已启用时，才会按受控数据合同补齐缺口并在持久化后本地复读。当前默认关闭在线补齐。
 3. 在 **投研 → 策略**选择模板、已有策略或 AI 草案，并审查标的、周期、成本与风险假设。
 4. 将策略加入**研究工作区**，运行回测并查看交易次数、资金曲线、回撤和稳健性结果。
 5. 只有经过人工审核后，才将方案放入**交易工作区**；再通过组合页核对账户、持仓、成交和风险视图。
@@ -106,7 +106,7 @@ docker compose -f docker/docker-compose.yml -f docker/compose/prod.yml up -d
 ## 重要边界
 
 - **知识库不是整库喂给模型。** 系统先在选定知识库的已索引文档块中检索，再由可选模型组织回答。`not_indexed`、`no_context_found`、`ai_not_configured` 和 `ai_provider_failed` 都有明确诊断含义。
-- **行情页本地优先。** 在线 AkShare 请求失败、无数据或不覆盖所选区间时，系统保留可用 MySQL 数据，并返回脱敏、可操作的提示。
+- **行情页本地优先。** 遗留行情 lookup 只读取本地数据，`refresh_online=true` 会被拒绝；v2 在线补齐只有在精确身份、授权、durable lease、来源回执、持久化和本地复读都满足时才可返回结果，当前默认关闭。
 - **AI 策略必须复核。** “生成研究目标”允许选择默认方案或由当前模型优化；模型不可用时保留默认方案。策略代码在受限环境中运行，禁止覆盖 `self.close()` 等交易方法；价格序列应使用 `self.dataclose` 等自定义属性保存。
 - **回测不是实盘许可。** 回测指标、RAG 回答和 AI 输出都需要人工复核；真实网关与账户权限属于高风险边界。
 

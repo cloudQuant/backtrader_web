@@ -67,7 +67,7 @@
 
 初次打开行情页可以自动查询上次选中标的和窗口；只为这一条有界查询补缺，不因浏览 tabs/下拉搜索/覆盖矩阵触发七类全量回填。重复渲染和多开页面不得反复创建相同采集工作。
 
-旧参数 `refresh_online` 保留兼容周期，但其旧语义不改变：`false` 映射 `local_only`，`true` 映射 `refresh`；新页面显式使用新 `mode` 合同。不能把既有“false 不联网”消费者偷偷改成会联网。新默认行为通过新版本入口或显式参数启用。
+旧参数 `refresh_online` 保留请求形状兼容，但不再映射在线刷新：`false` 维持 local-only 遗留读取，`true` 在 warehouse/provider I/O 前返回 `MARKET_DATA_LEGACY_ONLINE_REFRESH_DISABLED`。不能把既有“false 不联网”消费者偷偷改成会联网；任何在线补齐都只能经新版本 `/queries` 的受控 `local_first` / `refresh` 合同、授权、lease、receipt、持久化和本地复读执行。
 
 ### 4.2 完整性与可用性
 

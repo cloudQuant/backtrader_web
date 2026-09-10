@@ -190,6 +190,7 @@ npm run lint
 
 | L-197-20 | 2026-09-10，较早私有估值 capture snapshot 候选：`pytest -q tests/market_data_platform/test_stock_valuation_collector.py tests/market_data_platform/test_snapshot_importer.py tests/market_data_platform/test_akshare_provider.py tests/market_data_platform/test_bootstrap.py tests/market_data_platform/test_dataset_contracts.py -p no:cacheprovider --tb=short`；随后完整 `pytest -q tests/market_data_platform tests/test_config.py -p no:cacheprovider --tb=short`；目标 Ruff；scope manifest 重新生成并验证。 | `PASS`（本地）：聚焦 139 passed/1 warning（33.12s）；完整中台/配置 669 passed/88 warnings（199.06s）；目标 Ruff 通过；manifest SHA-256 为 `d1dd587a1d199c2b155789d1c24d53eb3c0e320165b62daf5c57fc55d3544cd1` 并返回 `SCOPE_MANIFEST_VALID`。 | 这是 shared payload/ref 增量前的 collector 证据，只证明私有数据集、capture envelope、时间语义、quarantine、递归冻结、写前预算和当时中台离线契约；不覆盖后续 shared BLOB 重建或其迁移。没有真实 AkShare/OpenBB、scheduler、MySQL/PostgreSQL、浏览器或发布验收；L-197-18 的质量 `NO-GO` 保持。 |
 | L-197-21 | 2026-09-10，当前未提交 shared-payload 候选：`pytest -q tests/market_data_platform/test_store.py tests/market_data_platform/test_stock_valuation_collector.py tests/market_data_platform/test_storage_models.py tests/test_config.py -p no:cacheprovider --tb=short`；随后完整 `pytest -q tests/market_data_platform tests/test_config.py -p no:cacheprovider --tb=short`、四个研究/资产迁移文件及 `test_iteration197_acceptance_runner.py`；目标 Ruff、`alembic heads`、scope manifest `--validate` 与 `git diff --check`。 | `PASS`（仅本地）：聚焦 113 passed、45 warnings（35.71s）；完整中台/配置 680 passed（202.28s）；迁移兼容 252 passed（139.73s）；验收运行器 21 passed（5.77s）；Ruff 与 diff 检查通过；唯一 Alembic head 为 `20260910_market_data_shared_source_payloads`；scope manifest 返回 `SCOPE_MANIFEST_VALID`，SHA-256 为 `d1dd587a1d199c2b155789d1c24d53eb3c0e320165b62daf5c57fc55d3544cd1`。覆盖一份 BLOB/N 个 refs、不同 bytes 不复用、receipt 重建 hash、非法 descriptor、跨 Session 已存 BLOB 篡改、SQLite foreign-keys-on child-table upgrade、非空 downgrade 拒绝、MySQL BLOB/LONGBLOB drift、PostgreSQL downgrade 排他锁顺序和 MySQL/PostgreSQL 离线 DDL。 | 证明当前候选的本地 SQLite、离线方言、迁移链和静态契约；不证明真实 AkShare/OpenBB、scheduler、MySQL/PostgreSQL 副本、浏览器、策略或生产验收。L-197-18 的质量 `NO-GO` 保持。 |
+| L-197-22 | 2026-09-10，当前 `dev` 工作树：完整 `pytest -q tests/market_data_platform tests/test_config.py -p no:cacheprovider --tb=short`；随后执行租约、私有估值、legacy market-instrument、分析与信号调用方焦点套件；目标 Ruff/format、`alembic heads` 与 `git diff --check`。 | `PASS`（仅本地）：完整中台/配置 682 passed、93 warnings（203.29s）；焦点 119 passed、1 warning（32.73s）；目标 Ruff/format 与差异检查通过；唯一 Alembic head 为 `20260910_market_data_shared_source_payloads`。新增断言覆盖无 durable lease manager 的零 route/provider/persistence，以及所有 legacy asset type 的 `refresh_online=true` 在仓库/provider I/O 前返回 409。 | 只证明此次 P0 收口和离线回归；不改变真实 AkShare/OpenBB、MySQL/PostgreSQL、跨 worker、browser、scheduler 或发布验收的 `NOT_RUN` / `BLOCKED` / `NO-GO` 状态。 |
 
 ### 5.1.2 统一矩阵验收运行器、ID 映射和可复核构件
 
@@ -252,6 +253,8 @@ npm run lint
 3. **拒绝路径**：提供错误标的、错误 provider receipt、越界 event、字段不足、原始载荷 hash 错配或缺少请求频率 grid 的日历。检查没有错误来源回执/观测进入事实表，并且 API 只返回稳定机器码、覆盖状态或 warning，不输出堆栈和凭据。
 4. **同进程并发**：让两个等价 `local_first` 请求在同一事件循环同时命中同一缺口。记录 provider 调用数、来源回执数、leader/follower 记录和两个独立数据库 session 的结果。此试验只验收单进程行为，不能替代 E-197-08 的多 worker 验收。
 5. **publication 恢复**：在事务 A 提交、事务 B 写入 `published_at` 前停止调用方。对 calendar/identity 等非 source-fenced receipt，可由受控通用恢复程序继续 pending publication；记录事实/receipt 的 ID、hash、A/B 时间、恢复前后的 `local_only` / strict 读取。对带 lease generation 的 source receipt，通用恢复必须保持其 hidden；只有仍未过期的 exact owner/fence 协调路径可完成 B。若 owner 已丢失或到期，记录旧 receipt 仍不可见，并由新 owner 重新获取生成新 receipt。任何恢复后可见的事实都只能在合适 cutoff 可读。
+6. **租约依赖缺失**：以有真实 coverage gap 的 `local_first` / `refresh` 请求构造没有 durable fetch-lease manager 的 service。断言仅返回本地覆盖与 `FETCH_LEASE_MANAGER_UNAVAILABLE`，provider request、route activation、provider-I/O boundary、source snapshot 和 observation 写入计数均为零。
+7. **遗留在线旁路**：对全部七个 legacy asset type 调用 `market-instruments/lookup?refresh_online=true`，断言在仓库和 provider I/O 前返回 HTTP 409 / `MARKET_DATA_LEGACY_ONLINE_REFRESH_DISABLED`；同一接口的 `refresh_online=false` 仍只读取本地数据。股票历史 SQL 必须只读 `STOCK_ZH_A_HIST`，并以 `(symbol = :code OR 股票代码 = :code)` 逐项过滤，不能按日期扫描 `000001` / `600000` 专表后将其它证券冒充请求标的。
 
 验收人应记录每次试验的 query fingerprint、source snapshot ID、revision ID、执行时间、数据库计数前后变化和网络调用计数。仅保存屏幕截图而不保留这些可关联标识不足以证明回填链路。
 
@@ -444,6 +447,7 @@ npm run lint
 - [ ] 真实 AkShare/OpenBB 验证、数据许可、来源策略登记、OpenBB 原始载荷 hash、完整动态扩展导入闭包、不可变镜像、AGPL-3.0-only 许可证与独立 service account/container/出网审计完成，或未启用对应在线路由。
 - [ ] 每个已启用频率都有审核后的显式 calendar grid、连续 calendar segment 和导入锁证据；MySQL/PostgreSQL 候选迁移、每连接 UTC/PIT A/B publication 与恢复演练、`utf8mb4_bin`/`C` 精确身份列审计和单 head 检查完成。
 - [ ] 实际部署已二选一：要么限制 v2 市场数据请求到一个经验证的 Web worker 并记录容量/回退边界，要么已完成多 worker/多进程的数据库 lease、接管和并发调用计数验收；不得把同进程 singleflight 表述为全局去重。
+- [ ] 任一 online route 都有当前 descriptor 对应的 installed/verified/authorized/effective 生命周期证据；失效、过期、generation 漂移或 OpenBB 空 permit 均不能触发网络写入。
 - [ ] IG-196-01 至 IG-196-05 均具备对应证据，并完成页面端到端灰度证据。
 - [ ] AO-09 已使用经审查的 `iter196-market-data-baseline-v1` 冻结基线生成并验证范围清单；清单仍仅作为集成输入，不能单独开启策略页生产读取。
 - [ ] 开关、告警、审计指标和回退程序经过演练；无凭据或敏感原始载荷进入测试输出、日志或文档。

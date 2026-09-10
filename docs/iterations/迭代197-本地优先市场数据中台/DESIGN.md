@@ -30,13 +30,21 @@ flowchart LR
   S --> PLAN
 ```
 
-新链路与遗留 AkShare 仓库并行。页面迁移前，旧接口保持原路径和返回形状；新接口从第一天起使用明确 DTO，不调用旧 `MarketInstrumentService`。
+新链路与遗留 AkShare 仓库并行。页面迁移前，旧接口保持原路径和返回形状；新接口从第一天起使用明确 DTO，不调用旧 `MarketInstrumentService`。旧 `market-instruments/lookup` 仍可作本地兼容读取，但其 `refresh_online=true` 参数已在服务入口以 `MARKET_DATA_LEGACY_ONLINE_REFRESH_DISABLED` 拒绝：这条遗留接口没有 v2 所需的精确 identity、当前授权、durable lease、不可变 receipt、持久化和本地复读闭环，不能再作为在线 provider 旁路。
 
 ### 1.1 当前读取授权
 
 `MarketDataAccessAuthorizer` 在 API 层从数据库当前角色构建不可变的 `MarketDataPrincipal`。principal scope、tenant scope 和 entitlement revision 会进入 v2 分页的签名绑定；scope 在 token 内以摘要形式出现，避免泄露用户标识或使 token 因过长的原始 scope 失效。没有 `Permission.READ_DATA` 的调用在进入 anchor、identity、calendar、observation 或 provider 查询前拒绝。
 
 同一 gate 也适用于返回家族合同的 `query-bundle` 和读取目录/主数据生成模板的 `query-contract`；它们是市场数据控制面，不因自身不返回 observation 而只要求登录。遗留兼容路由保持原有授权契约，直到单独的迁移验收批准变更。
+
+### 1.2 路由能力生命周期（后续启用闸门）
+
+当前候选能够以静态 source policy、`DgProvider.active` 和当前 `AssetDataSourceRegistry` 授权决定候选 route，却还没有逐 route 的持久化安装/验证账本。因此默认 online 开关保持关闭，OpenBB permit matrix 也保持为空；静态构件、环境变量或测试替身都不得把 route 表述为已安装、已验证或可用。
+
+任何未来的在线 route 启用必须把下列状态分开保存和计算：`declared` 由受审核 policy route 与 adapter endpoint contract 的 canonical descriptor 决定；`installed` 绑定同一 descriptor 与不可变 runtime/install evidence；`verified` 绑定同一 descriptor 与 installed evidence 的受控 probe；`authorized` 复用当前 `MarketDataAccessAuthorizer` 的用户、用途、资产、市场和许可证授权；`effective` 仅在前四项、provider active、v2 开关和 online 开关同时满足时为真。已持久化的本地事实继续按既有 source-registry 授权读取，不因 runner 未安装而失效。
+
+该账本应采用 immutable `MdProviderRouteCapabilityEvidence`（`INSTALLED` / `VERIFIED`、PASS/FAIL/BLOCKED、descriptor hash、evidence hash、观测时间和可选到期时间）加上按 `(source_policy_id, route_id)` 锁定的 `MdProviderRouteCapabilityState` 当前指针。新网络调用前读取 state，provider 返回后、Store 写入前用同一 generation 重新校验；任一变化必须以 `ROUTE_CAPABILITY_CHANGED_DURING_FETCH` 拒绝并且零写入。provider request/receipt 指纹需包含 declaration、installation、verification 和 effective digest。该能力账本是后续迁移项，不能由 `DgEndpoint` 或普通 provider 活性字段替代。
 
 identity 解析只提供准确 asset/market，随后 query service 使用同一个 principal 对 server-owned policy 的 eligible routes 执行 `AssetDataSourceRegistry` 授权。它是允许读取事实、计算覆盖和访问 provider 的最后前置条件。授权结果同时产生两类证据：
 
@@ -179,6 +187,8 @@ leader 不会在网络 I/O 期间持有用户或 registry 锁。provider 返回�
 
 同进程 singleflight 只能消除一个 event loop 内的重复工作。跨 worker 使用 `md_fetch_leases`：一个 key 对应一个已解析 coverage gap，行中持有 owner UUID、单调递增 fence token、expiry、release 时间和维护索引。owner/follower 的 acquire 在短数据库事务中完成；新行的并发插入重试、到期接管和 SQLite 的无效 `FOR UPDATE` 路径均依赖 compare-and-swap predicate，行不删除以保留单调 generation，避免 ABA。
 
+当一个请求存在 online coverage gap 却未配置 durable manager 时，query service 在 route activation 前结束为本地结果并标记 `FETCH_LEASE_MANAGER_UNAVAILABLE`。因此该状态不会调用 provider、运行 `ensure_provider_active` 或写入 receipt；测试中的 lease fake 只能证明控制流，不能构成部署租约证据。
+
 lease key 对 canonical identity、dataset、metadata version、asset/market、产品 family ID/contract version、kind/frequency、字段和口径、source policy、模式、精确 gap、policy descriptor hash 与 access-grant descriptor hash 做规范 JSON 后 SHA-256。因而产品契约、授权或策略变化不会把不同的在线工作合并。follower 在 acquire 未取得 owner 时不调用任何 primary/fallback route；它 rollback 旧读事务、重新建立 visibility anchor 并本地复读。owner 的外部 provider I/O 永远发生在数据库事务外；事实事务 A 和 publication 事务 B 均以 `(key, owner, fence, expires_at > database UTC now)` 的条件更新作 fence guard。任何到期接管后的旧 owner 即使仍拿到 provider 返回，也不能提交事实或将 pending receipt 变为可见。
 
 事实事务 A 的 source receipt provenance 还绑定其 lease generation。通用 pending-publication recovery 一律跳过这种 source receipt；只有仍持有 exact owner/fence 的协调发布路径可以完成事务 B。这样 recovery 不需要解释 worker 崩溃后的身份，也不能把旧 owner 的事实在新 owner 发布后赋予更大的 visibility sequence。calendar、identity 等非 source-fenced publication 使用原有恢复语义；它们不能借此绕过 source receipt 的 fence。
@@ -216,7 +226,7 @@ source 不是 collector 构造参数。当前静态 reviewed-source registry 为
 
 `stock.valuation` 当前仍是公开 v2 API 的 `unconfigured` family，公开合同仍为 `market.valuation / reference_series / 1d`。本候选另建私有 `market.stock_valuation_captured_snapshot / valuation_snapshot / snapshot` 逻辑数据集，复用 `md_observation_revisions` 的不可变存储，但没有 public family、source-policy request-time route、freshness、coverage、legacy bridge、API 或页面接线。`StockValuationCollector` 仅由未来受控 scheduler 或测试夹具交付一个已捕获批次；其构造与调用均不具 fetch、HTTP、CLI 或 OpenBB 能力，`/data/market` 与 `/investment/strategies` 不能通过它读取或补齐估值。
 
-批次只接受 AkShare `stock_zh_a_spot_em` 的固定 capture envelope：provider `akshare`、endpoint、空参数 request shape、collector version、source revision、精确 UTC `captured_at`、`collector_observed` time basis，以及覆盖 unsigned capture 与 rows 的自排除 SHA-256。`StockValuationCapturedBatch` 在构造时递归复制并冻结所有 mapping/sequence，避免调用方保留的嵌套引用在 envelope 验证前变更来源证据。原始 payload 在写入前还递归拒绝 credential-shaped key、限制深度并规范化非有限数值。
+批次只接受 AkShare `stock_zh_a_spot_em` 的固定 capture envelope：provider `akshare`、endpoint、空参数 request shape、collector version、受审核且精确等于 `akshare.stock_zh_a_spot_em:captured-batch-v1` 的 source revision、精确 UTC `captured_at`、`collector_observed` time basis，以及覆盖 unsigned capture 与 rows 的自排除 SHA-256。即使内部调用者同时重写 envelope 的 revision 并重算 batch hash，也不能自行为 batch 选择新 revision。`StockValuationCapturedBatch` 在构造时递归复制并冻结所有 mapping/sequence，避免调用方保留的嵌套引用在 envelope 验证前变更来源证据。原始 payload 在写入前还递归拒绝 credential-shaped key、限制深度并规范化非有限数值。
 
 每个 target 必须预先冻结 CN-SSE/CN-SZSE listing identity、私有 dataset、`valuation_snapshot / snapshot`、四个估值字段、`local_only + display` 和与 `captured_at` 完全一致的 `[captured_at, captured_at + 1µs)` 选择窗口。写入 observation 的 `event_at` 和 `available_at` 都是精确采集时刻，并在 receipt 中同时记录 `source_event_time=null`、`source_as_of=null` 与 `collector_observed`；这不是来源事件、交易日 close、daily coverage 或 public `as_of`。已知 target 行的缺失、重复、错配或字段错误会在写入前整批失败。未知但结构有效的代码可带稳定原因写入 receipt-local quarantine，永不创建 identity、series 或 observation。
 

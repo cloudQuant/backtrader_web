@@ -243,7 +243,10 @@ class MarketDataCursorBinding:
     def with_policy_descriptor_hash(self, policy_descriptor_hash: str) -> MarketDataCursorBinding:
         """Bind the caller scope to the resolved immutable policy descriptor."""
         _require_sha256(policy_descriptor_hash, field_name="cursor policy descriptor hash")
-        if self.policy_descriptor_hash is not None and self.policy_descriptor_hash != policy_descriptor_hash:
+        if (
+            self.policy_descriptor_hash is not None
+            and self.policy_descriptor_hash != policy_descriptor_hash
+        ):
             raise MarketDataQueryServiceError("CURSOR_POLICY_MISMATCH")
         return replace(self, policy_descriptor_hash=policy_descriptor_hash)
 
@@ -403,8 +406,8 @@ class MarketDataQueryService:
         )
         # Production API composition passes a real ``MarketDataStore``.  The
         # database-backed manager is therefore enabled without relying on a
-        # process-local route singleton; pure in-memory contract tests retain
-        # an explicit ``None`` unless they inject a lease fake.
+        # process-local route singleton.  A caller without a durable manager
+        # may still perform a local read, but cannot initiate provider I/O.
         self._fetch_leases: _FetchLeases | None = (
             fetch_leases
             if fetch_leases is not None
@@ -467,11 +470,7 @@ class MarketDataQueryService:
         # Online collection is an authenticated write path.  Direct callers
         # may still perform explicitly local-only or strict historical reads,
         # but cannot use this orchestration service as an unaudited importer.
-        if (
-            access is None
-            and request.mode != "local_only"
-            and request.consistency != "strict"
-        ):
+        if access is None and request.mode != "local_only" and request.consistency != "strict":
             raise MarketDataQueryServiceError("MARKET_DATA_ACCESS_REQUIRED")
 
         try:
@@ -745,7 +744,61 @@ class MarketDataQueryService:
                 ),
             )
 
+        # Every online coverage gap needs a durable, database-backed ownership
+        # fence before route activation, provider I/O, or receipt persistence.
+        # A process-local caller without that dependency must fail closed to its
+        # already-read local state rather than silently writing an unfenced
+        # receipt.  This is deliberately after the source-policy check so an
+        # unconfigured product retains its more specific diagnostic.
+        if self._fetch_leases is None:
+            warnings.append(MarketDataQueryWarning(code="FETCH_LEASE_MANAGER_UNAVAILABLE"))
+            return self._execution(
+                context=context,
+                cursor_query_fingerprint=request.query_fingerprint,
+                knowledge_cutoff=knowledge_cutoff,
+                identity_knowledge_cutoff=identity_cutoff,
+                visibility_anchor=visibility_anchor,
+                identity_visibility_anchor=identity_visibility_anchor,
+                cursor_binding=binding,
+                cursor_issued_at=request_started_at,
+                state=state,
+                cursor=None,
+                fetches=fetches,
+                warnings=warnings,
+                refresh_status=_refresh_status_for(
+                    request.mode,
+                    state,
+                    fresh_revision_ids=frozenset(),
+                    context=context,
+                    planner=self._coverage_planner,
+                    knowledge_cutoff=knowledge_cutoff,
+                ),
+            )
+
         routes = await self._active_routes(policy_routes, warnings)
+        if not routes:
+            return self._execution(
+                context=context,
+                cursor_query_fingerprint=request.query_fingerprint,
+                knowledge_cutoff=knowledge_cutoff,
+                identity_knowledge_cutoff=identity_cutoff,
+                visibility_anchor=visibility_anchor,
+                identity_visibility_anchor=identity_visibility_anchor,
+                cursor_binding=binding,
+                cursor_issued_at=request_started_at,
+                state=state,
+                cursor=None,
+                fetches=fetches,
+                warnings=warnings,
+                refresh_status=_refresh_status_for(
+                    request.mode,
+                    state,
+                    fresh_revision_ids=frozenset(),
+                    context=context,
+                    planner=self._coverage_planner,
+                    knowledge_cutoff=knowledge_cutoff,
+                ),
+            )
         fresh_revision_ids: set[str] = set()
         for window in fetch_windows:
             fetch_context = _with_fetch_window(context, window)
@@ -899,23 +952,17 @@ class MarketDataQueryService:
                         expected_authorization=source_authorization,
                     )
 
+                    if fetch_lease is None:
+                        raise MarketDataQueryServiceError("FETCH_LEASE_REQUIRED")
                     local_received_at = _trusted_receipt_time(self._clock)
                     try:
-                        if fetch_lease is None:
-                            persisted = await self._store.persist_provider_result(
-                                fetch_context,
-                                result,
-                                received_at=local_received_at,
-                                source_authorization=write_authorization,
-                            )
-                        else:
-                            persisted = await self._store.persist_provider_result(
-                                fetch_context,
-                                result,
-                                received_at=local_received_at,
-                                source_authorization=write_authorization,
-                                fetch_lease=fetch_lease,
-                            )
+                        persisted = await self._store.persist_provider_result(
+                            fetch_context,
+                            result,
+                            received_at=local_received_at,
+                            source_authorization=write_authorization,
+                            fetch_lease=fetch_lease,
+                        )
                     except MarketDataStoreError as exc:
                         warnings.append(
                             MarketDataQueryWarning(
@@ -1070,9 +1117,7 @@ class MarketDataQueryService:
         venue = context.identity.venue
         if venue is None:
             raise MarketDataQueryServiceError("IDENTITY_MARKET_UNSUPPORTED")
-        current_principal = await access.authorizer.revalidate_principal(
-            principal=access.principal
-        )
+        current_principal = await access.authorizer.revalidate_principal(principal=access.principal)
         grant = await access.authorizer.authorize_policy(
             principal=current_principal,
             policy=policy,
@@ -1743,8 +1788,10 @@ def _decode_cursor(
     fingerprint = payload.get("query_fingerprint")
     event_at = payload.get("event_at")
     revision_id = payload.get("revision_id")
-    if not isinstance(fingerprint, str) or not isinstance(event_at, str) or not isinstance(
-        revision_id, str
+    if (
+        not isinstance(fingerprint, str)
+        or not isinstance(event_at, str)
+        or not isinstance(revision_id, str)
     ):
         raise MarketDataQueryServiceError("CURSOR_INVALID")
     try:
@@ -1914,7 +1961,9 @@ def _decode_cursor_anchor(value: object, *, field_name: str) -> MarketDataVisibi
     }:
         raise ValueError(f"{field_name} must have the complete anchor shape")
     return MarketDataVisibilityAnchor(
-        visible_at=_parse_cursor_datetime(value.get("visible_at"), field_name=f"{field_name} visible_at"),
+        visible_at=_parse_cursor_datetime(
+            value.get("visible_at"), field_name=f"{field_name} visible_at"
+        ),
         max_visibility_sequence=value.get("max_visibility_sequence"),
     )
 
@@ -1935,8 +1984,7 @@ def _assert_cursor_binding_matches(
         raise MarketDataQueryServiceError("CURSOR_POLICY_MISMATCH")
     if (
         expected.access_grant_descriptor_hash is not None
-        and cursor_binding.access_grant_descriptor_hash
-        != expected.access_grant_descriptor_hash
+        and cursor_binding.access_grant_descriptor_hash != expected.access_grant_descriptor_hash
     ):
         raise MarketDataQueryServiceError("CURSOR_ACCESS_GRANT_MISMATCH")
 
@@ -2082,7 +2130,9 @@ def _require_text(value: object, *, field_name: str, maximum: int) -> str:
 
 def _require_sha256(value: object, *, field_name: str) -> str:
     normalized = _require_text(value, field_name=field_name, maximum=64)
-    if len(normalized) != 64 or any(character not in "0123456789abcdef" for character in normalized):
+    if len(normalized) != 64 or any(
+        character not in "0123456789abcdef" for character in normalized
+    ):
         raise ValueError(f"{field_name} must be a lowercase SHA-256 digest")
     return normalized
 

@@ -64,6 +64,7 @@ CANONICAL_ID = "instrument:stock:CN-SSE:600000"
 METADATA_VERSION = "stock-v1"
 _CURSOR_SIGNING_KEY = "test-market-data-cursor-hmac-key-material-0000000000000000000001"
 _OTHER_CURSOR_SIGNING_KEY = "test-market-data-cursor-hmac-key-material-0000000000000000000002"
+_DEFAULT_FETCH_LEASES = object()
 
 
 def _at(hour: int, minute: int = 0, *, day: int = 8) -> datetime:
@@ -80,9 +81,13 @@ def _cursor_payload(token: str) -> dict[str, object]:
 
 def _cursor_with_payload(token: str, payload: dict[str, object]) -> str:
     _encoded, signature = token.split(".")
-    encoded = base64.urlsafe_b64encode(
-        json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
-    ).decode("ascii").rstrip("=")
+    encoded = (
+        base64.urlsafe_b64encode(
+            json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
+        )
+        .decode("ascii")
+        .rstrip("=")
+    )
     return f"{encoded}.{signature}"
 
 
@@ -630,7 +635,9 @@ class _ProviderTransactionProbe(_Provider):
 class _FirstPersistenceFailureStore(_Store):
     """Leave a simulated auth/write transaction active after the first route."""
 
-    def __init__(self, *, calendar: CalendarSnapshot, revisions: list[LocalObservationRevision]) -> None:
+    def __init__(
+        self, *, calendar: CalendarSnapshot, revisions: list[LocalObservationRevision]
+    ) -> None:
         super().__init__(calendar=calendar, revisions=revisions)
         self._fail_first_persistence = True
 
@@ -809,12 +816,22 @@ def _service(
     cursor_signing_key: str = _CURSOR_SIGNING_KEY,
     cursor_ttl: timedelta = timedelta(minutes=15),
     snapshot_freshness_policies: SnapshotFreshnessPolicyRegistry | None = None,
-    fetch_leases: Any | None = None,
+    fetch_leases: Any = _DEFAULT_FETCH_LEASES,
 ):
     from app.services.market_data.source_policy import (
         MarketDataSourcePolicy,
         MarketDataSourcePolicyRegistry,
     )
+
+    if fetch_leases is _DEFAULT_FETCH_LEASES:
+        fetch_leases = _FetchLeases(
+            handle=MarketDataFetchLeaseHandle(
+                lease_key_sha256="f" * 64,
+                owner_token="test-default-fetch-lease",
+                fence_token=1,
+                expires_at=_at(12) + timedelta(minutes=5),
+            )
+        )
 
     return _AuthorizedTestQueryService(
         resolver=_Resolver(context),
@@ -1152,7 +1169,9 @@ async def test_missing_local_data_is_persisted_then_reread_from_local_store() ->
 
 
 @pytest.mark.asyncio
-async def test_stock_liquidity_reference_series_miss_is_persisted_then_reread_from_local_store() -> None:
+async def test_stock_liquidity_reference_series_miss_is_persisted_then_reread_from_local_store() -> (
+    None
+):
     """The approved B1 liquidity product follows calendar coverage, never freshness."""
     request = _liquidity_reference_series_request()
     context = _liquidity_reference_series_context(request)
@@ -1247,7 +1266,9 @@ async def test_cross_worker_fetch_lease_follower_rejects_revoked_principal_befor
 
 
 @pytest.mark.asyncio
-async def test_cross_worker_fetch_lease_follower_rejects_changed_source_grant_before_reread() -> None:
+async def test_cross_worker_fetch_lease_follower_rejects_changed_source_grant_before_reread() -> (
+    None
+):
     """A source-registry descriptor change fails closed before local evidence reads."""
     context = _context()
     store = _Store(calendar=_calendar(), revisions=[])
@@ -1506,7 +1527,9 @@ def test_policy_descriptor_hash_binds_permit_family_and_endpoint() -> None:
 
 
 @pytest.mark.asyncio
-async def test_current_source_grant_filters_local_reads_and_freezes_provider_receipt_evidence() -> None:
+async def test_current_source_grant_filters_local_reads_and_freezes_provider_receipt_evidence() -> (
+    None
+):
     """Only currently allowed routes/source IDs participate in a data execution."""
     context = _context()
     store = _Store(calendar=_calendar(), revisions=[_revision(_at(9))])
@@ -1555,17 +1578,20 @@ async def test_current_source_grant_filters_local_reads_and_freezes_provider_rec
     assert store.read_source_filters
     assert all(item == frozenset({"openbb:yfinance"}) for item in store.read_source_filters)
     assert store.calendar_source_filters
-    assert all(
-        item == frozenset({"openbb:yfinance"}) for item in store.calendar_source_filters
-    )
+    assert all(item == frozenset({"openbb:yfinance"}) for item in store.calendar_source_filters)
     assert len(store.persisted_source_authorizations) == 1
     persisted_authorization = store.persisted_source_authorizations[0]
     assert persisted_authorization is not None
     assert persisted_authorization.source_registry_id == "openbb:yfinance"
     assert persisted_authorization.decision == "ALLOW"
     assert access.authorizer.read_entitlement_checks == 1
-    assert access.authorizer.policy_authorizations == [("route-akshare", "route-yfinance")]
-    assert access.authorizer.local_read_counts_at_authorization == [0]
+    assert access.authorizer.policy_authorizations == [
+        ("route-akshare", "route-yfinance"),
+        ("route-akshare", "route-yfinance"),
+        ("route-akshare", "route-yfinance"),
+        ("route-akshare", "route-yfinance"),
+    ]
+    assert access.authorizer.local_read_counts_at_authorization == [0, 2, 4, 6]
     assert access.authorizer.write_reauthorizations == [("route-yfinance", persisted_authorization)]
 
 
@@ -1601,7 +1627,9 @@ async def test_post_fetch_access_change_rejects_the_receipt_before_persistence()
 
 
 @pytest.mark.asyncio
-async def test_online_execution_requires_authenticated_access_before_local_or_provider_work() -> None:
+async def test_online_execution_requires_authenticated_access_before_local_or_provider_work() -> (
+    None
+):
     """The service cannot be used as a direct unaudited online importer."""
     from app.services.market_data.query_service import MarketDataQueryServiceError
 
@@ -1812,6 +1840,29 @@ async def test_online_fetch_switch_reports_disabled_without_touching_provider() 
     assert provider.requests == []
     assert result.coverage.status.value == "incomplete"
     assert [warning.code for warning in result.warnings] == ["ONLINE_FETCH_DISABLED"]
+
+
+@pytest.mark.asyncio
+async def test_missing_durable_fetch_lease_manager_blocks_provider_and_persistence() -> None:
+    """An online coverage gap cannot use an unfenced in-process fallback."""
+    context = _context()
+    store = _Store(calendar=_calendar(), revisions=[])
+    provider = _Provider(_provider_result())
+
+    result = await _service(
+        context=context,
+        store=store,
+        provider_routes=(_route(provider),),
+        fetch_leases=None,
+    ).execute(_request())
+
+    assert result.coverage.status.value == "incomplete"
+    assert result.fetches == ()
+    assert [warning.code for warning in result.warnings] == ["FETCH_LEASE_MANAGER_UNAVAILABLE"]
+    assert provider.requests == []
+    assert store.authorization_checks == []
+    assert store.provider_io_boundary_calls == 0
+    assert store.persisted == []
 
 
 @pytest.mark.asyncio
@@ -2315,16 +2366,16 @@ async def test_cursor_keeps_identity_cutoff_when_current_fetch_advances_observat
     # provider receipt advances the observation cutoff.  Keep the synthetic
     # times inside the production cursor TTL so this remains a PIT test rather
     # than accidentally exercising expiry.
-    clock_values = iter((_at(12), _at(12, 1), _at(12, 2)))
+    clock_values = iter((_at(12), _at(12, 1), _at(12, 2), _at(12, 3)))
     service._clock = lambda: next(clock_values)
 
     first = await service.execute(first_request)
     assert first.next_cursor is not None
     second = await service.execute(_request(page_size=1, cursor=first.next_cursor))
 
-    assert first.knowledge_cutoff == _at(12, 1)
+    assert first.knowledge_cutoff == _at(12, 2)
     assert first.identity_knowledge_cutoff == _at(12)
-    assert second.knowledge_cutoff == _at(12, 1)
+    assert second.knowledge_cutoff == _at(12, 2)
     assert second.identity_knowledge_cutoff == _at(12)
     assert [item.event_at for item in second.observations] == [_at(10)]
     assert resolver.identity_cutoffs == [_at(12), _at(12)]

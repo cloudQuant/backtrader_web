@@ -34,7 +34,7 @@
 - `/data/market` 仅在 `query_v2_enabled=true` 时进入 contract/family bundle/事实查询；它会探测服务端 family bundle，旧服务不存在该控制面时才按受限兼容错误回到无 bundle 的 v2 contract。每次 lookup 必须在首个异步 capability/bundle/contract 调用前冻结 asset、symbol、market、period、时间窗、family 和请求序号；异步返回后若当前选择或序号已变化，必须直接丢弃，不得以新表单值触发 v2、legacy 或在线写回。能力接口不可用、格式无效或显式关闭时，只保留旧的本地兼容读取，不能发起 v2 或在线刷新。
 - `/investment/strategies` 最终把策略研究与回测请求绑定到已解析的 canonical identity、数据集、来源策略、数据版本和工件指纹。其 197 strict sidecar 只有 `query_v2_enabled=true` 与 `research_backtest_bridge_enabled=true` 时才发送最小的 `market_data_asset_type` 客户端意图并进行 v2 严格本地预检；在任何 mandate 确认或 capability 请求开始前，前端必须捕获完整 request、mandate payload/match basis 和 `symbol`，后续异步步骤只能从该快照派生 `market_data_asset_type` 与最终 payload，不能读取期间可变的时间窗、质量门槛或表单状态。该意图不是 canonical identity 或 binding 证据；服务端必须验证并重建其余绑定。否则保持迭代 196 的兼容预检，不能伪造 197 provenance。
 - 用户单独触发“补齐本地缓存”才可请求 `purpose=research_cache_fill`，并且有效能力必须同时满足 `query_v2_enabled && online_fetch_enabled && research_cache_fill_enabled`；它**不**依赖 `research_backtest_bridge_enabled`。输入去抖、普通按钮预检和补齐成功后针对同一冻结预检快照的严格本地 v2 复读都使用 `local_only + research + strict`，不得自动联网或写入；即使 bridge 关闭，该复读也只报告本地覆盖，缓存填充本身不成为回测工件。
-- 旧 `/api/v1/data/market-instruments/*` 和 `/api/v1/data/kline` 保持兼容，直到新页面完成灰度和可观测性验收。
+- 旧 `/api/v1/data/market-instruments/*` 和 `/api/v1/data/kline` 保持兼容，直到新页面完成灰度和可观测性验收；但 `market-instruments/lookup?refresh_online=true` 不属于兼容承诺。该参数在读取遗留仓库、调用 AkShare 或写入任何数据前以 `MARKET_DATA_LEGACY_ONLINE_REFRESH_DISABLED` 拒绝，防止绕过 v2 的精确身份、授权、租约、来源回执、持久化与本地复读边界。遗留 lookup 只可读取本地数据；在线补齐只能进入 v2 `local_first` / `refresh`。
 - 迭代 196 已冻结，但策略页桥接仍默认关闭，直到独立的真实数据、浏览器和部署验收完成。`research_cache_fill` 的中台 receipt 不得写入、替代或批准不稳定的 `data_config`、CSV 回退、研究 run、holdout、回测或审批工件。
 
 ## 3. 用户故事与功能需求
@@ -83,6 +83,7 @@
 对于需要在线补齐的每个 server-resolved coverage gap，平台必须在调用 provider 前取得 `md_fetch_leases` 中的 durable lease。lease key 由 canonical identity、数据集/主数据版本、产品 family ID/contract version、产品语义、精确 gap、来源策略和当前 access-grant descriptor 的 SHA-256 派生；它不接受客户端 provider 名或进程内对象作为身份。
 
 - owner 在短事务中取得递增 fence token；同一 key 的 follower 不调用 primary 或 fallback provider，而是结束旧读事务并复读本地事实，返回 `FETCH_LEASE_HELD` 之类的可观察状态；
+- 如果调用构成 online coverage gap 但没有 durable fetch-lease manager，服务只能返回既有本地状态和 `FETCH_LEASE_MANAGER_UNAVAILABLE`；它不得激活 route、调用 provider 或持久化来源回执。进程内互斥、测试 fake 或空 lease 不能替代生产数据库租约；
 - provider I/O 不得处于数据库事务、lease 行锁、用户锁或 registry 锁内；
 - owner 在事实事务 A 和 publication 事务 B 都必须以 `lease_key + owner_token + fence_token + 未过期` 条件续约/栅栏检查。任一检查失败时，该 owner 的事实或可见性回执不得提交；
 - 事实事务 A 已提交但事务 B 未完成时，来源回执必须保留其 lease generation。通用 pending-publication recovery 一律跳过任何带 lease generation 的 source receipt；只有仍持有 exact owner/fence 的协调发布路径可以发布它。这样即使恢复任务在 owner 到期或被接管后运行，也只保留审计证据并失败关闭，不能让旧事实以更晚 visibility sequence 覆盖新 owner 的结果；

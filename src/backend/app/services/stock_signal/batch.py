@@ -283,7 +283,9 @@ class Sse50SignalBatchRunner:
                         start_date=record.next_trading_date,
                         end_date=target_date,
                         period="daily",
-                        refresh_online=True,
+                        # This scheduled path only consumes persisted local
+                        # data; online provider I/O belongs to the v2 pipeline.
+                        refresh_online=False,
                     )
                 except Exception as exc:
                     logger.warning(
