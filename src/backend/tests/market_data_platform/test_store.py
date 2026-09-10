@@ -102,6 +102,7 @@ def _context(
     required_fields: tuple[str, ...] = ("close",),
     purpose: str = "display",
     consistency: str = "display",
+    mode: str = "local_first",
     knowledge_cutoff: datetime | None = None,
     family_id: str | None = None,
     family_contract_version: str | None = None,
@@ -126,6 +127,7 @@ def _context(
             "family_contract_version": family_contract_version,
             "purpose": purpose,
             "consistency": consistency,
+            "mode": mode,
             "knowledge_cutoff": (
                 knowledge_cutoff.isoformat() if knowledge_cutoff is not None else None
             ),
@@ -346,6 +348,8 @@ def _result(
             currency=context.query.currency,
             unit=context.query.unit,
             source_policy_id=context.query.source_policy_id,
+            family_id=context.query.family_id,
+            family_contract_version=context.query.family_contract_version,
         ),
         shared_source_payload_segment=shared_source_payload_segment,
     )

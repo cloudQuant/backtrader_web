@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import replace
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -184,11 +185,11 @@ def test_legacy_kline_contract_is_private_and_keeps_its_full_ohlcv_shape() -> No
         price_basis="close",
         currency="CNY",
         unit="share",
-        explicit_semantic_axis_names=frozenset(
-            {"adjustment", "price_basis", "currency", "unit"}
-        ),
+        explicit_semantic_axis_names=frozenset({"adjustment", "price_basis", "currency", "unit"}),
     )
-    with pytest.raises(DatasetContractRegistryError, match="DATA_FAMILY_CONTRACT_VERSION_UNSUPPORTED"):
+    with pytest.raises(
+        DatasetContractRegistryError, match="DATA_FAMILY_CONTRACT_VERSION_UNSUPPORTED"
+    ):
         DEFAULT_DATASET_CONTRACT_REGISTRY.assert_executable_family_preflight(
             family_id="stock.kline_legacy",
             family_contract_version="market-data-family-v1",
@@ -379,6 +380,37 @@ def test_registry_preserves_non_bar_record_shapes_and_coverage_models() -> None:
         "inventory_report",
         "reporting_period",
         "report_completeness",
+    )
+
+
+def test_b2_multi_record_families_remain_unconfigured_without_a_public_source_policy() -> None:
+    """The local-only foundation must not make a B2 product executable or fetchable."""
+    by_id = {contract.family_id: contract for contract in dataset_contracts_module._CONTRACTS}
+
+    assert {
+        family_id: (by_id[family_id].status, by_id[family_id].source_policy_id)
+        for family_id in (
+            "futures.inventory",
+            "option.derivative",
+            "option.risk_surface",
+            "crypto.cme_position",
+        )
+    } == {
+        "futures.inventory": ("unconfigured", None),
+        "option.derivative": ("unconfigured", None),
+        "option.risk_surface": ("unconfigured", None),
+        "crypto.cme_position": ("unconfigured", None),
+    }
+
+
+def test_b2_local_reader_has_no_public_api_wiring() -> None:
+    """A local foundation module cannot silently become a public data route."""
+    backend_root = Path(__file__).resolve().parents[2]
+    public_api_sources = (backend_root / "app" / "api").rglob("*.py")
+
+    assert all(
+        "multi_record_query_service" not in source_path.read_text(encoding="utf-8")
+        for source_path in public_api_sources
     )
 
 

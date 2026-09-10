@@ -40,7 +40,8 @@ RESEARCH_BINDING_CONSUMERS_REVISION = "20260909_market_data_research_binding_con
 SHARED_SOURCE_PAYLOADS_REVISION = "20260910_market_data_shared_source_payloads"
 CAPABILITY_LEDGER_REVISION = "20260910_market_data_capability_ledger"
 DEFERRED_PUBLICATIONS_REVISION = "20260911_market_data_deferred_publications"
-INTEGRATED_HEAD_REVISION = DEFERRED_PUBLICATIONS_REVISION
+SEMANTIC_RECORD_KEYS_REVISION = "20260911_market_data_semantic_record_keys"
+INTEGRATED_HEAD_REVISION = SEMANTIC_RECORD_KEYS_REVISION
 OBSERVATION_STORAGE_TABLES = {
     "md_instrument_lookup_keys",
     "md_data_series",
@@ -728,9 +729,15 @@ def test_storage_models_register_generic_cross_asset_fact_tables() -> None:
     assert {"dataset_id", "canonical_id", "data_kind", "semantic_key_sha256"} <= set(
         MdDataSeries.__table__.c.keys()
     )
-    assert {"series_id", "event_time", "available_at", "source_snapshot_id", "fields_json"} <= set(
-        MdObservationRevision.__table__.c.keys()
-    )
+    assert {
+        "series_id",
+        "event_time",
+        "available_at",
+        "source_snapshot_id",
+        "fields_json",
+        "semantic_record_key",
+        "semantic_record_key_sha256",
+    } <= set(MdObservationRevision.__table__.c.keys())
     assert {
         "request_fingerprint_sha256",
         "provider_request_id",
@@ -1089,6 +1096,14 @@ def test_observation_revisions_are_append_only_with_source_and_quality_provenanc
             assert revision.source_snapshot_id == "source-1"
             assert revision.quality_policy_version == "quality-v1"
             assert revision.fields_json["close"] == "10.5"
+            assert revision.semantic_record_key == (
+                '{"record_identity_contract_version":"market-data-semantic-record-key-v1",'
+                '"scope":"singleton"}'
+            )
+            assert revision.semantic_record_key_sha256 == (
+                "98220d1065fb50740a858df25f884573e8c6aea554b05a3268ed4d1fd621d08e"
+            )
+            assert revision.source_record_key == "600000/2026-09-08"
 
             revision.quality_status = "rejected"
             with pytest.raises(ImmutableMarketDataRecordError):
@@ -1311,6 +1326,7 @@ def test_deferred_publications_revision_extends_the_integrated_storage_graph() -
     shared_source_payloads_revision = script.get_revision(SHARED_SOURCE_PAYLOADS_REVISION)
     capability_ledger_revision = script.get_revision(CAPABILITY_LEDGER_REVISION)
     deferred_publications_revision = script.get_revision(DEFERRED_PUBLICATIONS_REVISION)
+    semantic_record_keys_revision = script.get_revision(SEMANTIC_RECORD_KEYS_REVISION)
     integrated_head_revision = script.get_revision(INTEGRATED_HEAD_REVISION)
     assert shared_revision is not None
     assert shared_revision.down_revision == OBSERVATIONS_REVISION
@@ -1341,8 +1357,10 @@ def test_deferred_publications_revision_extends_the_integrated_storage_graph() -
     assert capability_ledger_revision.down_revision == SHARED_SOURCE_PAYLOADS_REVISION
     assert deferred_publications_revision is not None
     assert deferred_publications_revision.down_revision == CAPABILITY_LEDGER_REVISION
+    assert semantic_record_keys_revision is not None
+    assert semantic_record_keys_revision.down_revision == DEFERRED_PUBLICATIONS_REVISION
     assert integrated_head_revision is not None
-    assert integrated_head_revision.down_revision == CAPABILITY_LEDGER_REVISION
+    assert integrated_head_revision.down_revision == DEFERRED_PUBLICATIONS_REVISION
     assert script.get_heads() == [INTEGRATED_HEAD_REVISION]
 
 

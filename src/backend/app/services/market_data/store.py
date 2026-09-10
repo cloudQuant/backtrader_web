@@ -16,7 +16,7 @@ from datetime import date, datetime, timezone
 from decimal import Decimal
 from types import MappingProxyType
 
-from sqlalchemy import and_, func, select
+from sqlalchemy import Select, and_, func, select, tuple_
 from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -57,6 +57,13 @@ from app.services.market_data.field_quality import (
     is_usable_field_value,
     normalize_provider_fields,
 )
+from app.services.market_data.multi_record import (
+    SINGLE_RECORD_SEMANTIC_KEY_CANONICAL_JSON,
+    SINGLE_RECORD_SEMANTIC_KEY_SHA256,
+    SemanticRecordKey,
+    normalize_semantic_record_key,
+    single_record_semantic_key,
+)
 from app.services.market_data.providers import (
     ProviderFetchResult,
     ProviderMarketObservation,
@@ -79,10 +86,13 @@ QUALITY_POLICY_VERSION = FIELD_QUALITY_POLICY_VERSION
 NORMALIZATION_VERSION = "market-data-store-v1"
 _OBSERVATION_REVISION_CONTRACT_V1 = "market-data-observation-revision-v1"
 _OBSERVATION_REVISION_CONTRACT_V2 = "market-data-observation-revision-v2"
+_OBSERVATION_REVISION_CONTRACT_V3 = "market-data-observation-revision-v3"
 _MAX_PROVIDER_OBSERVATIONS = 50_000
-_REVISION_EVENT_QUERY_CHUNK_SIZE = 500
+_REVISION_COORDINATE_QUERY_CHUNK_SIZE = 400
+_MAX_CURRENT_REVISION_ROWS_PER_CHUNK = 10_000
 MAX_SOURCE_PAYLOAD_BYTES = 10 * 1024 * 1024
 _MAX_NORMALIZED_FIELDS_BYTES = 10 * 1024 * 1024
+_MAX_NORMALIZED_RECORD_IDENTITIES_BYTES = 10 * 1024 * 1024
 _SOURCE_AUTHORIZATION_VERSION = "market-data-source-authorization-v1"
 _SOURCE_AUTHORIZATION_APPROVED_LICENSES = frozenset(
     {
@@ -147,6 +157,18 @@ _UNVERIFIED_COMPATIBILITY_REASONS = frozenset(
 )
 _UNVERIFIED_COMPATIBILITY_PROVENANCE_VERSION = "market-data-unverified-source-write-v1"
 _CALENDAR_SOURCE_GOVERNANCE_VERSION = "market-data-calendar-source-governance-v1"
+# These contracts remain unconfigured at every public/API/provider boundary.
+# The lower-level Store nevertheless knows that a future approved writer for
+# one of them must carry a record dimension set; silently persisting a
+# singleton would make an incomplete B2 receipt look like a complete fact.
+_MULTI_RECORD_FAMILY_IDS = frozenset(
+    {
+        "futures.inventory",
+        "option.derivative",
+        "option.risk_surface",
+        "crypto.cme_position",
+    }
+)
 
 
 def _utc_now() -> datetime:
@@ -209,7 +231,7 @@ class LocalObservationRevision:
     ``source_available_at`` is the upstream provider's declared availability,
     distinct from ``available_at``: the latter is the locally trusted receipt
     time used for PIT eligibility.  Store reads populate and validate the
-    former only when a v2 revision identity seals it.  Historical v1 rows and
+    former only when a V2 or V3 revision identity seals it. Historical V1 rows and
     older synthetic DTO callers expose ``None`` instead; provenance-sensitive
     consumers must reject that value rather than infer it from local receipt
     time.
@@ -226,6 +248,10 @@ class LocalObservationRevision:
     quality: ObservationQuality
     fields: Mapping[str, object]
     source_available_at: datetime | None = None
+    # Synthetic legacy test callers and pre-B2 compatibility adapters retain
+    # the fixed singleton unless an actual Store read supplies a validated key.
+    semantic_record_key: str = SINGLE_RECORD_SEMANTIC_KEY_CANONICAL_JSON
+    semantic_record_key_sha256: str = SINGLE_RECORD_SEMANTIC_KEY_SHA256
 
     def as_coverage_observation(self, context: ResolvedMarketDataQueryContext) -> Observation:
         """Convert the persisted row to the pure DTO consumed by coverage planning."""
@@ -329,6 +355,7 @@ class _ValidatedProviderObservation:
     fields_sha256: str
     quality: ObservationQuality
     quality_details: Mapping[str, object]
+    semantic_record_key: SemanticRecordKey
 
 
 @dataclass(frozen=True, slots=True)
@@ -479,7 +506,11 @@ class MarketDataStore:
                 self._db.add(candidate)
                 await self._db.flush()
         except IntegrityError as exc:
-            existing = await self._find_series(identity, context)
+            # A competing writer may have committed while this session waited
+            # on the unique index. The first ordinary lookup can be frozen at
+            # an older MySQL REPEATABLE READ snapshot, so recovery must use a
+            # locking/current read rather than repeat that stale lookup.
+            existing = await self._find_series(identity, context, for_update=True)
             if existing is None:
                 raise MarketDataStoreError("SERIES_WRITE_FAILED") from exc
             return existing
@@ -597,7 +628,10 @@ class MarketDataStore:
 
                 revision_numbers = await self._next_revision_numbers(
                     series_id=series.id,
-                    event_times=tuple(item.event_at for item in validated.observations),
+                    record_coordinates=tuple(
+                        (item.event_at, item.semantic_record_key.sha256)
+                        for item in validated.observations
+                    ),
                 )
                 revisions = [
                     self._make_observation_revision(
@@ -605,7 +639,9 @@ class MarketDataStore:
                         source_snapshot=source_snapshot,
                         result=result,
                         observation=observation,
-                        revision_number=revision_numbers[observation.event_at],
+                        revision_number=revision_numbers[
+                            (observation.event_at, observation.semantic_record_key.sha256)
+                        ],
                         local_received_at=local_received_at,
                     )
                     for observation in validated.observations
@@ -850,8 +886,9 @@ class MarketDataStore:
         visibility_anchor: MarketDataVisibilityAnchor | None = None,
         include_unusable_for_coverage: bool = False,
         allowed_source_registry_ids: frozenset[str] | None = None,
+        exact_event_at: datetime | None = None,
     ) -> tuple[LocalObservationRevision, ...]:
-        """Select the newest response-safe revision per event at a PIT cutoff.
+        """Select the newest response-safe revision per event/record at PIT cutoff.
 
         A series deliberately does not include a field projection. A later,
         narrower request can therefore append a revision that has fewer fields
@@ -868,6 +905,15 @@ class MarketDataStore:
         allowed_source_ids = _normalize_allowed_source_registry_ids(allowed_source_registry_ids)
         if allowed_source_ids is not None and not allowed_source_ids:
             return ()
+        requested_event_at = (
+            _require_aware_utc(exact_event_at, field_name="exact local observation event time")
+            if exact_event_at is not None
+            else None
+        )
+        if requested_event_at is not None and not (
+            context.query.start <= requested_event_at < context.query.end
+        ):
+            raise MarketDataStoreError("LOCAL_OBSERVATION_EVENT_OUT_OF_WINDOW")
         anchor = await self._resolve_visibility_anchor(
             knowledge_cutoff=knowledge_cutoff,
             visibility_anchor=visibility_anchor,
@@ -877,6 +923,14 @@ class MarketDataStore:
             return ()
 
         query = context.query
+        event_predicates = (
+            (MdObservationRevision.event_time == requested_event_at,)
+            if requested_event_at is not None
+            else (
+                MdObservationRevision.event_time >= query.start,
+                MdObservationRevision.event_time < query.end,
+            )
+        )
         statement = (
             select(
                 MdObservationRevision,
@@ -897,8 +951,7 @@ class MarketDataStore:
             )
             .where(
                 MdObservationRevision.series_id == series.id,
-                MdObservationRevision.event_time >= query.start,
-                MdObservationRevision.event_time < query.end,
+                *event_predicates,
                 MdPublication.entity_sha256 == MdSourceSnapshot.payload_sha256,
                 MdPublication.published_at.is_not(None),
                 MdPublication.visibility_sequence.is_not(None),
@@ -906,6 +959,7 @@ class MarketDataStore:
             )
             .order_by(
                 MdObservationRevision.event_time,
+                MdObservationRevision.semantic_record_key,
                 MdPublication.published_at,
                 MdPublication.visibility_sequence,
                 MdObservationRevision.revision_number,
@@ -923,8 +977,8 @@ class MarketDataStore:
             ).execution_options(populate_existing=True)
         rows = list((await self._db.execute(statement)).all())
 
-        selected_usable: dict[datetime, LocalObservationRevision] = {}
-        selected_fallback: dict[datetime, LocalObservationRevision] = {}
+        selected_usable: dict[tuple[datetime, str], LocalObservationRevision] = {}
+        selected_fallback: dict[tuple[datetime, str], LocalObservationRevision] = {}
         verified_source_registry_ids: dict[str, str | None] = {}
         for row, source_snapshot, published_at, visibility_sequence in rows:
             if published_at is None or not _is_visibility_sequence(visibility_sequence):
@@ -953,24 +1007,30 @@ class MarketDataStore:
                 published_at=_stored_utc(published_at, field_name="publication published_at"),
                 visibility_sequence=visibility_sequence,
             )
-            current_fallback = selected_fallback.get(local.event_at)
+            record_coordinate = (local.event_at, local.semantic_record_key_sha256)
+            current_fallback = selected_fallback.get(record_coordinate)
             if current_fallback is None or _revision_sort_key(local) > _revision_sort_key(
                 current_fallback
             ):
-                selected_fallback[local.event_at] = local
+                selected_fallback[record_coordinate] = local
             if not _revision_is_usable_for_fields(local, context.query.required_fields):
                 continue
-            current_usable = selected_usable.get(local.event_at)
+            current_usable = selected_usable.get(record_coordinate)
             if current_usable is None or _revision_sort_key(local) > _revision_sort_key(
                 current_usable
             ):
-                selected_usable[local.event_at] = local
+                selected_usable[record_coordinate] = local
         if include_unusable_for_coverage:
             return tuple(
-                selected_usable.get(event_at, selected_fallback[event_at])
-                for event_at in sorted(selected_fallback)
+                sorted(
+                    (
+                        selected_usable.get(coordinate, selected_fallback[coordinate])
+                        for coordinate in selected_fallback
+                    ),
+                    key=_record_revision_output_sort_key,
+                )
             )
-        return tuple(selected_usable[event_at] for event_at in sorted(selected_usable))
+        return tuple(sorted(selected_usable.values(), key=_record_revision_output_sort_key))
 
     async def _resolve_visibility_anchor(
         self,
@@ -1455,18 +1515,14 @@ class MarketDataStore:
         self,
         identity: SeriesIdentity,
         context: ResolvedMarketDataQueryContext,
+        *,
+        for_update: bool = False,
     ) -> MdDataSeries | None:
-        rows = list(
-            (
-                await self._db.execute(
-                    select(MdDataSeries).where(
-                        MdDataSeries.semantic_key_sha256 == identity.semantic_key_sha256
-                    )
-                )
-            )
-            .scalars()
-            .all()
+        statement = _series_lookup_statement(
+            semantic_key_sha256=identity.semantic_key_sha256,
+            for_update=for_update,
         )
+        rows = list((await self._db.execute(statement)).scalars().all())
         if len(rows) > 1:
             raise MarketDataStoreError("SERIES_INTEGRITY")
         if not rows:
@@ -1762,30 +1818,57 @@ class MarketDataStore:
         self,
         *,
         series_id: str,
-        event_times: Sequence[datetime],
-    ) -> dict[datetime, int]:
-        if not event_times:
+        record_coordinates: Sequence[tuple[datetime, str]],
+    ) -> dict[tuple[datetime, str], int]:
+        """Allocate revision ordinals independently for each business record.
+
+        A B2 receipt may carry multiple valid facts at an identical event
+        timestamp.  The timestamp still scopes the database lookup, while the
+        server-derived semantic-key digest controls which fact receives the
+        next revision ordinal.
+        """
+        if not record_coordinates:
             return {}
-        existing_maximums: dict[datetime, int] = {}
-        for event_time_chunk in _chunks(tuple(event_times), _REVISION_EVENT_QUERY_CHUNK_SIZE):
+        requested = frozenset(record_coordinates)
+        if len(requested) != len(record_coordinates):
+            raise MarketDataStoreError("DUPLICATE_PROVIDER_RECORD")
+        requested_coordinates = tuple(sorted(requested))
+        existing_maximums: dict[tuple[datetime, str], int] = {}
+        for coordinate_chunk in _coordinate_chunks(
+            requested_coordinates,
+            _REVISION_COORDINATE_QUERY_CHUNK_SIZE,
+        ):
+            # Use a locking/current read after the series lock. Under MySQL's
+            # default REPEATABLE READ, the earlier ordinary series lookup may
+            # have established an older consistent snapshot; a later plain
+            # aggregate could therefore miss a revision committed by the prior
+            # holder while this writer waited for the series lock. MySQL does
+            # not support a portable aggregate locking read, so read the rows
+            # under FOR UPDATE and calculate the bounded maxima in-process.
             rows = (
                 await self._db.execute(
-                    select(
-                        MdObservationRevision.event_time,
-                        func.max(MdObservationRevision.revision_number),
+                    _revision_number_current_read_statement(
+                        series_id=series_id,
+                        record_coordinates=coordinate_chunk,
                     )
-                    .where(
-                        MdObservationRevision.series_id == series_id,
-                        MdObservationRevision.event_time.in_(event_time_chunk),
-                    )
-                    .group_by(MdObservationRevision.event_time)
                 )
             ).all()
-            for event_time, maximum in rows:
-                existing_maximums[_stored_utc(event_time, field_name="revision event_time")] = int(
-                    maximum or 0
+            if len(rows) > _MAX_CURRENT_REVISION_ROWS_PER_CHUNK:
+                raise MarketDataStoreError("CURRENT_REVISION_READ_LIMIT_EXCEEDED")
+            for event_time, semantic_record_key_sha256, revision_number in rows:
+                stored_event_at = _stored_utc(event_time, field_name="revision event_time")
+                stored_key_sha256 = _require_sha256_digest(
+                    semantic_record_key_sha256,
+                    code="LOCAL_OBSERVATION_INTEGRITY",
                 )
-        return {event_time: existing_maximums.get(event_time, 0) + 1 for event_time in event_times}
+                coordinate = (stored_event_at, stored_key_sha256)
+                if coordinate in requested:
+                    current_maximum = existing_maximums.get(coordinate, 0)
+                    existing_maximums[coordinate] = max(current_maximum, int(revision_number))
+        return {
+            coordinate: existing_maximums.get(coordinate, 0) + 1
+            for coordinate in record_coordinates
+        }
 
     async def _lock_series_for_revision(
         self,
@@ -1796,9 +1879,9 @@ class MarketDataStore:
 
         PostgreSQL and MySQL honour ``FOR UPDATE`` here, so concurrent source
         receipts cannot both allocate the same next revision number for an
-        event.  SQLite serializes writes at database level; the explicit lock
-        remains a harmless no-op there while keeping the service contract
-        uniform across the supported engines.
+        event/semantic-record coordinate. SQLite serializes writes at database
+        level; the explicit lock remains a harmless no-op there while keeping
+        the service contract uniform across the supported engines.
         """
         locked = await self._db.scalar(
             select(MdDataSeries).where(MdDataSeries.id == series.id).with_for_update()
@@ -1841,7 +1924,7 @@ class MarketDataStore:
             fields_sha256=observation.fields_sha256,
             revision_number=revision_number,
             revision_key_sha256=_observation_revision_identity_sha256(
-                contract_version=_OBSERVATION_REVISION_CONTRACT_V2,
+                contract_version=_OBSERVATION_REVISION_CONTRACT_V3,
                 series_semantic_key_sha256=series.semantic_key_sha256,
                 source_snapshot_id=source_snapshot.id,
                 event_at=observation.event_at,
@@ -1850,8 +1933,11 @@ class MarketDataStore:
                 quality=observation.quality,
                 revision_number=revision_number,
                 source_available_at=observation.source_available_at,
+                semantic_record_key_sha256=observation.semantic_record_key.sha256,
             ),
             normalization_version=NORMALIZATION_VERSION,
+            semantic_record_key=observation.semantic_record_key.canonical_json,
+            semantic_record_key_sha256=observation.semantic_record_key.sha256,
             provenance_json=_json_safe_mapping(provenance, field_name="revision provenance"),
             committed_at=local_received_at,
         )
@@ -2070,9 +2156,10 @@ def _validate_provider_fetch(
         result.shared_source_payload_segment,
     )
     observations: list[_ValidatedProviderObservation] = []
-    seen_events: set[datetime] = set()
+    seen_records: set[tuple[datetime, str]] = set()
     required_fields = frozenset(context.query.required_fields)
     normalized_fields_bytes = 0
+    normalized_record_identity_bytes = 0
     for observation in result.observations:
         if not isinstance(observation, ProviderMarketObservation):
             raise TypeError("provider observations must be ProviderMarketObservation values")
@@ -2083,11 +2170,23 @@ def _validate_provider_fetch(
         )
         if not context.query.start <= event_at < context.query.end:
             raise MarketDataStoreError("PROVIDER_EVENT_OUT_OF_WINDOW")
-        if event_at in seen_events:
-            raise MarketDataStoreError("DUPLICATE_PROVIDER_EVENT")
+        semantic_record_key = _provider_observation_semantic_record_key(
+            context,
+            observation,
+        )
+        normalized_record_identity_bytes += len(semantic_record_key.canonical_json.encode("utf-8"))
+        if normalized_record_identity_bytes > _MAX_NORMALIZED_RECORD_IDENTITIES_BYTES:
+            raise MarketDataStoreError("PROVIDER_RECORD_IDENTITIES_TOO_LARGE")
+        record_coordinate = (event_at, semantic_record_key.sha256)
+        if record_coordinate in seen_records:
+            # Retain the established single-record failure code so existing
+            # callers do not need a semantic-key migration of their own.
+            if semantic_record_key.is_singleton:
+                raise MarketDataStoreError("DUPLICATE_PROVIDER_EVENT")
+            raise MarketDataStoreError("DUPLICATE_PROVIDER_RECORD")
         if available_at > result.retrieved_at:
             raise MarketDataStoreError("PROVIDER_AVAILABILITY_AFTER_RETRIEVAL")
-        seen_events.add(event_at)
+        seen_records.add(record_coordinate)
         fields = _json_safe_mapping(
             normalize_provider_fields(observation.fields),
             field_name="provider observation fields",
@@ -2122,6 +2221,7 @@ def _validate_provider_fetch(
                 fields_sha256=_sha256(canonical_fields),
                 quality=quality,
                 quality_details=MappingProxyType(quality_details),
+                semantic_record_key=semantic_record_key,
             )
         )
     return _ValidatedProviderFetch(
@@ -2135,6 +2235,43 @@ def _validate_provider_fetch(
         query_fingerprint_sha256=provider_request_evidence["query_fingerprint_sha256"],
         shared_source_payload=shared_source_payload,
     )
+
+
+def _provider_observation_semantic_record_key(
+    context: ResolvedMarketDataQueryContext,
+    observation: ProviderMarketObservation,
+) -> SemanticRecordKey:
+    """Derive the record identity after binding a provider row to its family.
+
+    Provider DTOs may carry business dimensions but never a canonical key or
+    digest.  This prevents an adapter from selecting a storage identity that
+    disagrees with the server-owned family contract.  The four B2 families are
+    intentionally still unconfigured; the lower-level check merely ensures a
+    future approved writer cannot accidentally collapse their rows into the
+    singleton fact shape.
+    """
+    family_id = context.query.family_id
+    dimensions = observation.record_dimensions
+    if family_id in _MULTI_RECORD_FAMILY_IDS:
+        if dimensions is None:
+            raise MarketDataStoreError("PROVIDER_RECORD_DIMENSIONS_REQUIRED")
+    elif dimensions is not None:
+        raise MarketDataStoreError("UNEXPECTED_PROVIDER_RECORD_DIMENSIONS")
+
+    if dimensions is None:
+        return single_record_semantic_key()
+
+    family_contract_version = context.query.family_contract_version
+    if family_id is None or family_contract_version is None:
+        raise MarketDataStoreError("PROVIDER_RECORD_FAMILY_BINDING_REQUIRED")
+    try:
+        return normalize_semantic_record_key(
+            family_id=family_id,
+            family_contract_version=family_contract_version,
+            dimensions=dimensions,
+        )
+    except (TypeError, ValueError) as exc:
+        raise MarketDataStoreError("PROVIDER_RECORD_DIMENSIONS_INVALID") from exc
 
 
 def _validate_shared_source_payload(
@@ -2881,6 +3018,7 @@ def _observation_revision_identity_sha256(
     quality: ObservationQuality,
     revision_number: int,
     source_available_at: datetime | None,
+    semantic_record_key_sha256: str | None = None,
 ) -> str:
     """Build the immutable identity for one normalized observation revision."""
     revision_payload: dict[str, object] = {
@@ -2893,13 +3031,50 @@ def _observation_revision_identity_sha256(
         "quality_status": quality.value,
         "revision_number": revision_number,
     }
-    if contract_version == _OBSERVATION_REVISION_CONTRACT_V2:
+    if contract_version in {
+        _OBSERVATION_REVISION_CONTRACT_V2,
+        _OBSERVATION_REVISION_CONTRACT_V3,
+    }:
         if source_available_at is None:
             raise MarketDataStoreError("LOCAL_OBSERVATION_INTEGRITY")
         revision_payload["provider_available_at"] = source_available_at.isoformat()
     elif contract_version != _OBSERVATION_REVISION_CONTRACT_V1:
         raise MarketDataStoreError("LOCAL_OBSERVATION_INTEGRITY")
+    if contract_version == _OBSERVATION_REVISION_CONTRACT_V3:
+        revision_payload["semantic_record_key_sha256"] = _require_sha256_digest(
+            semantic_record_key_sha256,
+            code="LOCAL_OBSERVATION_INTEGRITY",
+        )
+    elif semantic_record_key_sha256 is not None:
+        raise MarketDataStoreError("LOCAL_OBSERVATION_INTEGRITY")
     return _sha256(_canonical_json(revision_payload, field_name="revision identity"))
+
+
+def _persisted_semantic_record_key(row: MdObservationRevision) -> SemanticRecordKey:
+    """Recover and revalidate one immutable server-owned record identity."""
+    raw_canonical_json = row.semantic_record_key
+    raw_sha256 = row.semantic_record_key_sha256
+    try:
+        if not isinstance(raw_canonical_json, str):
+            raise TypeError("semantic_record_key must be a string")
+        payload = json.loads(raw_canonical_json)
+        if not isinstance(payload, Mapping):
+            raise ValueError("semantic_record_key must decode to an object")
+        if raw_canonical_json == SINGLE_RECORD_SEMANTIC_KEY_CANONICAL_JSON:
+            return SemanticRecordKey(
+                canonical_json=raw_canonical_json,
+                sha256=raw_sha256,
+                dimensions={},
+                is_singleton=True,
+            )
+        return SemanticRecordKey(
+            canonical_json=raw_canonical_json,
+            sha256=raw_sha256,
+            dimensions=payload.get("dimensions"),
+            is_singleton=False,
+        )
+    except (TypeError, ValueError, json.JSONDecodeError) as exc:
+        raise MarketDataStoreError("LOCAL_OBSERVATION_INTEGRITY") from exc
 
 
 def _verified_revision_source_available_at(
@@ -2911,28 +3086,53 @@ def _verified_revision_source_available_at(
     fields_sha256: str,
     quality: ObservationQuality,
     revision_number: int,
+    semantic_record_key: SemanticRecordKey,
 ) -> datetime | None:
-    """Return a sealed upstream timestamp, or ``None`` for a verified v1 identity."""
+    """Return a sealed source timestamp after validating the immutable identity.
+
+    V1/V2 facts predate record-key sealing and remain valid only for the
+    singleton identity supplied by the migration.  Every new V3 fact binds its
+    semantic key digest, including new single-record writes.
+    """
     series_semantic_key_sha256 = MarketDataStore.series_identity(context).semantic_key_sha256
-    v1_identity = _observation_revision_identity_sha256(
-        contract_version=_OBSERVATION_REVISION_CONTRACT_V1,
-        series_semantic_key_sha256=series_semantic_key_sha256,
-        source_snapshot_id=row.source_snapshot_id,
-        event_at=event_at,
-        available_at=available_at,
-        fields_sha256=fields_sha256,
-        quality=quality,
-        revision_number=revision_number,
-        source_available_at=None,
-    )
-    if row.revision_key_sha256 == v1_identity:
-        # The v1 contract did not bind provider availability.  Even a
-        # syntactically valid timestamp in its free-form provenance is not a
-        # verified source fact and must stay unavailable to strict consumers.
-        return None
-    source_available_at = _revision_source_available_at(row, available_at=available_at)
-    v2_identity = _observation_revision_identity_sha256(
-        contract_version=_OBSERVATION_REVISION_CONTRACT_V2,
+    if semantic_record_key.is_singleton:
+        v1_identity = _observation_revision_identity_sha256(
+            contract_version=_OBSERVATION_REVISION_CONTRACT_V1,
+            series_semantic_key_sha256=series_semantic_key_sha256,
+            source_snapshot_id=row.source_snapshot_id,
+            event_at=event_at,
+            available_at=available_at,
+            fields_sha256=fields_sha256,
+            quality=quality,
+            revision_number=revision_number,
+            source_available_at=None,
+        )
+        if row.revision_key_sha256 == v1_identity:
+            # The v1 contract did not bind provider availability.  Even a
+            # syntactically valid timestamp in its free-form provenance is not
+            # a verified source fact and must stay unavailable to strict
+            # consumers.
+            return None
+
+        source_available_at = _revision_source_available_at(row, available_at=available_at)
+        v2_identity = _observation_revision_identity_sha256(
+            contract_version=_OBSERVATION_REVISION_CONTRACT_V2,
+            series_semantic_key_sha256=series_semantic_key_sha256,
+            source_snapshot_id=row.source_snapshot_id,
+            event_at=event_at,
+            available_at=available_at,
+            fields_sha256=fields_sha256,
+            quality=quality,
+            revision_number=revision_number,
+            source_available_at=source_available_at,
+        )
+        if row.revision_key_sha256 == v2_identity:
+            return source_available_at
+    else:
+        source_available_at = _revision_source_available_at(row, available_at=available_at)
+
+    v3_identity = _observation_revision_identity_sha256(
+        contract_version=_OBSERVATION_REVISION_CONTRACT_V3,
         series_semantic_key_sha256=series_semantic_key_sha256,
         source_snapshot_id=row.source_snapshot_id,
         event_at=event_at,
@@ -2941,8 +3141,9 @@ def _verified_revision_source_available_at(
         quality=quality,
         revision_number=revision_number,
         source_available_at=source_available_at,
+        semantic_record_key_sha256=semantic_record_key.sha256,
     )
-    if row.revision_key_sha256 != v2_identity:
+    if row.revision_key_sha256 != v3_identity:
         raise MarketDataStoreError("LOCAL_OBSERVATION_INTEGRITY")
     return source_available_at
 
@@ -2981,6 +3182,7 @@ def _decode_local_revision(
         raise MarketDataStoreError("LOCAL_OBSERVATION_INTEGRITY")
     if not isinstance(row.revision_number, int) or row.revision_number < 1:
         raise MarketDataStoreError("LOCAL_OBSERVATION_INTEGRITY")
+    semantic_record_key = _persisted_semantic_record_key(row)
     source_available_at = _verified_revision_source_available_at(
         row,
         context=context,
@@ -2989,6 +3191,7 @@ def _decode_local_revision(
         fields_sha256=row.fields_sha256,
         quality=quality,
         revision_number=row.revision_number,
+        semantic_record_key=semantic_record_key,
     )
     return LocalObservationRevision(
         revision_id=row.id,
@@ -3000,6 +3203,8 @@ def _decode_local_revision(
         visibility_sequence=visibility_sequence,
         revision_number=row.revision_number,
         quality=quality,
+        semantic_record_key=semantic_record_key.canonical_json,
+        semantic_record_key_sha256=semantic_record_key.sha256,
         fields=MappingProxyType(fields),
         source_available_at=source_available_at,
     )
@@ -3438,15 +3643,79 @@ def _revision_is_usable_for_fields(
     )
 
 
-def _chunks(values: Sequence[datetime], size: int) -> tuple[tuple[datetime, ...], ...]:
-    """Split an ``IN`` list so SQLite and other engines retain bounded parameters."""
+def _coordinate_chunks(
+    values: Sequence[tuple[datetime, str]],
+    size: int,
+) -> tuple[tuple[tuple[datetime, str], ...], ...]:
+    """Split exact event/key coordinate pairs below SQLite's bind-value budget."""
     return tuple(tuple(values[index : index + size]) for index in range(0, len(values), size))
+
+
+def _series_lookup_statement(
+    *,
+    semantic_key_sha256: str,
+    for_update: bool,
+) -> Select[tuple[MdDataSeries]]:
+    """Build an exact series lookup, using a current read when recovering a race."""
+    statement = select(MdDataSeries).where(MdDataSeries.semantic_key_sha256 == semantic_key_sha256)
+    return statement.with_for_update() if for_update else statement
+
+
+def _revision_number_current_read_statement(
+    *,
+    series_id: str,
+    record_coordinates: Sequence[tuple[datetime, str]],
+) -> Select[tuple[datetime, str, int]]:
+    """Build the post-series-lock current read used for ordinal allocation.
+
+    The series row is locked before this query, serializing writers for one
+    semantic series. ``FOR UPDATE`` additionally makes MySQL/InnoDB evaluate
+    this read against the latest committed state rather than an earlier
+    REPEATABLE READ snapshot established by a harmless pre-lock lookup. The
+    predicate contains each requested event/key coordinate, never every
+    historical record for a matching event. A bounded response prevents one
+    pathological correction history from turning ordinal allocation into an
+    unbounded materialization; callers fail before writing a new receipt.
+    """
+    return (
+        select(
+            MdObservationRevision.event_time,
+            MdObservationRevision.semantic_record_key_sha256,
+            MdObservationRevision.revision_number,
+        )
+        .where(
+            MdObservationRevision.series_id == series_id,
+            tuple_(
+                MdObservationRevision.event_time,
+                MdObservationRevision.semantic_record_key_sha256,
+            ).in_(record_coordinates),
+        )
+        .order_by(
+            MdObservationRevision.event_time,
+            MdObservationRevision.semantic_record_key_sha256,
+            MdObservationRevision.revision_number.desc(),
+        )
+        .limit(_MAX_CURRENT_REVISION_ROWS_PER_CHUNK + 1)
+        .with_for_update()
+    )
 
 
 def _revision_sort_key(revision: LocalObservationRevision) -> tuple[int, int, str]:
     """Order selected revisions by sealed receipt, ordinal, then immutable ID."""
     return (
         revision.visibility_sequence,
+        revision.revision_number,
+        revision.revision_id,
+    )
+
+
+def _record_revision_output_sort_key(
+    revision: LocalObservationRevision,
+) -> tuple[datetime, str, int, str]:
+    """Keep B2/PIT output stable across equal-timestamp business records."""
+    return (
+        revision.event_at,
+        revision.semantic_record_key,
         revision.revision_number,
         revision.revision_id,
     )
