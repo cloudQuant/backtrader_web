@@ -31,7 +31,7 @@
 | OpenBB 隔离 subprocess runner | `DONE` | JSON DTO、环境白名单、输出上限、超时进程组清理、raw payload 与规范化 records 的确定性投影均在候选中覆盖；父进程只接受绝对 Python + `-I -S` + 绝对 runner 脚本，runner 在 manifest/metadata/import 前 fail closed。重复字段、投影不一致与进程内过载稳定拒绝。协议候选只建模 bars；当前 permit matrix 为空，**没有**启用的 OpenBB route。 | `NOT_RUN`：未在 operator-owned OpenBB 环境、真实 extension、许可和凭据下执行；上限只覆盖单个 Python 进程，且 Python 启动参数不是 OS/容器隔离证明。 |
 | quote snapshot local-first 覆盖 | `DONE` | `SnapshotCoveragePlanner` 已避免把 quote 强行塞入交易日历；产品 SLA 以 `source_policy_version` 锚定，quote 响应会隐藏超过该 policy freshness 的记录。 | `NOT_RUN`：真实 snapshot feed、七资产 identity 映射和 freshness 行为尚未在真实来源验证。 |
 | F1 市场页控制面 | `DONE`（L-197-15，本地候选） | 已认证 capability 文档是 v2/bundle 唯一前端开关；有效 bundle 中 `unconfigured/not_applicable` 不走 legacy lookup，旧服务明确兼容错误才走无 bundle v2。静止候选的 capability API、cache 矩阵、选择器竞态和页面 v2 回归已通过。 | `NOT_RUN`：未在浏览器、真实后端、真实数据状态下 E2E。 |
-| F1 策略页严格本地预检 | `DONE`（L-197-15，本地候选） | 普通预检只读 `local_only + research + strict`；只有显式缓存补齐受 `query_v2 + online_fetch + cache_fill` 有效 capability 控制，独立于 bridge，成功后允许 strict 本地 v2 复读但不产生工件。bridge marker 从同一次提交的 symbol 快照派生，bridge 禁用时在同步/异步持久化前失败关闭；同步/异步拒绝与研究链全量回归已通过。 | `NOT_RUN`：未在真实数据、浏览器和部署环境完成工件回放。 |
+| F1 策略页严格本地预检 | `DONE`（L-197-15、L-197-26，本地候选） | 普通预检只读 `local_only + research + strict`；只有显式缓存补齐受 `query_v2 + online_fetch + cache_fill` 有效 capability 控制，独立于 bridge，成功后允许 strict 本地 v2 复读但不产生工件。bridge marker 从同一次提交的 symbol 快照派生，bridge 禁用时在同步/异步持久化前失败关闭；strict bars family 由前后端受控映射，crypto 固定为 `crypto.range` 而不是 quote snapshot `crypto.realtime`，未配置时在 contract/query/provider/artifact 前失败关闭；同步/异步拒绝与研究链全量回归已通过。 | `NOT_RUN`：未在真实数据、浏览器和部署环境完成工件回放。 |
 | F2 quote/valuation/settlement/NAV/reference | `IN_PROGRESS` | `stock.liquidity`、`fund.liquidity`、`fund.nav` 和 `fx.range` 已具 request-time 候选 contract/route；其中 NAV 仅为 CN ETF 日线源报告净值。A 股估值已落地为默认关闭的私有 `market.stock_valuation_captured_snapshot / valuation_snapshot / snapshot` 离线批次 collector：无 fetch/HTTP/route/public family，精确 capture instant、封装 hash、quarantine 与写前证据预算均有本地回归。公开 `stock.valuation` 仍未配置。其余 quote、valuation、settlement、宽表 importer 和多记录产品保持 fail-closed。 | `NOT_RUN`：没有真实采集、回填或页面灰度验收。 |
 | 共享 binding migration 与 server capability 代码整合 | `DONE`（代码整合） | 196/197 migration chain 与 binding consumer 已进入集成基线；server capability 接线不改变默认关闭状态。真实回填、页面灰度和生产开关不属于这一行的完成声明。 | `NOT_RUN`：未在可恢复真实数据库、页面灰度或生产部署执行。 |
 
@@ -63,7 +63,7 @@
 | `fx.range` | `DONE`（候选 `ready`）：`market.bars` / 1d | exact FX OHLC range | 候选 exact route；真实验收 `NOT_RUN` | 周/月/分钟或未验证的 pair mapping。 |
 | `crypto.realtime` | `NOT_CONFIGURED`：`market.quote_snapshot` / snapshot | venue/pair quote | `NOT_CONFIGURED` | 无 venue、base、quote 映射的通用加密行情。 |
 | `crypto.cme_position` | `NOT_CONFIGURED`：`market.position_report` / report | long、short、net、OI | `NOT_CONFIGURED` | 将 CME 比特币成交量报告称为持仓报告。 |
-| `crypto.range` | `NOT_CONFIGURED`：`market.bars` / 1d | approved provider historical bars | `NOT_CONFIGURED` | AkShare 或 OpenBB 的无配置全局 fallback。 |
+| `crypto.range` | `NOT_CONFIGURED`：`market.bars` / 1d；严格研究 resolver 唯一预留的 crypto bars family | approved provider historical bars | `NOT_CONFIGURED` | AkShare 或 OpenBB 的无配置全局 fallback，或以 `crypto.realtime` quote snapshot 冒充回测 bars。 |
 
 ## 4. F2 数据来源分级结论
 
@@ -157,6 +157,7 @@ K 线 bridge 已独立完成受限 pair coexistence，并不继承 `stock.realti
 | `/data/market` 浏览器灰度 | `NOT_RUN` | V1/V2 双路径、未配置展示、bars 非实时标签、网络观察和回滚。 |
 | `/investment/strategies` 工件绑定 | `BLOCKED` | 196 工件 schema 冻结后，严格 local provenance manifest/hash、回放和权限验证。 |
 | `/api/v1/data/kline` 受治理 compatibility bridge | `DONE`（候选代码）；正式验收 `NOT_RUN / NO-GO` | 已实现受限 private family/version pair、CN stock `Asia/Shanghai` 参数/窗口拒绝、完整 contract、`data:read → local_first → persist（仅获批缺口）→ local_only reread`、coverage/event/field/serialization 拒绝和 direct AkShare/`MarketInstrumentService`/遗留专表禁止边界。L-197-25 已记录 `282 passed, 3 warnings` 的本地组合回归，不能将该候选代码表述为真实来源、浏览器或生产通过。 |
+| strict-bars crypto family 选择与拒绝边界 | `PASS`（L-197-26，本地开发回归） | 后端 seven-asset mapping、六类 ready bars 资产的实际 `bind_request()` 与 crypto 1d/1w/1mo preflight 拒绝已覆盖；对被一致重封但注入 `crypto.realtime` snapshot family 的运行时记录，会在 resolver/query 前以 contract mismatch 拒绝。前端同样请求 `crypto.range`，并以原始 FastAPI `detail.code` 或规范化 `details.code` 的 `DATA_FAMILY_UNCONFIGURED` 显示 unsupported，未调用 v2 facts 或 legacy lookup。2026-09-10 在候选工作区执行 `pytest tests/market_data_platform/test_research_binding.py tests/test_iteration197_acceptance_runner.py tests/market_data_platform/test_scope_manifest.py -q` 为 `68 passed, 10 warnings`，`StrategyPage.test.ts` 为 `148 passed`，`npm run typecheck`、`npm run build`、目标 Ruff 与 `git diff --check` 通过。它不添加 OpenBB permit、provider route、真实数据或持久化成功声明。 |
 | 生产验收 | `NOT_RUN` | 上述全部完成后，另行签署；本候选没有生产验收结论。 |
 
 ## 7. 与迭代 196 的交接条件
