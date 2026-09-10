@@ -427,7 +427,9 @@ class DatasetContractRegistry:
     def __init__(self, contracts: Iterable[DatasetContract]) -> None:
         normalized = tuple(contracts)
         public_contracts = tuple(contract for contract in normalized if contract.bundle_visible)
-        private_contracts = tuple(contract for contract in normalized if not contract.bundle_visible)
+        private_contracts = tuple(
+            contract for contract in normalized if not contract.bundle_visible
+        )
         if len(public_contracts) != len(_REQUIRED_FAMILY_IDS):
             raise ValueError("dataset registry must declare every current market-page family")
         if any(not isinstance(contract, DatasetContract) for contract in normalized):
@@ -440,7 +442,9 @@ class DatasetContractRegistry:
         if frozenset(contract.family_id for contract in public_contracts) != _REQUIRED_FAMILY_IDS:
             raise ValueError("dataset registry family IDs do not match the market-page contract")
         if frozenset(contract.family_id for contract in private_contracts) != _PRIVATE_FAMILY_IDS:
-            raise ValueError("dataset registry private family IDs do not match the compatibility contract")
+            raise ValueError(
+                "dataset registry private family IDs do not match the compatibility contract"
+            )
         if any(contract.asset_type not in _ASSET_TYPES for contract in normalized):
             raise ValueError("dataset registry uses an unsupported asset type")
         for contract in normalized:
@@ -865,8 +869,13 @@ _CONTRACTS: tuple[DatasetContract, ...] = (
         ("snapshot",),
         _profile(
             "option-risk-surface-v1",
-            ("implied_volatility", "delta", "gamma", "theta", "vega", "model_version"),
-            dimension_fields=("underlying_canonical_id", "expiry", "moneyness"),
+            ("implied_volatility", "delta", "gamma", "theta", "vega"),
+            dimension_fields=(
+                "underlying_canonical_id",
+                "expiry",
+                "moneyness",
+                "model_version",
+            ),
         ),
         "slice_completeness",
         reason_code="DATASET_CONTRACT_UNCONFIGURED",
@@ -940,7 +949,7 @@ _CONTRACTS: tuple[DatasetContract, ...] = (
         _profile(
             "crypto-cme-position-v1",
             ("long_position", "short_position", "net_position", "open_interest"),
-            dimension_fields=("report_date", "reporting_entity", "rank"),
+            dimension_fields=("report_date", "reporting_entity", "rank", "report_type"),
         ),
         "report_completeness",
         reason_code="DATASET_CONTRACT_UNCONFIGURED",

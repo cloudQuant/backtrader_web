@@ -40,7 +40,9 @@ def _record_observation(
         available_at=available_at,
         fields={"close": close},
         record_dimensions={
+            "underlying_canonical_id": "instrument:futures:cn:IF",
             "contract_canonical_id": contract,
+            "expiry": "2026-10-30",
             "right": "call",
             "strike": contract.rsplit("C", maxsplit=1)[-1],
         },
@@ -288,6 +290,46 @@ async def test_store_requires_dimensions_for_unconfigured_b2_family_before_recei
         snapshot_count = await db.scalar(select(func.count()).select_from(MdSourceSnapshot))
 
     assert rejected.value.code == "PROVIDER_RECORD_DIMENSIONS_REQUIRED"
+    assert snapshot_count == 0
+
+
+@pytest.mark.asyncio
+async def test_store_rejects_an_unreviewed_b2_coordinate_before_source_receipt() -> None:
+    """A provider cannot add an arbitrary option key field or omit reviewed dimensions."""
+    context = _multi_record_context()
+
+    async with async_session_maker() as db:
+        await _seed_dataset_and_provider(db)
+        store = MarketDataStore(db, clock=lambda: _at(14))
+
+        with pytest.raises(MarketDataStoreError) as rejected:
+            await store.persist_provider_result(
+                context,
+                _result(
+                    context=context,
+                    retrieved_at=_at(12),
+                    observations=(
+                        ProviderMarketObservation(
+                            event_at=_at(10),
+                            available_at=_at(11),
+                            fields={"close": "10.00"},
+                            record_dimensions={
+                                "underlying_canonical_id": "instrument:futures:cn:IF",
+                                "contract_canonical_id": "instrument:option:cn:IF2610C100",
+                                "expiry": "2026-10-30",
+                                "strike": "100",
+                                "right": "call",
+                                "upstream_alias": "IF2610C100",
+                            },
+                        ),
+                    ),
+                ),
+                received_at=_at(12),
+                unverified_compatibility_reason=UNVERIFIED_COMPATIBILITY_REASON_LEGACY_IMPORT,
+            )
+        snapshot_count = await db.scalar(select(func.count()).select_from(MdSourceSnapshot))
+
+    assert rejected.value.code == "PROVIDER_RECORD_DIMENSIONS_INVALID"
     assert snapshot_count == 0
 
 

@@ -64,6 +64,10 @@ from app.services.market_data.multi_record import (
     normalize_semantic_record_key,
     single_record_semantic_key,
 )
+from app.services.market_data.multi_record_contracts import (
+    B2FamilyContractError,
+    normalize_b2_record_dimensions,
+)
 from app.services.market_data.providers import (
     ProviderFetchResult,
     ProviderMarketObservation,
@@ -2265,12 +2269,17 @@ def _provider_observation_semantic_record_key(
     if family_id is None or family_contract_version is None:
         raise MarketDataStoreError("PROVIDER_RECORD_FAMILY_BINDING_REQUIRED")
     try:
-        return normalize_semantic_record_key(
+        normalized_dimensions = normalize_b2_record_dimensions(
             family_id=family_id,
             family_contract_version=family_contract_version,
             dimensions=dimensions,
         )
-    except (TypeError, ValueError) as exc:
+        return normalize_semantic_record_key(
+            family_id=family_id,
+            family_contract_version=family_contract_version,
+            dimensions=normalized_dimensions,
+        )
+    except (B2FamilyContractError, TypeError, ValueError) as exc:
         raise MarketDataStoreError("PROVIDER_RECORD_DIMENSIONS_INVALID") from exc
 
 
