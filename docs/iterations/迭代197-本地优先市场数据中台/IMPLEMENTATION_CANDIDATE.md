@@ -1,18 +1,18 @@
 # 迭代 197 候选实现与验收状态
 
 > 记录日期：2026-09-10<br>
-> 文档性质：当前 `dev` 候选实现审计，不是生产发布证明。<br>
+> 文档性质：当前迭代 197 实现候选审计，不是生产发布证明。<br>
 > 设计基线：迭代 196 已冻结并已接入 `dev`；本候选尚未进入 release 签收，本文件不解除真实数据、数据库、浏览器和部署验收闸门。
 
 ## 1. 阅读规则和状态含义
 
-本文件把当前 `dev` 候选中已经存在的实现，与尚未完成的真实环境验收明确分开。`DONE` 只表示候选代码和其定向自动化验证已具备，不表示迁移、真实来源、生产数据库、浏览器 E2E 或策略工件验收已经完成。
+本文件把当前迭代 197 候选中已经存在的实现，与尚未完成的真实环境验收明确分开。`DONE` 只表示候选代码已具备；只有记录了本次命令和输出的定向自动化才可作为本地回归证据，二者都不表示迁移、真实来源、生产数据库、浏览器 E2E 或策略工件验收已经完成。
 
-当前 `/api/v1/data/kline` 是本轮明确保留的缺口：它仍在路由内直接调用 AkShare，未使用 `MarketDataAccessAuthorizer`、capability ledger、v2 exact contract、coverage planner、lease、receipt/publication 或本地 reread。它不属于下文任何 `DONE` 的 bars/legacy lookup 结论，也不能作为本地优先或已治理 K 线能力的证据。当前 `MarketDataFamilyContractVersion` 仍只允许全局 `market-data-family-v1`，registry 也硬比较该常量，尚未迁移为 server-registry 约束的 family/version pair。拟新增 `stock.kline_legacy / market-data-kline-v1` 仅是设计：当前没有该 pair、完整 OHLCV + `change_pct` contract、`Asia/Shanghai` date/window profile、accepted-event-key/field-quality/单页完整性校验、唯一序列化、route 或 bridge 实现。
+`/api/v1/data/kline` 已使用受治理 legacy bridge，保留旧 JSON 形状但不再在 handler 或 bridge 中直接 import/call AkShare。它先执行 `data:read`，以 server-owned `stock.kline_legacy / market-data-kline-v1` exact `qfq` contract 进入 `local_first`，缺口只经批准 route、lease、receipt 与 A/B publication 补齐，随后以同一 sealed request 的 `local_only` reread 做 coverage、event、field 与 serialization fail-closed 检查后投影。`MarketDataFamilyContractVersion` 和 registry 已按受限 pair 共存：保留 `{stock.realtime: market-data-family-v1}`，只为 `stock.kline_legacy` 允许 `market-data-kline-v1`，既有 v1 token/binding 不转换。该 family 是私有 bridge 输入，不出现在 public bundle，`POST /api/v1/data/queries` 与 `query-contract` 均不能选择或签发它。候选代码完成不等于真实 provider/数据库/浏览器/生产验收；这些外部证据仍是 `NOT_RUN` / `NO-GO`。
 
 | 状态 | 含义 |
 | --- | --- |
-| `DONE` | 当前候选已有实现和对应离线/定向测试证据；仍可能有外部验收未运行。 |
+| `DONE` | 当前候选已有实现；本地测试证据必须逐行写明已执行命令与输出，否则标为 `PENDING`。仍可能有外部验收未运行。 |
 | `IN_PROGRESS` | 已有基础或局部接线，但尚缺一个可安全启用的完整闭环。 |
 | `NOT_CONFIGURED` | 有明确数据合同或需求，但没有经批准的 source policy/route；页面必须显示未配置，不得猜测回退。 |
 | `BLOCKED` | 必须等待真实环境授权、外部服务或尚未实现的数据模型；不把本地候选代码当作解除条件。 |
@@ -27,7 +27,7 @@
 | 精确 identity、catalog、canonical series、revision、publication/read-back | `DONE` | 候选实现采用规范化 `md_*` 模型、不可变来源快照、发布回读与 PIT 可见性边界。 | `NOT_RUN`：未在共享 MySQL/PostgreSQL 实例执行迁移和恢复演练。 |
 | local-first 查询、singleflight、严格 PIT 和 cursor | `DONE` | 候选实现读取本地覆盖；已包含 follower 事务回滚后重读、refresh 不复用 local-first follower 的回归。 | `NOT_RUN`：未做真实并发、多进程、故障恢复压测。 |
 | bars 的 AkShare 显式 route registry | `DONE` | 仅允许经审核的精确标的/市场/频率路线；拒绝 sample、邻近标的和隐式 provider fallback。 | `NOT_RUN`：没有真实 AkShare 账户/网络/限流/字段漂移验收。 |
-| legacy `/api/v1/data/kline` 受治理兼容桥 | `NOT_CONFIGURED` | 当前 endpoint 直接 import/call AkShare。实现前必须先把全局 version 比较迁移为受限 server-registry pair，永久保留 `{stock.realtime: market-data-family-v1}`，且只允许拟新增 `{stock.kline_legacy: market-data-kline-v1}`；`query-bundle`/`query-contract` 只可签发正确 pair，既有 v1 token/binding 不转换，禁止客户端自由版本，所有错配须在 control-plane、事实和 provider I/O 前以 503 拒绝。该 family 的 full-OHLCV + `change_pct` contract、`Asia/Shanghai` 日/周/月 window 限额、accepted-event-key 精确相等、统一 field-quality、首请求无 cursor/单页完整窗口及唯一序列化均尚未实现；不能复用现有只保证 `close` 的 `stock.realtime`，也不能以 `MarketInstrumentService`、遗留专表或 provider DTO fallback。 | `NOT_RUN`：AC-197-031 / L-197-25 仅定义未来验证所需的 pair coexist、local hit、受控补齐、local-only reread、date/window、event-key/field-quality/cursor/serialization 拒绝和静态调用图证据。 |
+| legacy `/api/v1/data/kline` 受治理兼容桥 | `DONE`（候选代码；L-197-25 本地回归已记录） | 私有 `stock.kline_legacy / market-data-kline-v1` 已与 `{stock.realtime: market-data-family-v1}` 共存，且旧 v1 binding 不转换。仅 server-owned bridge 可解析 K 线 pair；public `/queries`、`query-contract` 与 bundle 不能选择或暴露它。legacy token 必须逐字符匹配唯一 current/published frozen `display_symbol` 或 `details.exchange_symbol`，多 canonical collision、pending/历史 revision 与大小写漂移均拒绝。bridge 强制 `data:read`、严格 `Asia/Shanghai` daily/weekly/monthly window、`local_first → receipt/publication（仅获批缺口）→ local_only reread`，并对 coverage/event/field/serialization 失败关闭。它不复用仅保证 `close` 的 `stock.realtime`，不以 `MarketInstrumentService`、遗留专表或 provider DTO fallback，也不在 handler/bridge 直接 import/call AkShare。 | `NOT_RUN / NO-GO`：本地 `282 passed, 3 warnings` 定向回归已记录；尚无真实 provider、独立验收数据库、浏览器或生产证据，且独立 local hit/受控补齐/local-only reread 仍待完成。 |
 | OpenBB 隔离 subprocess runner | `DONE` | JSON DTO、环境白名单、输出上限、超时进程组清理、raw payload 与规范化 records 的确定性投影均在候选中覆盖；父进程只接受绝对 Python + `-I -S` + 绝对 runner 脚本，runner 在 manifest/metadata/import 前 fail closed。重复字段、投影不一致与进程内过载稳定拒绝。协议候选只建模 bars；当前 permit matrix 为空，**没有**启用的 OpenBB route。 | `NOT_RUN`：未在 operator-owned OpenBB 环境、真实 extension、许可和凭据下执行；上限只覆盖单个 Python 进程，且 Python 启动参数不是 OS/容器隔离证明。 |
 | quote snapshot local-first 覆盖 | `DONE` | `SnapshotCoveragePlanner` 已避免把 quote 强行塞入交易日历；产品 SLA 以 `source_policy_version` 锚定，quote 响应会隐藏超过该 policy freshness 的记录。 | `NOT_RUN`：真实 snapshot feed、七资产 identity 映射和 freshness 行为尚未在真实来源验证。 |
 | F1 市场页控制面 | `DONE`（L-197-15，本地候选） | 已认证 capability 文档是 v2/bundle 唯一前端开关；有效 bundle 中 `unconfigured/not_applicable` 不走 legacy lookup，旧服务明确兼容错误才走无 bundle v2。静止候选的 capability API、cache 矩阵、选择器竞态和页面 v2 回归已通过。 | `NOT_RUN`：未在浏览器、真实后端、真实数据状态下 E2E。 |
@@ -37,13 +37,13 @@
 
 ## 3. 当前 21 个页面数据族
 
-“当前候选”描述 `market-data-family-bundle-v1` 的实际控制面状态。`*.realtime` 中的 `DONE（bars 兼容）` 只代表有 `market.bars` 的日/周/月 K 线兼容桥，不代表该页面已经有真实 quote snapshot。
+“当前候选”描述 `market-data-family-bundle-v1` 的实际控制面状态。`*.realtime` 中的 `DONE（bars 兼容）` 只代表有 `market.bars` 的日/周/月 K 线兼容桥，不代表该页面已经有真实 quote snapshot。私有 `stock.kline_legacy` 故意不在这张 21 个公共页面 family 表或 public bundle 中；它只服务于旧 `/api/v1/data/kline` bridge。
 
 第 2 节所列离线 schedule/shadow snapshot importer 的 `IN_PROGRESS` 只表示通用离线基础设施已存在；它不会把下表任何 `NOT_CONFIGURED` family 变成已批准的 provider route，也不构成真实采集或页面可用性证据。
 
 | family | 当前候选合同/状态 | F2 预期产品 | F2 实施状态 | 当前不能宣称的能力 |
 | --- | --- | --- | --- | --- |
-| `stock.realtime` | `DONE`：`market.bars` / `bars` / 1d、1w、1mo；仅 `close` contract，不是拟新增 K 线 family | `market.quote_snapshot` / snapshot | `NOT_CONFIGURED` | 实时逐笔/盘口或源 tick 时间，以及完整 OHLCV legacy `/kline` bridge。 |
+| `stock.realtime` | `DONE`：`market.bars` / `bars` / 1d、1w、1mo；仅 `close` contract；完整 OHLCV legacy `/kline` 仅由私有 `stock.kline_legacy` bridge 使用 | `market.quote_snapshot` / snapshot | `NOT_CONFIGURED` | 实时逐笔/盘口或源 tick 时间，以及将 private K 线 family 变成页面可选 public family。 |
 | `stock.valuation` | `NOT_CONFIGURED`：`market.valuation` / reference / 1d | 市值、PE、PB、`as_of`（公开合同仍未配置） | 私有 `market.stock_valuation_captured_snapshot / valuation_snapshot / snapshot` collector 已完成离线候选与 139 条聚焦回归；`event_at` 仅为精确 `collector_observed` capture instant，无 source `as_of`，无 public family/route/page | 将私有批次、历史 bars 或 collector 时间表述为实时、日线完整覆盖、来源 `as_of` 或页面可用。 |
 | `stock.liquidity` | `DONE`（候选 `ready`）：`market.liquidity` / reference series / 1d | volume、turnover、turnover rate | 候选 exact route；已执行真实零行子用例为 `FAIL`，其余真实验收仍 `NOT_RUN` | 真实来源、完整覆盖或写回已经通过。 |
 | `futures.realtime` | `DONE`：`market.bars` / 1d | `market.quote_snapshot` / snapshot | `NOT_CONFIGURED` | 现货 bid/ask、当前 OI。 |
@@ -125,9 +125,9 @@ capture envelope 固定 provider、`stock_zh_a_spot_em` endpoint、空 args/kwar
 
 本轮 P0 收口后，legacy `market-instruments/lookup` 只允许本地读取；任何 `refresh_online=true` 会在 warehouse/provider I/O 前以 HTTP 409 / `MARKET_DATA_LEGACY_ONLINE_REFRESH_DISABLED` 拒绝。股票历史也只从 `STOCK_ZH_A_HIST` 按精确代码读取，不再按日期扫描 `000001` / `600000` 专表。缺少 durable fetch-lease manager 的 v2 coverage gap 同样只返回本地状态和 `FETCH_LEASE_MANAGER_UNAVAILABLE`，不会激活 route、调用 provider 或持久化。L-197-22 的 682 项中台/配置与 119 项焦点回归只证明这些本地边界。
 
-`md_capability_ledger_entries` 已把逐 route 的 `declared / installed / verified / authorized / effective` lifecycle 作为 append-only durable evidence 落库，并以 descriptor/evidence hash 和有效窗口 fail closed；迁移不会 seed 活动记录，公开 API 也没有写入路径。环境变量、静态 policy、provider active、candidate artifact 与测试替身只能进一步收窄，不能替代该证据或单独启用 route。完整 source policy 继续控制本地事实重读，台账计算的 `online_route_ids` 只限制 provider I/O；所以当前没有运维记录时，所有 online route 仍默认关闭，OpenBB permit matrix 继续为空。`MarketDataQueryService` 的 lease 注入 seam 只用于受控测试组合，生产 API 由 `MarketDataStore.fetch_lease_manager()` 组成；下一轮应收紧该构造边界。旧 raw AkShare helper 图仍留在 `MarketInstrumentService` 内但已无 public `lookup` 调用边，未来必须删除、隔离或以同一拒绝边界封住，不能重新接线为 online fallback。与它分开的 `/api/v1/data/kline` 当前仍直接 import/call AkShare；这证明 `market-instruments/lookup` 的收口不能外推给 K 线接口。除非拟新增 family/contract 和 AC-197-031 的闭环真正实施，否则该接口不得使用 `MarketInstrumentService`、遗留专表或直接 AkShare 作为 fallback，也不得被归入本段的 route lifecycle 证据。
+`md_capability_ledger_entries` 已把逐 route 的 `declared / installed / verified / authorized / effective` lifecycle 作为 append-only durable evidence 落库，并以 descriptor/evidence hash 和有效窗口 fail closed；迁移不会 seed 活动记录，公开 API 也没有写入路径。环境变量、静态 policy、provider active、candidate artifact 与测试替身只能进一步收窄，不能替代该证据或单独启用 route。完整 source policy 继续控制本地事实重读，台账计算的 `online_route_ids` 只限制 provider I/O；所以当前没有运维记录时，所有 online route 仍默认关闭，OpenBB permit matrix 继续为空。`MarketDataQueryService` 的 lease 注入 seam 只用于受控测试组合，生产 API 由 `MarketDataStore.fetch_lease_manager()` 组成；下一轮应收紧该构造边界。旧 raw AkShare helper 图仍留在 `MarketInstrumentService` 内但已无 public `lookup` 调用边，未来必须删除、隔离或以同一拒绝边界封住，不能重新接线为 online fallback。与它分开的 `/api/v1/data/kline` 已通过 private K 线 bridge 进入同一 capability/route lifecycle；bridge handler 不直接 import/call AkShare，也不使用 `MarketInstrumentService`、遗留专表或 provider DTO fallback。AkShare 仅可在 v2 adapter 的精确 route 内执行，且真实 route lifecycle 证据仍未具备。
 
-因此，当前 K 线接口也不能继承 capability ledger 的 `DONE`、bars route registry 的 `DONE` 或现有 v1 cursor 页码行为。未来实现必须先完成受限 pair coexistence，随后以 server-owned `Asia/Shanghai` 窗口、完整 OHLCV + `change_pct` contract、持久化后的 `local_only` reread、`coverage.accepted_event_keys` 精确集合/顺序检查、统一 field-quality、首请求无 cursor 且单页完整、以及 dates/records/arrays/精度/volume 的唯一序列化不变量替换 direct-AkShare 路径；在这些条件和 AC-197-031 的新鲜证据出现前，状态仍是 `NOT_CONFIGURED` / `NOT_RUN`。
+K 线 bridge 已独立完成受限 pair coexistence，并不继承 `stock.realtime` 的仅 `close` 承诺或旧 v1 cursor 页码行为。它以 server-owned `Asia/Shanghai` 窗口、完整 OHLCV + `change_pct` contract、持久化后的 `local_only` reread、coverage expected/accepted/missing/gap 与 event-key 的精确检查、统一 field-quality、首请求无 cursor/单页完整窗口，以及 dates/records/arrays/精度/volume 的唯一序列化不变量替换 direct-AkShare 路径。当前状态是候选代码 `DONE`；在 AC-197-031 的本次最终本地回归和独立外部证据完成前，真实验证仍是 `NOT_RUN` / `NO-GO`。
 
 仍存在一个产品语义风险：页面 family 名称使用“实时”，而 bars compatibility 可能展示日线/周线/月线 close。F2 未完成前，页面不得把该 close 的 `event_at` 或本地 `available_at` 展示为“实时价格/实时更新时间”。启用 quote 前至少要满足以下条件：
 
@@ -156,7 +156,7 @@ capture envelope 固定 provider、`stock_zh_a_spot_em` endpoint、空 args/kwar
 | 真实数据库迁移与 PIT | `BLOCKED` | 196/197 共同 migration head、MySQL 精度/索引检查、升级/降级或恢复演练、publication recovery。 |
 | `/data/market` 浏览器灰度 | `NOT_RUN` | V1/V2 双路径、未配置展示、bars 非实时标签、网络观察和回滚。 |
 | `/investment/strategies` 工件绑定 | `BLOCKED` | 196 工件 schema 冻结后，严格 local provenance manifest/hash、回放和权限验证。 |
-| `/api/v1/data/kline` 受治理 compatibility bridge | `NOT_CONFIGURED / NOT_RUN` | 冻结候选上的受限 family/version pair migration、CN stock `Asia/Shanghai` 参数/窗口拒绝、完整 contract、local-first→persist→local-only reread、event-key/field-quality/serialization 拒绝矩阵，以及 direct AkShare/`MarketInstrumentService`/遗留专表静态禁止检查。当前 L-197-25 只是空证据位，不能替代这些证据。 |
+| `/api/v1/data/kline` 受治理 compatibility bridge | `DONE`（候选代码）；正式验收 `NOT_RUN / NO-GO` | 已实现受限 private family/version pair、CN stock `Asia/Shanghai` 参数/窗口拒绝、完整 contract、`data:read → local_first → persist（仅获批缺口）→ local_only reread`、coverage/event/field/serialization 拒绝和 direct AkShare/`MarketInstrumentService`/遗留专表禁止边界。L-197-25 已记录 `282 passed, 3 warnings` 的本地组合回归，不能将该候选代码表述为真实来源、浏览器或生产通过。 |
 | 生产验收 | `NOT_RUN` | 上述全部完成后，另行签署；本候选没有生产验收结论。 |
 
 ## 7. 与迭代 196 的交接条件
