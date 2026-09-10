@@ -76,4 +76,4 @@ flowchart LR
 | `/data/market` 本地命中/缺口补齐 | `NOT_RUN / NO-GO` | 本模块未注册 route 或页面查询。 |
 | `/investment/strategies` 严格 PIT 绑定 | `NOT_RUN / NO-GO` | 本模块未生成 research binding 或回测工件。 |
 
-后续实现必须先提交一个专门的 adapter 设计与审查包，再独立执行 `AC-197-032`。本文件和现有单元测试不能被用于解除任何真实数据、OpenBB、AkShare、数据库、页面或部署闸门。
+后续实现必须先提交一个专门的 adapter 设计与审查包，再独立执行 `AC-197-032`。延期发布这一前置能力的审查包见[适配器设计与审查包](LEGACY_STOCK_DAILY_IMPORT_ADAPTER_DESIGN_REVIEW.md)；它不解除任何真实数据、OpenBB、AkShare、数据库、页面或部署闸门。本文件和现有单元测试同样不能被用于解除这些闸门。
