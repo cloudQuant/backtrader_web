@@ -75,6 +75,8 @@ UTC = timezone.utc
 SERIES_SEMANTIC_VERSION = "market-data-series-v1"
 QUALITY_POLICY_VERSION = FIELD_QUALITY_POLICY_VERSION
 NORMALIZATION_VERSION = "market-data-store-v1"
+_OBSERVATION_REVISION_CONTRACT_V1 = "market-data-observation-revision-v1"
+_OBSERVATION_REVISION_CONTRACT_V2 = "market-data-observation-revision-v2"
 _MAX_PROVIDER_OBSERVATIONS = 50_000
 _REVISION_EVENT_QUERY_CHUNK_SIZE = 500
 MAX_SOURCE_PAYLOAD_BYTES = 10 * 1024 * 1024
@@ -180,7 +182,16 @@ class PersistedProviderFetch:
 
 @dataclass(frozen=True, slots=True)
 class LocalObservationRevision:
-    """One selected local observation revision with source provenance."""
+    """One selected local observation revision with source provenance.
+
+    ``source_available_at`` is the upstream provider's declared availability,
+    distinct from ``available_at``: the latter is the locally trusted receipt
+    time used for PIT eligibility.  Store reads populate and validate the
+    former only when a v2 revision identity seals it.  Historical v1 rows and
+    older synthetic DTO callers expose ``None`` instead; provenance-sensitive
+    consumers must reject that value rather than infer it from local receipt
+    time.
+    """
 
     revision_id: str
     source_snapshot_id: str
@@ -192,6 +203,7 @@ class LocalObservationRevision:
     revision_number: int
     quality: ObservationQuality
     fields: Mapping[str, object]
+    source_available_at: datetime | None = None
 
     def as_coverage_observation(self, context: ResolvedMarketDataQueryContext) -> Observation:
         """Convert the persisted row to the pure DTO consumed by coverage planning."""
@@ -202,6 +214,86 @@ class LocalObservationRevision:
             quality=self.quality,
             available_at=self.available_at,
         )
+
+
+@dataclass(frozen=True, slots=True)
+class CalendarTradingDayEvent:
+    """One exact published daily-grid EventKey with its source trading date."""
+
+    trading_date: date
+    event_key: EventKey
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.trading_date, date) or isinstance(self.trading_date, datetime):
+            raise TypeError("trading_date must be a date")
+        if not isinstance(self.event_key, EventKey):
+            raise TypeError("event_key must be an EventKey")
+
+
+@dataclass(frozen=True, slots=True)
+class CalendarTradingDayEvents:
+    """A source-authorized, PIT-frozen date-to-EventKey calendar projection.
+
+    A legacy importer may use ``trading_date`` only as a label.  The exact
+    EventKey, snapshot identity, visibility anchor, and coverage evidence stay
+    attached so a later writer cannot replace calendar semantics by a local
+    date/time conversion.
+    """
+
+    calendar_code: str
+    calendar_version: str
+    data_kind: str
+    frequency: str
+    calendar_snapshot_id: str | None
+    timezone_name: str
+    coverage_window: TimeWindow | None
+    visibility_anchor: MarketDataVisibilityAnchor
+    status: CalendarStatus
+    reason: str | None
+    events: tuple[CalendarTradingDayEvent, ...] = ()
+
+    def __post_init__(self) -> None:
+        _require_text(self.calendar_code, field_name="calendar_code", maximum=128)
+        _require_text(self.calendar_version, field_name="calendar_version", maximum=128)
+        _require_text(self.data_kind, field_name="data_kind", maximum=64)
+        _require_text(self.frequency, field_name="frequency", maximum=16)
+        _require_text(self.timezone_name, field_name="timezone_name", maximum=128)
+        if not isinstance(self.visibility_anchor, MarketDataVisibilityAnchor):
+            raise TypeError("visibility_anchor must be a MarketDataVisibilityAnchor")
+        status = CalendarStatus(self.status)
+        if self.coverage_window is not None and not isinstance(self.coverage_window, TimeWindow):
+            raise TypeError("coverage_window must be a TimeWindow")
+        if self.calendar_snapshot_id is not None:
+            _require_text(
+                self.calendar_snapshot_id,
+                field_name="calendar_snapshot_id",
+                maximum=36,
+            )
+        if self.reason is not None:
+            _require_text(self.reason, field_name="reason", maximum=128)
+        events = tuple(self.events)
+        if any(not isinstance(item, CalendarTradingDayEvent) for item in events):
+            raise TypeError("events must contain CalendarTradingDayEvent values")
+        ordered_events = tuple(sorted(events, key=lambda item: item.trading_date))
+        if len({item.trading_date for item in ordered_events}) != len(ordered_events):
+            raise ValueError("trading dates must map one-to-one to EventKeys")
+        if len({item.event_key for item in ordered_events}) != len(ordered_events):
+            raise ValueError("EventKeys must map one-to-one to trading dates")
+        if status is CalendarStatus.KNOWN:
+            if (
+                self.calendar_snapshot_id is None
+                or self.coverage_window is None
+                or self.reason is not None
+            ):
+                raise ValueError("known trading-day evidence requires snapshot and coverage")
+        elif (
+            ordered_events
+            or self.calendar_snapshot_id is not None
+            or self.coverage_window is not None
+        ):
+            raise ValueError("unknown trading-day evidence cannot expose partial calendar data")
+        object.__setattr__(self, "status", status)
+        object.__setattr__(self, "events", ordered_events)
 
 
 @dataclass(frozen=True, slots=True)
@@ -672,8 +764,7 @@ class MarketDataStore:
             # provider happens to use the same identifier.
             statement = statement.where(
                 MdSourceSnapshot.source_id.in_(sorted(allowed_source_ids)),
-                MdSourceSnapshot.source_authorization_state
-                == SOURCE_AUTHORIZATION_STATE_VERIFIED,
+                MdSourceSnapshot.source_authorization_state == SOURCE_AUTHORIZATION_STATE_VERIFIED,
             ).execution_options(populate_existing=True)
         rows = list((await self._db.execute(statement)).all())
 
@@ -846,10 +937,7 @@ class MarketDataStore:
             except MarketDataStoreError:
                 saw_unverified_source = True
                 continue
-            if (
-                allowed_source_ids is not None
-                and source_registry_id not in allowed_source_ids
-            ):
+            if allowed_source_ids is not None and source_registry_id not in allowed_source_ids:
                 saw_unauthorized_source = True
                 continue
             rows.append((row, visible_at, visibility_sequence))
@@ -972,6 +1060,241 @@ class MarketDataStore:
             frequency=context.query.frequency or "snapshot",
             allowed_source_registry_ids=allowed_source_registry_ids,
         )
+
+    async def read_calendar_trading_day_events_for_context(
+        self,
+        context: ResolvedMarketDataQueryContext,
+        *,
+        knowledge_cutoff: datetime,
+        visibility_anchor: MarketDataVisibilityAnchor | None = None,
+        allowed_source_registry_ids: frozenset[str] | None = None,
+    ) -> CalendarTradingDayEvents:
+        """Return a one-to-one daily source-date map from one governed snapshot.
+
+        This is deliberately narrower than :meth:`read_calendar_for_context`.
+        It is for controlled legacy imports that must preserve the source table's
+        ``DATE`` label while using the exact published EventKey.  It reuses the
+        regular calendar read first, then requires that its proof comes from one
+        visible snapshot; composed rolling segments remain unavailable here
+        because no importer may erase their snapshot boundary.
+        """
+        _assert_context_integrity(context)
+        anchor = await self._resolve_visibility_anchor(
+            knowledge_cutoff=knowledge_cutoff,
+            visibility_anchor=visibility_anchor,
+        )
+        code = context.coverage_identity.market
+        window = TimeWindow(start_at=context.query.start, end_at=context.query.end)
+        calendar = await self.read_calendar_for_context(
+            context,
+            knowledge_cutoff=knowledge_cutoff,
+            visibility_anchor=anchor,
+            allowed_source_registry_ids=allowed_source_registry_ids,
+        )
+        if calendar.status is not CalendarStatus.KNOWN:
+            return _unknown_calendar_trading_day_events(
+                calendar=calendar,
+                visibility_anchor=anchor,
+                data_kind=context.query.data_kind,
+                frequency=context.query.frequency or "snapshot",
+                reason=calendar.reason or "CALENDAR_INTEGRITY",
+            )
+        if calendar.calendar_version.startswith("composed:"):
+            return _unknown_calendar_trading_day_events(
+                calendar=calendar,
+                visibility_anchor=anchor,
+                data_kind=context.query.data_kind,
+                frequency=context.query.frequency or "snapshot",
+                reason="CALENDAR_TRADING_DAY_SNAPSHOT_AMBIGUOUS",
+            )
+
+        snapshot, source_reason = await self._read_visible_calendar_snapshot_for_trading_days(
+            calendar_code=code,
+            calendar_version=calendar.calendar_version,
+            visibility_anchor=anchor,
+            allowed_source_registry_ids=allowed_source_registry_ids,
+        )
+        if snapshot is None:
+            return _unknown_calendar_trading_day_events(
+                calendar=calendar,
+                visibility_anchor=anchor,
+                data_kind=context.query.data_kind,
+                frequency=context.query.frequency or "snapshot",
+                reason=source_reason or "CALENDAR_VERSION_NOT_FOUND",
+            )
+        try:
+            events = await self._read_calendar_trading_day_events(
+                snapshot=snapshot,
+                window=window,
+                data_kind=context.query.data_kind,
+                frequency=context.query.frequency or "snapshot",
+                expected_event_keys=calendar.event_keys,
+            )
+        except MarketDataStoreError as exc:
+            return _unknown_calendar_trading_day_events(
+                calendar=calendar,
+                visibility_anchor=anchor,
+                data_kind=context.query.data_kind,
+                frequency=context.query.frequency or "snapshot",
+                reason=exc.code,
+            )
+        return CalendarTradingDayEvents(
+            calendar_code=calendar.calendar_id,
+            calendar_version=calendar.calendar_version,
+            data_kind=context.query.data_kind,
+            frequency=context.query.frequency or "snapshot",
+            calendar_snapshot_id=snapshot.id,
+            timezone_name=calendar.timezone_name,
+            coverage_window=calendar.coverage_window,
+            visibility_anchor=anchor,
+            status=CalendarStatus.KNOWN,
+            reason=None,
+            events=events,
+        )
+
+    async def _read_visible_calendar_snapshot_for_trading_days(
+        self,
+        *,
+        calendar_code: str,
+        calendar_version: str,
+        visibility_anchor: MarketDataVisibilityAnchor,
+        allowed_source_registry_ids: frozenset[str] | None,
+    ) -> tuple[MdCalendarSnapshot | None, str | None]:
+        """Revalidate the single snapshot boundary retained by a known calendar."""
+        allowed_source_ids = _normalize_allowed_source_registry_ids(allowed_source_registry_ids)
+        rows = list(
+            (
+                await self._db.execute(
+                    select(
+                        MdCalendarSnapshot,
+                        MdPublication.published_at,
+                        MdPublication.visibility_sequence,
+                    )
+                    .join(
+                        MdPublication,
+                        and_(
+                            MdPublication.entity_type == PUBLICATION_CALENDAR_SNAPSHOT,
+                            MdPublication.entity_id == MdCalendarSnapshot.id,
+                        ),
+                    )
+                    .where(
+                        MdCalendarSnapshot.calendar_code == calendar_code,
+                        MdCalendarSnapshot.calendar_version == calendar_version,
+                        MdPublication.entity_sha256 == MdCalendarSnapshot.snapshot_sha256,
+                        MdPublication.published_at.is_not(None),
+                        MdPublication.visibility_sequence.is_not(None),
+                        _publication_is_visible_at_anchor(visibility_anchor),
+                    )
+                )
+            ).all()
+        )
+        saw_unverified = False
+        saw_unauthorized = False
+        verified: list[MdCalendarSnapshot] = []
+        for snapshot, published_at, visibility_sequence in rows:
+            if published_at is None or not _is_visibility_sequence(visibility_sequence):
+                continue
+            visible_at = _stored_utc(published_at, field_name="calendar publication")
+            if not visibility_anchor.permits(
+                visible_at=visible_at,
+                visibility_sequence=visibility_sequence,
+            ):
+                continue
+            try:
+                source_registry_id = _verified_calendar_source_registry_id(snapshot)
+            except MarketDataStoreError:
+                saw_unverified = True
+                continue
+            if allowed_source_ids is not None and source_registry_id not in allowed_source_ids:
+                saw_unauthorized = True
+                continue
+            verified.append(snapshot)
+        if len(verified) == 1:
+            return verified[0], None
+        if saw_unauthorized:
+            return None, "CALENDAR_SOURCE_UNAUTHORIZED"
+        if saw_unverified:
+            return None, "CALENDAR_SOURCE_UNVERIFIED"
+        if len(verified) > 1:
+            return None, "CALENDAR_TRADING_DAY_SNAPSHOT_AMBIGUOUS"
+        return None, "CALENDAR_VERSION_NOT_FOUND"
+
+    async def _read_calendar_trading_day_events(
+        self,
+        *,
+        snapshot: MdCalendarSnapshot,
+        window: TimeWindow,
+        data_kind: str,
+        frequency: str,
+        expected_event_keys: Sequence[EventKey],
+    ) -> tuple[CalendarTradingDayEvent, ...]:
+        """Bind each selected daily EventKey to exactly one persisted date label."""
+        expected = tuple(expected_event_keys)
+        if len(set(expected)) != len(expected):
+            raise MarketDataStoreError("CALENDAR_TRADING_DAY_EVENT_INTEGRITY")
+        expected_set = frozenset(expected)
+        rows = list(
+            (
+                await self._db.execute(
+                    select(MdCalendarEvent)
+                    .where(
+                        MdCalendarEvent.calendar_snapshot_id == snapshot.id,
+                        MdCalendarEvent.event_start.is_not(None),
+                        MdCalendarEvent.event_start >= window.start_at,
+                        MdCalendarEvent.event_start < window.end_at,
+                    )
+                    .order_by(
+                        MdCalendarEvent.trading_date,
+                        MdCalendarEvent.event_start,
+                        MdCalendarEvent.id,
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        mapped: list[CalendarTradingDayEvent] = []
+        for row in rows:
+            if not row.is_trading_day or row.event_type != "session":
+                continue
+            try:
+                descriptor = calendar_coverage_descriptor(row.event_payload_json)
+            except ValueError as exc:
+                raise MarketDataStoreError("CALENDAR_TRADING_DAY_EVENT_INTEGRITY") from exc
+            if descriptor != (data_kind, frequency):
+                continue
+            if row.event_start is None or not isinstance(row.trading_date, date):
+                raise MarketDataStoreError("CALENDAR_TRADING_DAY_EVENT_INTEGRITY")
+            event_key = EventKey(_stored_utc(row.event_start, field_name="calendar event_start"))
+            try:
+                expected_coverage_key = calendar_coverage_event_key(
+                    event_start=event_key.event_at,
+                    data_kind=data_kind,
+                    frequency=frequency,
+                )
+            except ValueError as exc:
+                raise MarketDataStoreError("CALENDAR_TRADING_DAY_EVENT_INTEGRITY") from exc
+            if row.coverage_event_key != expected_coverage_key or event_key not in expected_set:
+                raise MarketDataStoreError("CALENDAR_TRADING_DAY_EVENT_INTEGRITY")
+            mapped.append(
+                CalendarTradingDayEvent(
+                    trading_date=row.trading_date,
+                    event_key=event_key,
+                )
+            )
+        try:
+            result = tuple(mapped)
+            by_date = {item.trading_date: item.event_key for item in result}
+            if len(by_date) != len(result):
+                raise ValueError("duplicate trading date")
+            if frozenset(by_date.values()) != expected_set:
+                raise ValueError("expected EventKey set mismatch")
+            return tuple(
+                CalendarTradingDayEvent(trading_date=trading_date, event_key=by_date[trading_date])
+                for trading_date in sorted(by_date)
+            )
+        except (TypeError, ValueError) as exc:
+            raise MarketDataStoreError("CALENDAR_TRADING_DAY_EVENT_INTEGRITY") from exc
 
     async def _find_series(
         self,
@@ -1097,9 +1420,7 @@ class MarketDataStore:
     ) -> _ValidatedSourceAuthorization:
         """Validate one source grant using its explicit provider identity."""
         if source_authorization is None:
-            reason = _normalize_unverified_compatibility_reason(
-                unverified_compatibility_reason
-            )
+            reason = _normalize_unverified_compatibility_reason(unverified_compatibility_reason)
             return _ValidatedSourceAuthorization(
                 state=SOURCE_AUTHORIZATION_STATE_UNVERIFIED_COMPATIBILITY,
                 descriptor_sha256=None,
@@ -1271,9 +1592,7 @@ class MarketDataStore:
             fetch_lease_key_sha256=(
                 fetch_lease.lease_key_sha256 if fetch_lease is not None else None
             ),
-            fetch_lease_fence_token=(
-                fetch_lease.fence_token if fetch_lease is not None else None
-            ),
+            fetch_lease_fence_token=(fetch_lease.fence_token if fetch_lease is not None else None),
             payload_sha256=validated.payload_sha256,
             request_json=request_json,
             payload_manifest_json=_json_safe_mapping(
@@ -1348,16 +1667,6 @@ class MarketDataStore:
         revision_number: int,
         local_received_at: datetime,
     ) -> MdObservationRevision:
-        revision_payload = {
-            "revision_contract_version": "market-data-observation-revision-v1",
-            "series_semantic_key_sha256": series.semantic_key_sha256,
-            "source_snapshot_id": source_snapshot.id,
-            "event_at": observation.event_at.isoformat(),
-            "available_at": observation.available_at.isoformat(),
-            "fields_sha256": observation.fields_sha256,
-            "quality_status": observation.quality.value,
-            "revision_number": revision_number,
-        }
         provenance = {
             "provider_id": result.provider_id,
             "source_revision": result.source_revision,
@@ -1376,8 +1685,16 @@ class MarketDataStore:
             fields_json=dict(observation.fields),
             fields_sha256=observation.fields_sha256,
             revision_number=revision_number,
-            revision_key_sha256=_sha256(
-                _canonical_json(revision_payload, field_name="revision identity")
+            revision_key_sha256=_observation_revision_identity_sha256(
+                contract_version=_OBSERVATION_REVISION_CONTRACT_V2,
+                series_semantic_key_sha256=series.semantic_key_sha256,
+                source_snapshot_id=source_snapshot.id,
+                event_at=observation.event_at,
+                available_at=observation.available_at,
+                fields_sha256=observation.fields_sha256,
+                quality=observation.quality,
+                revision_number=revision_number,
+                source_available_at=observation.source_available_at,
             ),
             normalization_version=NORMALIZATION_VERSION,
             provenance_json=_json_safe_mapping(provenance, field_name="revision provenance"),
@@ -2141,9 +2458,7 @@ def _verified_source_authorization_registry_id(
         ):
             raise MarketDataStoreError("SOURCE_AUTHORIZATION_RECEIPT_INTEGRITY")
         receipt_at = _stored_utc(snapshot.retrieved_at, field_name="source snapshot retrieved_at")
-        if effective_from > receipt_at or (
-            effective_to is not None and effective_to < receipt_at
-        ):
+        if effective_from > receipt_at or (effective_to is not None and effective_to < receipt_at):
             raise MarketDataStoreError("SOURCE_AUTHORIZATION_RECEIPT_INTEGRITY")
         if retention_expires_at is not None and retention_expires_at < receipt_at:
             raise MarketDataStoreError("SOURCE_AUTHORIZATION_RECEIPT_INTEGRITY")
@@ -2375,6 +2690,108 @@ def _provider_request_matches_context(
     )
 
 
+def _revision_source_available_at(
+    row: MdObservationRevision,
+    *,
+    available_at: datetime,
+) -> datetime:
+    """Recover one upstream availability claim without weakening local PIT evidence."""
+    try:
+        provenance = _json_safe_mapping(
+            row.provenance_json,
+            field_name="persisted observation provenance",
+        )
+        raw_source_available_at = provenance.get("provider_available_at")
+        if not isinstance(raw_source_available_at, str):
+            raise ValueError("provider_available_at must be an ISO-8601 string")
+        source_available_at = _parse_timestamp(
+            raw_source_available_at,
+            field_name="provider_available_at",
+        )
+    except (MarketDataStoreError, TypeError, ValueError) as exc:
+        raise MarketDataStoreError("LOCAL_OBSERVATION_INTEGRITY") from exc
+    if source_available_at > available_at:
+        raise MarketDataStoreError("LOCAL_OBSERVATION_INTEGRITY")
+    return source_available_at
+
+
+def _observation_revision_identity_sha256(
+    *,
+    contract_version: str,
+    series_semantic_key_sha256: str,
+    source_snapshot_id: str,
+    event_at: datetime,
+    available_at: datetime,
+    fields_sha256: str,
+    quality: ObservationQuality,
+    revision_number: int,
+    source_available_at: datetime | None,
+) -> str:
+    """Build the immutable identity for one normalized observation revision."""
+    revision_payload: dict[str, object] = {
+        "revision_contract_version": contract_version,
+        "series_semantic_key_sha256": series_semantic_key_sha256,
+        "source_snapshot_id": source_snapshot_id,
+        "event_at": event_at.isoformat(),
+        "available_at": available_at.isoformat(),
+        "fields_sha256": fields_sha256,
+        "quality_status": quality.value,
+        "revision_number": revision_number,
+    }
+    if contract_version == _OBSERVATION_REVISION_CONTRACT_V2:
+        if source_available_at is None:
+            raise MarketDataStoreError("LOCAL_OBSERVATION_INTEGRITY")
+        revision_payload["provider_available_at"] = source_available_at.isoformat()
+    elif contract_version != _OBSERVATION_REVISION_CONTRACT_V1:
+        raise MarketDataStoreError("LOCAL_OBSERVATION_INTEGRITY")
+    return _sha256(_canonical_json(revision_payload, field_name="revision identity"))
+
+
+def _verified_revision_source_available_at(
+    row: MdObservationRevision,
+    *,
+    context: ResolvedMarketDataQueryContext,
+    event_at: datetime,
+    available_at: datetime,
+    fields_sha256: str,
+    quality: ObservationQuality,
+    revision_number: int,
+) -> datetime | None:
+    """Return a sealed upstream timestamp, or ``None`` for a verified v1 identity."""
+    series_semantic_key_sha256 = MarketDataStore.series_identity(context).semantic_key_sha256
+    v1_identity = _observation_revision_identity_sha256(
+        contract_version=_OBSERVATION_REVISION_CONTRACT_V1,
+        series_semantic_key_sha256=series_semantic_key_sha256,
+        source_snapshot_id=row.source_snapshot_id,
+        event_at=event_at,
+        available_at=available_at,
+        fields_sha256=fields_sha256,
+        quality=quality,
+        revision_number=revision_number,
+        source_available_at=None,
+    )
+    if row.revision_key_sha256 == v1_identity:
+        # The v1 contract did not bind provider availability.  Even a
+        # syntactically valid timestamp in its free-form provenance is not a
+        # verified source fact and must stay unavailable to strict consumers.
+        return None
+    source_available_at = _revision_source_available_at(row, available_at=available_at)
+    v2_identity = _observation_revision_identity_sha256(
+        contract_version=_OBSERVATION_REVISION_CONTRACT_V2,
+        series_semantic_key_sha256=series_semantic_key_sha256,
+        source_snapshot_id=row.source_snapshot_id,
+        event_at=event_at,
+        available_at=available_at,
+        fields_sha256=fields_sha256,
+        quality=quality,
+        revision_number=revision_number,
+        source_available_at=source_available_at,
+    )
+    if row.revision_key_sha256 != v2_identity:
+        raise MarketDataStoreError("LOCAL_OBSERVATION_INTEGRITY")
+    return source_available_at
+
+
 def _decode_local_revision(
     row: MdObservationRevision,
     *,
@@ -2409,6 +2826,15 @@ def _decode_local_revision(
         raise MarketDataStoreError("LOCAL_OBSERVATION_INTEGRITY")
     if not isinstance(row.revision_number, int) or row.revision_number < 1:
         raise MarketDataStoreError("LOCAL_OBSERVATION_INTEGRITY")
+    source_available_at = _verified_revision_source_available_at(
+        row,
+        context=context,
+        event_at=event_at,
+        available_at=available_at,
+        fields_sha256=row.fields_sha256,
+        quality=quality,
+        revision_number=row.revision_number,
+    )
     return LocalObservationRevision(
         revision_id=row.id,
         source_snapshot_id=row.source_snapshot_id,
@@ -2420,6 +2846,7 @@ def _decode_local_revision(
         revision_number=row.revision_number,
         quality=quality,
         fields=MappingProxyType(fields),
+        source_available_at=source_available_at,
     )
 
 
@@ -2659,6 +3086,30 @@ def _unknown_timezone(rows: Sequence[MdCalendarSnapshot]) -> str:
             continue
         return row.timezone_name
     return "UTC"
+
+
+def _unknown_calendar_trading_day_events(
+    *,
+    calendar: CalendarSnapshot,
+    visibility_anchor: MarketDataVisibilityAnchor,
+    data_kind: str,
+    frequency: str,
+    reason: str,
+) -> CalendarTradingDayEvents:
+    """Return a typed absence without leaking a partial date-to-key map."""
+    return CalendarTradingDayEvents(
+        calendar_code=calendar.calendar_id,
+        calendar_version=calendar.calendar_version,
+        data_kind=data_kind,
+        frequency=frequency,
+        calendar_snapshot_id=None,
+        timezone_name=calendar.timezone_name,
+        coverage_window=None,
+        visibility_anchor=visibility_anchor,
+        status=CalendarStatus.UNKNOWN,
+        reason=_require_text(reason, field_name="calendar trading-day reason", maximum=128),
+        events=(),
+    )
 
 
 def _parse_timestamp(value: str, *, field_name: str) -> datetime:

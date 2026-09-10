@@ -75,6 +75,16 @@ legacy projection 是一个完整性断言，不是对 v2 行的格式转换：�
 5. 本地 coverage 完整时只读已发布的本地 revision；coverage 有缺口时，只有 v2 source policy、online capability、lease 和 provider preflight 全部允许才可补齐。成功结果必须经过 receipt、事务 A/B publication、持久化后 `local_only` 重读和完整 coverage 复核。该 reread 必须同时满足 `coverage=complete`、`expected_event_keys == accepted_event_keys`、无 missing key、无 gap，且无重复 canonical observation event-key 序列与 `coverage.accepted_event_keys` 逐项精确相等，所有 accepted event 均在 sealed window 内；首请求无 cursor、`next_cursor=null` 并在一页覆盖完整 server-owned legacy window。不得把 `next_cursor=null` 单独当成完整性证明。任何 coverage 未完成、日历未知、event-key 缺失/额外/重复、required field 缺失或不通过统一 field-quality、序列化不变量违反、未发布 revision、首请求带 cursor、返回 cursor 或无法在一次 legacy 响应中完整投影的结果一律失败关闭为 HTTP 503，不得截断、拼接或直接返回内存 provider DTO。
 6. 最后仅从已重读且通过 event-set、field-quality 和唯一序列化完整性断言的 v2 observations 投影 legacy JSON；`ohlc` 的既有顺序固定为 `[open, close, low, high]`，`change` 保持百分比点的两位小数 JSON number，volume 不可截断。实现不得直接 import/call AkShare、不得调用 `MarketInstrumentService` 作为 local 或 online fallback，也不得读取旧专表来绕过 v2 的授权、来源、quality 或 provenance 规则。
 
+### FR-01B A 股历史日线遗留表的受控离线导入
+
+`REQ-197-LSD-01`：`STOCK_ZH_A_HIST` 只能作为离线证据输入，不能按表名、`created_at` 或调用方 attestation 升级为 AkShare 事实。历史写入链会混合 Eastmoney/AkShare、Tencent 和 trends fallback；在证据不完整时，页面、策略和 v2 读取必须保持本地未覆盖、未配置或拒绝状态。
+
+`REQ-197-LSD-02`：未来导入必须在任何表 I/O 前获得独立 gate 的当前 source registry/provider/route/物理 schema **和 read-authorization receipt**，并只读取固定八列投影。选定原始行的 `source_batch_sha256` 必须与解释这些行的 `import_scope_sha256` 分离；后者至少绑定表、投影/映射、source revision、calendar PIT/EventKey 映射、identity revision/metadata version、日线 `bars/qfq` 合同及 read-authorization receipt identity。source-batch receipt 必须回显该 identity，不能将同一行集跨读前授权重放。
+
+`REQ-197-LSD-03`：任何 canonical 写入必须使用逐 target resolved context、current authorization、lease、source authorization 和 post-commit publication；gate 必须在写前重新授权，并为每个 target 签发 write permit。permit 同时绑定 canonical ID、read authorization、write authorization descriptor、context digest、lease key/fence、`source_batch_sha256`、`import_scope_sha256` 和 `source_receipt_id`，不得跨 target、raw batch、scope 或 receipt 重放。writer 必须把每条 `(canonical_id,event_at)` 绑定到唯一的 observation revision/source snapshot；同一 observation revision 不得服务两条 bar，且每个 source snapshot 对应的 publication receipt `visible_at` 不得早于可信 local receipt；仅聚合 ID 集合不能证明对应关系。写后只可由可见本次 publication receipt 的 `local_only` PIT reread 证明。调用方 `retrieved_at` 不是事实 availability；sealed source receipt 的 `extracted_at` 必须作为 Provider observation 的上游 availability 写入 Store v2 revision identity：`market-data-observation-revision-v2` 的 `revision_key_sha256` 必须封存规范化 UTC `provider_available_at`，Store reread 必须重建并验证该 identity 后才返回 `LocalObservationRevision.source_available_at`。缺失、坏格式、无时区、晚于 local `available_at` 或被改为另一合法更早 timestamp 的 v2 provenance 均失败关闭；没有该封存字段的历史 v1 identity 只能返回 `source_available_at=None`，future adapter 必须拒绝它，不能补推来源时间。实际 canonical `available_at` 必须保留 `persist_provider_result(received_at=...)` 传入的可信本地 receipt，不能采用其返回的 publication 时间，二者不得互相回填。concrete adapter 还必须在认证前维持 deferred-publication/quarantine，避免 reread 失败的事实短暂可读。
+
+`REQ-197-LSD-04`：在 concrete gate、canonical adapter、迁移、独立 MySQL/PostgreSQL 验收与真实来源许可证完成前，禁止注册 provider route、scheduler、页面 fallback 或策略工件。完整设计、回归和 `AC-197-032` 判定见 [A 股历史日线遗留表受控导入边界](LEGACY_STOCK_DAILY_IMPORT_GUARD.md)。
+
 ### FR-02 本地优先读取
 
 作为页面调用方，我选择下列模式之一：
