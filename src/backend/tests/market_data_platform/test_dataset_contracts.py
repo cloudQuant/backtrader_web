@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import replace
 from types import SimpleNamespace
 
@@ -9,8 +10,10 @@ import pytest
 from pydantic import ValidationError
 
 from app.api.data.deps import get_market_data_access_authorizer
+from app.api.data.queries import get_market_data_capability_evaluation
 from app.main import app
 from app.schemas.market_data_platform import (
+    MarketDataCapabilitiesResponse,
     MarketDataFamilyContractResponse,
     MarketDataQueryBundleRequest,
     MarketDataQueryRequest,
@@ -67,6 +70,30 @@ def permitted_market_data_access() -> None:
         yield
     finally:
         app.dependency_overrides.pop(get_market_data_access_authorizer, None)
+
+
+@pytest.fixture
+def set_effective_query_capability() -> Callable[[bool], None]:
+    """Isolate static-bundle serialization from the durable-ledger reader.
+
+    The ledger's fail-closed read is covered in ``test_capability_ledger``.
+    These tests only prove that a pre-evaluated effective state controls the
+    static data-family bundle and never constructs a query service.
+    """
+
+    def set_effective(query_v2_enabled: bool) -> None:
+        evaluation = SimpleNamespace(
+            response=MarketDataCapabilitiesResponse(
+                query_v2_enabled=query_v2_enabled,
+                online_fetch_enabled=False,
+                research_cache_fill_enabled=False,
+                research_backtest_bridge_enabled=False,
+            )
+        )
+        app.dependency_overrides[get_market_data_capability_evaluation] = lambda: evaluation
+
+    yield set_effective
+    app.dependency_overrides.pop(get_market_data_capability_evaluation, None)
 
 
 def _query_payload(**changes: object) -> dict[str, object]:
@@ -191,9 +218,9 @@ def test_ready_entries_are_only_explicitly_reviewed_product_contracts() -> None:
         ("1d",),
         ("open", "high", "low", "close"),
     )
-    assert {
-        entry.family_id for entry in not_ready
-    } == _FAMILY_IDS - {entry.family_id for entry in ready}
+    assert {entry.family_id for entry in not_ready} == _FAMILY_IDS - {
+        entry.family_id for entry in ready
+    }
 
 
 def test_registry_accepts_only_the_whitelisted_stock_liquidity_ready_shape() -> None:
@@ -544,6 +571,7 @@ async def test_query_bundle_endpoint_is_disabled_with_the_v2_rollout_flag(
     auth_headers,
     monkeypatch,
     permitted_market_data_access,
+    set_effective_query_capability,
 ) -> None:
     """The static control plane shares the existing explicit v2 rollout gate."""
     import app.api.data.queries as queries
@@ -553,6 +581,7 @@ async def test_query_bundle_endpoint_is_disabled_with_the_v2_rollout_flag(
         "get_settings",
         lambda: SimpleNamespace(MARKET_DATA_QUERY_V2_ENABLED=False),
     )
+    set_effective_query_capability(False)
 
     response = await client.get(
         "/api/v1/data/market-instruments/query-bundle",
@@ -570,6 +599,7 @@ async def test_query_bundle_endpoint_returns_static_contracts_without_a_query_se
     auth_headers,
     monkeypatch,
     permitted_market_data_access,
+    set_effective_query_capability,
 ) -> None:
     """The bundle endpoint has no provider/service dependency and exposes all three stock cards."""
     import app.api.data.queries as queries
@@ -579,6 +609,7 @@ async def test_query_bundle_endpoint_returns_static_contracts_without_a_query_se
         "get_settings",
         lambda: SimpleNamespace(MARKET_DATA_QUERY_V2_ENABLED=True),
     )
+    set_effective_query_capability(True)
 
     def unexpected_query_service(*_args: object, **_kwargs: object) -> object:
         raise AssertionError("query bundle must not construct a data query service")
@@ -626,6 +657,7 @@ async def test_query_bundle_endpoint_fails_closed_for_unknown_or_extra_query_axe
     auth_headers,
     monkeypatch,
     permitted_market_data_access,
+    set_effective_query_capability,
 ) -> None:
     """No arbitrary provider, endpoint, or nearest family may be selected by a bundle request."""
     import app.api.data.queries as queries
@@ -635,6 +667,7 @@ async def test_query_bundle_endpoint_fails_closed_for_unknown_or_extra_query_axe
         "get_settings",
         lambda: SimpleNamespace(MARKET_DATA_QUERY_V2_ENABLED=True),
     )
+    set_effective_query_capability(True)
     unknown = await client.get(
         "/api/v1/data/market-instruments/query-bundle",
         params={"asset_type": "stock", "family_id": "stock.unknown"},
@@ -664,6 +697,7 @@ async def test_query_bundle_endpoint_marks_cross_asset_filter_not_applicable(
     auth_headers,
     monkeypatch,
     permitted_market_data_access,
+    set_effective_query_capability,
 ) -> None:
     """A known product from another asset type is explicit and still non-executable."""
     import app.api.data.queries as queries
@@ -673,6 +707,7 @@ async def test_query_bundle_endpoint_marks_cross_asset_filter_not_applicable(
         "get_settings",
         lambda: SimpleNamespace(MARKET_DATA_QUERY_V2_ENABLED=True),
     )
+    set_effective_query_capability(True)
     response = await client.get(
         "/api/v1/data/market-instruments/query-bundle",
         params={"asset_type": "stock", "family_id": "futures.inventory"},

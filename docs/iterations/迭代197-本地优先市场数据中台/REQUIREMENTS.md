@@ -135,15 +135,17 @@ run/task 续跑来源必须是服务端可验证的不可篡改记录。每条�
 
 1. 仅允许 `mode=local_first`、`consistency=display`、无 `knowledge_cutoff`、无分页 cursor；任一组合在服务执行、目录、主数据或 provider I/O 前拒绝。
 2. 它需要 `RESEARCH`、`RESEARCH_ONLY` 或 `DERIVED_RESEARCH` 的当前来源用途授权，不能借用 `DISPLAY` 许可；成功 receipt 的冻结 authorization provenance 必须明确记录 `purpose=research_cache_fill`。
-3. 只有有效服务端能力 `research_cache_fill_enabled=true` 时才允许通过默认 source policy；其有效条件为 `MARKET_DATA_QUERY_V2_ENABLED=true && MARKET_DATA_ONLINE_FETCH_ENABLED=true && MARKET_DATA_RESEARCH_CACHE_FILL_ENABLED=true`，与 `MARKET_DATA_RESEARCH_BACKTEST_BRIDGE_ENABLED` 无关。浏览器不能开启写路径。`data:read`、当前 registry、精确 route、lease、fence 与事务 A/B 仍照常生效。
+3. 只有有效服务端能力 `research_cache_fill_enabled=true` 时才允许通过默认 source policy；它要求对应的环境 kill switch 均为真，且当前 append-only capability ledger 中的 rollout 与精确 route 同时具有匹配 descriptor 的 `declared / installed / verified / authorized` 有效记录。环境变量只能收窄 ledger 的 durable 结论，不能单独授予能力；这与 `MARKET_DATA_RESEARCH_BACKTEST_BRIDGE_ENABLED` 无关。浏览器不能开启写路径。`data:read`、当前 registry、精确 route、lease、fence 与事务 A/B 仍照常生效。
 4. 回应中存在 provider fetch 或来源回执本身不构成补齐成功。只有持久化后重新本地读取且 `coverage.status=complete` 的响应，才能报告本地重新读取的覆盖、warning、source snapshot 和 revision 证据，并把结果记为“已补齐并持久化”。页面在显示该 receipt 或成功状态前，必须逐项校验响应的 canonical identity、dataset、asset type、主数据版本、data kind、frequency、source policy 与 family/version 均等于同一服务端签发 contract；任何不兼容响应都不得成为补齐成功或严格复读的输入。若 `coverage.status` 不完整，即使已有一个或多个持久化来源回执，也只能显示覆盖不足警告，不能修改 `aiResearchPrecheckResult.passed`、启动研究 run，或成为迭代 196 的 PIT、holdout、回测和审批输入。页面可在 bridge 关闭时继续执行 `local_only + research + strict` 的本地 v2 复读；后续正式研究仍必须由 196 服务端工件链以自己的 strict/PIT 请求重新绑定证据。
 
 ### FR-05 数据源
 
 作为运维人员，我可以为逻辑数据集配置批准的来源策略和数据提供方。首批适配器为：
 
+每个 rollout capability 与 source-policy route 都必须由 `md_capability_ledger_entries` 中按 `(capability_id, revision)` 追加的 durable 记录证明其 `declared`、`installed`、`verified`、`authorized` 与有限有效期。记录必须绑定当前 server-owned descriptor 和 evidence 的 SHA-256；缺失、重叠、过期、descriptor 不匹配、任一 lifecycle 位为假或 kill switch 关闭时均 fail closed。迁移不会写入活动记录，公开 API 也没有写入该账本的路径。完整审核 source policy 始终用于本地事实读取；只有由台账算出的 `online_route_ids` 可限制 provider I/O，因此撤销或过期 route 不会让已有、仍获当前来源授权的本地事实失去可重读性。
+
 - **AkShare**：独立、显式的函数路由表；调用在线函数使用线程隔离；不得调用遗留样例回退服务。
-- **OpenBB**：独立 JSON 子进程协议；Web 进程不导入 OpenBB 扩展；请求 ID、协议版本、超时、输出大小、返回时间窗、去重、有界预规范化原始 records 封套与 SHA-256 全部校验。父进程只传递最小环境变量白名单，并要求运维显式提供独立、绝对且已存在的 `OPENBB_RUNNER_HOME` 与 `OPENBB_RUNNER_WORKDIR`；任一变量缺失、非法、指向主进程工作目录、继承主进程 HOME 或落入系统临时根目录时稳定拒绝，不存在临时目录回退。这只能收窄继承环境，不能证明文件系统或身份隔离。生产运行器必须由独立 service account 或容器托管，且不能读取应用工作树、主应用数据库凭据或其他应用密钥。
+- **OpenBB**：独立 JSON 子进程协议；Web 进程不导入 OpenBB 扩展；请求 ID、协议版本、超时、输出大小、返回时间窗、去重、有界预规范化原始 records 封套与 SHA-256 全部校验。`OPENBB_MARKET_DATA_RUNNER` 必须精确解析为“绝对 Python 可执行文件、`-I`、`-S`、绝对 runner 脚本路径”四段，不能有 wrapper、模块模式或额外参数；runner 的每种 CLI 入口均须在读取 permit/artifact manifest、distribution metadata、candidate identity 或动态 OpenBB import 前验证该隔离启动条件。父进程只传递最小环境变量白名单，并要求运维显式提供独立、绝对且已存在的 `OPENBB_RUNNER_HOME` 与 `OPENBB_RUNNER_WORKDIR`；任一变量缺失、非法、指向主进程工作目录、继承主进程 HOME 或落入系统临时根目录时稳定拒绝，不存在临时目录回退。这只能收窄继承环境，不能证明文件系统、身份或 OS 级出网隔离。生产运行器必须由独立 service account 或容器托管，且不能读取应用工作树、主应用数据库凭据或其他应用密钥。
 
 所有七种资产类型在 AkShare 路由表中显式声明。股票、期货、债券、基金和外汇具有已审核的有界历史路由；期权只允许 CFFEX 的 `IO`、`HO`、`MO` 精确合约日线，绝不做主力、期权链或附近合约回退；加密资产在 AkShare 中明确不可用。没有安全、精确、受限时间窗实现的组合必须返回不支持，不能伪装为已有数据。OpenBB 只可补充其明确批准的资产/市场组合，最终可用性仍由本地扩展、来源许可和运行器配置决定。
 

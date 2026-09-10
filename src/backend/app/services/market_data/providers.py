@@ -12,6 +12,7 @@ import asyncio
 import hashlib
 import json
 import os
+import re
 import secrets
 import shlex
 import signal
@@ -554,18 +555,39 @@ def _is_safe_openbb_runner_file(value: object, *, executable: bool) -> bool:
     return not executable or os.access(resolved, os.X_OK)
 
 
-def _is_safe_openbb_runner_command(command: tuple[str, ...]) -> bool:
-    """Require a small, shell-free, absolute runner command grammar.
+def _is_safe_openbb_trusted_python(value: object) -> bool:
+    """Accept one absolute Python interpreter selected by the runner operator.
 
-    The operator may run one dedicated executable, or one absolute executable
-    with one absolute script argument.  Permitting arbitrary interpreter
-    switches, module names, relative paths, or wrappers would make the
-    configured command an unreviewed program-selection mechanism.
+    The web process cannot prove a binary's provenance from its pathname.
+    Requiring an absolute executable with a Python interpreter basename keeps
+    the remaining trust decision explicit in the operator-owned deployment
+    configuration and rejects shells, wrappers, and arbitrary executables.
     """
-    if not command or not _is_safe_openbb_runner_file(command[0], executable=True):
+    if not _is_safe_openbb_runner_file(value, executable=True):
         return False
-    return len(command) == 1 or (
-        len(command) == 2 and _is_safe_openbb_runner_file(command[1], executable=False)
+    try:
+        executable_name = Path(str(value)).resolve(strict=True).name
+    except (OSError, RuntimeError, ValueError):
+        return False
+    return re.fullmatch(r"python(?:\d+(?:\.\d+)*)?", executable_name) is not None
+
+
+def _is_safe_openbb_runner_command(command: tuple[str, ...]) -> bool:
+    """Require only ``<absolute python> -I -S <absolute runner.py>``.
+
+    ``-I`` prevents startup from honoring ``PYTHONPATH`` and other Python
+    environment selectors; ``-S`` prevents ``site`` and ``sitecustomize``
+    execution.  The runner also checks those flags itself before any possible
+    OpenBB dynamic import, so an operator cannot restore ordinary interpreter
+    startup through a future artifact or route permit change.  No shell,
+    wrapper, arbitrary flag, module mode, or relative path is accepted.
+    """
+    return (
+        len(command) == 4
+        and _is_safe_openbb_trusted_python(command[0])
+        and command[1] == "-I"
+        and command[2] == "-S"
+        and _is_safe_openbb_runner_file(command[3], executable=False)
     )
 
 
@@ -583,7 +605,9 @@ class OpenBBSubprocessProvider:
         if command is not None and not command:
             raise ValueError("runner command cannot be empty")
         if command is not None and not _is_safe_openbb_runner_command(command):
-            raise ValueError("runner command must be an explicit absolute executable or script")
+            raise ValueError(
+                "runner command must be '<absolute python> -I -S <absolute runner.py>'"
+            )
         if timeout_seconds <= 0:
             raise ValueError("timeout_seconds must be positive")
         if (
@@ -604,7 +628,7 @@ class OpenBBSubprocessProvider:
         *,
         max_concurrent_runs: int = DEFAULT_OPENBB_MAX_CONCURRENT_RUNS,
     ) -> OpenBBSubprocessProvider:
-        """Build the adapter from an operator-defined executable command only."""
+        """Build the adapter from the exact isolated Python runner command."""
         raw_command = os.getenv("OPENBB_MARKET_DATA_RUNNER", "").strip()
         if not raw_command:
             return cls(command=None, max_concurrent_runs=max_concurrent_runs)

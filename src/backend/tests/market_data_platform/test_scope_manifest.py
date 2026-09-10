@@ -44,6 +44,7 @@ def _copy_attested_sources(destination_root: Path) -> None:
         "src/backend/app/schemas/market_data_platform.py",
         "src/backend/app/services/market_data/legacy_contract.py",
         "src/frontend/src/views/data/useDataPage.ts",
+        "src/frontend/src/api/marketData.ts",
     ):
         source = PROJECT_ROOT / relative_path
         destination = destination_root / relative_path
@@ -102,9 +103,15 @@ def test_scope_manifest_is_deterministic_and_carries_all_twenty_one_family_rows(
     assert rows["stock.liquidity"]["frontend"]["v2_query_periods"] == ["daily"]
     assert rows["fund.liquidity"]["frontend"]["v2_query_periods"] == ["daily"]
     assert rows["fx.range"]["frontend"]["v2_query_periods"] == ["daily"]
+    assert rows["stock.realtime"]["frontend"]["v2_query_available"] is True
+    assert rows["stock.realtime"]["frontend"]["v2_query_frequencies"] == ["1d", "1w", "1mo"]
     assert rows["crypto.realtime"]["frontend"]["v2_query_periods"] == []
+    assert rows["crypto.realtime"]["frontend"]["v2_query_available"] is False
+    assert rows["crypto.realtime"]["frontend"]["v2_query_frequencies"] == []
     assert rows["stock.valuation"]["frontend"]["v2_query_periods"] == []
+    assert rows["stock.valuation"]["frontend"]["v2_query_available"] is False
     assert rows["option.derivative"]["frontend"]["v2_query_periods"] == []
+    assert rows["option.derivative"]["frontend"]["v2_query_available"] is False
     assert rows["option.derivative"]["frontend"]["declared_compatibility_periods"] == []
     validate_scope_manifest(manifest=first, project_root=PROJECT_ROOT)
 
@@ -163,12 +170,36 @@ def test_frontend_parser_fails_when_the_v2_family_selection_rule_is_no_longer_pr
 ) -> None:
     """A source hash alone is insufficient if the narrowly reviewed rule vanishes."""
     copied_root = tmp_path / "copied-project"
+    _copy_attested_sources(copied_root)
     frontend_path = copied_root / "src/frontend/src/views/data/useDataPage.ts"
-    frontend_path.parent.mkdir(parents=True, exist_ok=True)
     frontend_path.write_text(
-        (PROJECT_ROOT / "src/frontend/src/views/data/useDataPage.ts")
-        .read_text(encoding="utf-8")
-        .replace("family.status === 'ready'", "family.status === 'approved'", 1),
+        frontend_path.read_text(encoding="utf-8").replace(
+            "isMarketDataQueryBundleFamilyExecutable(family)",
+            "isMarketDataQueryBundleFamilyExecutable(candidate)",
+            1,
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ScopeManifestError) as rejected:
+        inspect_frontend_market_input_surface(copied_root)
+
+    assert rejected.value.code == "SCOPE_MANIFEST_FRONTEND_V2_RULE_UNREADABLE"
+
+
+def test_frontend_parser_fails_when_the_public_ready_kind_allowlist_drifts(
+    tmp_path: Path,
+) -> None:
+    """A valuation/B2 promotion must update the scope generator explicitly."""
+    copied_root = tmp_path / "copied-project"
+    _copy_attested_sources(copied_root)
+    api_path = copied_root / "src/frontend/src/api/marketData.ts"
+    api_path.write_text(
+        api_path.read_text(encoding="utf-8").replace(
+            "family.data_kind === 'quote_snapshot'",
+            "family.data_kind === 'valuation_snapshot'",
+            1,
+        ),
         encoding="utf-8",
     )
 

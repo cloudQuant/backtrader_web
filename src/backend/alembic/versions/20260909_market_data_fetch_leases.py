@@ -77,7 +77,7 @@ def _ddl_maintenance_fence() -> Iterator[None]:
         bind.execute(sa.text(f"SET LOCAL lock_timeout = '{_LOCK_TIMEOUT_SECONDS}s'"))
         yield
         return
-    if bind.dialect.name != "mysql":
+    if bind.dialect.name not in {"mysql", "mariadb"}:
         yield
         return
     if os.getenv(_MYSQL_MAINTENANCE_FENCE_ENV) != "confirmed":
@@ -99,7 +99,9 @@ def _ddl_maintenance_fence() -> Iterator[None]:
     try:
         yield
     finally:
-        bind.execute(sa.text("SELECT RELEASE_LOCK(:lock_name)"), {"lock_name": _MYSQL_MIGRATION_LOCK_NAME})
+        bind.execute(
+            sa.text("SELECT RELEASE_LOCK(:lock_name)"), {"lock_name": _MYSQL_MIGRATION_LOCK_NAME}
+        )
 
 
 def _require_absent_or_exact_table(bind: sa.Connection) -> bool:
@@ -192,7 +194,11 @@ def _require_absent_or_exact_table(bind: sa.Connection) -> bool:
 
 def _normalized_expression(expression: object) -> str:
     normalized = "".join(str(expression).split()).lower()
-    while normalized.startswith("(") and normalized.endswith(")") and _outer_parentheses_wrap(normalized):
+    while (
+        normalized.startswith("(")
+        and normalized.endswith(")")
+        and _outer_parentheses_wrap(normalized)
+    ):
         normalized = normalized[1:-1]
     return normalized
 
@@ -237,8 +243,7 @@ def _require_source_snapshots(bind: sa.Connection) -> None:
 def _source_snapshot_columns(bind: sa.Connection) -> dict[str, dict[str, object]]:
     _require_source_snapshots(bind)
     return {
-        str(column["name"]): column
-        for column in sa.inspect(bind).get_columns(_SOURCE_SNAPSHOTS)
+        str(column["name"]): column for column in sa.inspect(bind).get_columns(_SOURCE_SNAPSHOTS)
     }
 
 
@@ -259,8 +264,7 @@ def _ensure_source_binding_columns(bind: sa.Connection) -> None:
             or not bool(existing.get("nullable"))
         ):
             raise RuntimeError(
-                "MARKET_DATA_FETCH_LEASE_SCHEMA_DRIFT: "
-                f"{_SOURCE_SNAPSHOTS}.{column_name}"
+                f"MARKET_DATA_FETCH_LEASE_SCHEMA_DRIFT: {_SOURCE_SNAPSHOTS}.{column_name}"
             )
 
 
@@ -275,8 +279,7 @@ def _ensure_source_binding_check(bind: sa.Connection) -> None:
     if actual is not None:
         if actual != expected:
             raise RuntimeError(
-                "MARKET_DATA_FETCH_LEASE_SCHEMA_DRIFT: "
-                f"{_SOURCE_BINDING_CHECK}={actual!r}"
+                f"MARKET_DATA_FETCH_LEASE_SCHEMA_DRIFT: {_SOURCE_BINDING_CHECK}={actual!r}"
             )
         return
     if bind.dialect.name == "sqlite":
@@ -335,6 +338,16 @@ def _drop_source_binding_columns_and_constraint(bind: sa.Connection) -> None:
         op.drop_column(_SOURCE_SNAPSHOTS, column)
 
 
+def _lock_for_downgrade(bind: sa.Connection) -> None:
+    """Prevent PostgreSQL evidence writers from racing irreversible checks."""
+    if bind.dialect.name != "postgresql":
+        return
+    tables = [_SOURCE_SNAPSHOTS]
+    if sa.inspect(bind).has_table(_TABLE):
+        tables.append(_TABLE)
+    bind.execute(sa.text(f"LOCK TABLE {', '.join(tables)} IN ACCESS EXCLUSIVE MODE"))
+
+
 def _assert_downgrade_safe(bind: sa.Connection) -> None:
     if not sa.inspect(bind).has_table(_TABLE):
         return
@@ -342,8 +355,7 @@ def _assert_downgrade_safe(bind: sa.Connection) -> None:
     issued = bind.execute(sa.select(table.c.lease_key_sha256).limit(1)).scalar()
     if issued is not None:
         raise RuntimeError(
-            "MARKET_DATA_FETCH_LEASE_DOWNGRADE_BLOCKED: "
-            "issued fence generations must not be erased"
+            "MARKET_DATA_FETCH_LEASE_DOWNGRADE_BLOCKED: issued fence generations must not be erased"
         )
 
 
@@ -390,7 +402,17 @@ def downgrade() -> None:
             "offline SQL cannot prove issued fence generations are absent"
         )
     bind = op.get_bind()
+    if bind.dialect.name in {"mysql", "mariadb"}:
+        # MySQL-family DDL implicitly commits.  The migration GET_LOCK is not
+        # acquired by normal receipt writers, so it cannot make the empty
+        # proof and subsequent DROP atomic.  Lease generations are evidence;
+        # refuse rollback rather than risk erasing a concurrent generation.
+        raise RuntimeError(
+            "MARKET_DATA_FETCH_LEASE_DOWNGRADE_BLOCKED: "
+            "MySQL cannot atomically prove lease evidence is absent"
+        )
     with _ddl_maintenance_fence():
+        _lock_for_downgrade(bind)
         _assert_source_binding_downgrade_safe(bind)
         _assert_downgrade_safe(bind)
         _drop_source_binding_columns_and_constraint(bind)

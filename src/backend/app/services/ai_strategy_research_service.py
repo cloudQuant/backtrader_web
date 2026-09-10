@@ -86,13 +86,12 @@ def _trusted_historic_run_record_for_stop(
 
     verified: dict[str, AIStrategyResearchRunRecord] = {}
     for raw in raw_candidates:
-        if (
-            str(raw.get("run_id") or "").strip() != normalized_run_id
-            or not verify_ai_research_run_record(
-                raw,
-                user_id=user_id,
-                workspace_id=workspace_id,
-            )
+        if str(
+            raw.get("run_id") or ""
+        ).strip() != normalized_run_id or not verify_ai_research_run_record(
+            raw,
+            user_id=user_id,
+            workspace_id=workspace_id,
         ):
             continue
         record = _coerce_research_run_record_raw(raw)
@@ -212,15 +211,14 @@ def _paper_runtime_metrics_observation_is_trusted(
 def _apply_market_data_research_binding_guard(
     request: AIStrategyResearchRunRequest,
 ) -> AIStrategyResearchRunRequest:
-    """Require a structurally valid server-issued v2 binding when enabled.
+    """Require a structurally valid server-issued binding when one is requested.
 
     The API/task boundary obtains this binding from the strict local-only
     market-data service before any workspace exists.  Direct service callers
-    still need a fail-closed guard, but this layer deliberately does not claim
-    to revalidate database facts, artifact bytes, or the signature; the
-    isolated runtime loader performs those checks immediately before it reads
-    the bound CSV.  Validation windows may narrow the server-bound interval
-    only through the runtime's signed binding semantics.
+    still need a fail-closed structural guard, but this layer deliberately
+    does not infer durable approval from settings or a prior request.  The
+    isolated runtime loader performs the capability-context, binding HMAC,
+    and artifact checks immediately before it reads the bound CSV.
     """
     data_config = request.data_config
     has_market_data_bridge_markers = isinstance(data_config, dict) and any(
@@ -229,16 +227,10 @@ def _apply_market_data_research_binding_guard(
         or str(key).casefold().startswith(_MARKET_DATA_BINDING_KEY_PREFIX)
         for key in data_config
     )
-    settings = get_settings()
-    bridge_enabled = bool(getattr(settings, "MARKET_DATA_QUERY_V2_ENABLED", False)) and bool(
-        getattr(settings, "MARKET_DATA_RESEARCH_BACKTEST_BRIDGE_ENABLED", False)
-    )
-    if not bridge_enabled:
-        if has_market_data_bridge_markers:
-            raise ValueError("MARKET_DATA_BRIDGE_DISABLED")
+    if not has_market_data_bridge_markers:
         return request
 
-    if not isinstance(data_config, dict):
+    if not isinstance(data_config, dict):  # Defensive: markers require a mapping today.
         raise ValueError("MARKET_DATA_BINDING_REQUIRED")
 
     binding_keys = {
@@ -2565,7 +2557,9 @@ class AIStrategyResearchService:
             runtime_started_at=runtime_started_at,
         )
         ready_for_live = (
-            runtime_evidence_trusted and bool(evaluations) and all(item.passed for item in evaluations)
+            runtime_evidence_trusted
+            and bool(evaluations)
+            and all(item.passed for item in evaluations)
         )
         review_status = _paper_review_status(
             record,
@@ -2754,7 +2748,10 @@ class AIStrategyResearchService:
                 exc_info=True,
             )
             return False, None, None, "paper_runtime_observation_missing"
-        if not isinstance(instance, dict) or str(instance.get("status") or "").strip().casefold() != "running":
+        if (
+            not isinstance(instance, dict)
+            or str(instance.get("status") or "").strip().casefold() != "running"
+        ):
             return False, None, None, "paper_runtime_not_running"
         if not instance.get("pid"):
             return False, None, None, "paper_runtime_observation_missing"
@@ -2803,8 +2800,7 @@ class AIStrategyResearchService:
             launch_id,
         )
         if current_observation is None or (
-            _paper_runtime_observation_from_handoff(record.paper_handoff)
-            != current_observation
+            _paper_runtime_observation_from_handoff(record.paper_handoff) != current_observation
         ):
             raise ValueError("AI_RESEARCH_PAPER_RUNTIME_OBSERVATION_STALE")
 
@@ -2977,7 +2973,9 @@ class AIStrategyResearchService:
             runtime_started_at=runtime_started_at,
         )
         ready_for_live = (
-            runtime_evidence_trusted and bool(evaluations) and all(item.passed for item in evaluations)
+            runtime_evidence_trusted
+            and bool(evaluations)
+            and all(item.passed for item in evaluations)
         )
         review_status = _paper_review_status(
             record,
@@ -3609,9 +3607,13 @@ class AIStrategyResearchService:
                 allow_server_owned_ai_research_live_handoff_start=True,
                 live_handoff_pre_start_validator=validate_immediately_before_live_spawn,
             )
-            started = next((item for item in results if item.get("unit_id") == unlocked_unit.id), None)
+            started = next(
+                (item for item in results if item.get("unit_id") == unlocked_unit.id), None
+            )
             if not isinstance(started, dict) or str(started.get("status") or "") != "running":
-                raise ValueError(str((started or {}).get("error") or "Failed to start live handoff"))
+                raise ValueError(
+                    str((started or {}).get("error") or "Failed to start live handoff")
+                )
         finally:
             # Preserve the post-approval execution fence even after a valid
             # start. The manager owns the running process; browser routes may
@@ -3763,7 +3765,10 @@ class AIStrategyResearchService:
                     updated_record,
                 )
                 return updated_record
-            research_workspace, signed_record = await self._persist_historic_live_handoff_stop_record(
+            (
+                research_workspace,
+                signed_record,
+            ) = await self._persist_historic_live_handoff_stop_record(
                 user_id,
                 research_workspace,
                 updated_record,
@@ -3809,9 +3814,7 @@ class AIStrategyResearchService:
         try:
             pending_record = await persist_stop_state(pending_record)
         except Exception as exc:
-            raise ValueError(
-                "AI_RESEARCH_LIVE_HANDOFF_DEACTIVATION_STATE_PERSIST_FAILED"
-            ) from exc
+            raise ValueError("AI_RESEARCH_LIVE_HANDOFF_DEACTIVATION_STATE_PERSIST_FAILED") from exc
 
         async def record_stop_failure(reason: str) -> None:
             """Persist a non-authorizing retry state without reviving approval."""
@@ -4178,11 +4181,14 @@ class AIStrategyResearchService:
         run_id: str,
         *,
         research_workspace_id: str | None,
-    ) -> tuple[
-        WorkspaceResponse,
-        AIStrategyResearchRunRecord,
-        tuple[WorkspaceResponse, StrategyUnitResponse],
-    ] | None:
+    ) -> (
+        tuple[
+            WorkspaceResponse,
+            AIStrategyResearchRunRecord,
+            tuple[WorkspaceResponse, StrategyUnitResponse],
+        ]
+        | None
+    ):
         """Recover a historic signed source solely to stop a sealed live unit.
 
         ``last_run`` intentionally has stronger rules than history: it is the
@@ -4232,9 +4238,7 @@ class AIStrategyResearchService:
             if sealed_target is None:
                 continue
             _, unit = sealed_target
-            anchor = (
-                dict(unit.unit_settings or {}).get(AI_RESEARCH_LIVE_HANDOFF_UNIT_ANCHOR_FIELD)
-            )
+            anchor = dict(unit.unit_settings or {}).get(AI_RESEARCH_LIVE_HANDOFF_UNIT_ANCHOR_FIELD)
             source_signature = (
                 str(anchor.get("source_run_signature") or "").strip()
                 if isinstance(anchor, dict)
@@ -4668,7 +4672,10 @@ class AIStrategyResearchService:
             )
 
             async with async_session_maker() as db:
-                service = build_market_data_research_binding_service(db)
+                service = await build_market_data_research_binding_service(
+                    db,
+                    user_id=user_id,
+                )
                 await service.attach_runtime_binding_consumer(
                     user_id=user_id,
                     binding_id=binding_id,
@@ -5513,9 +5520,7 @@ class AIStrategyResearchService:
             if (
                 not run_id
                 or source_signature not in trusted_run_signatures.get(run_id, set())
-                or not (
-                    run_id in changed_run_ids or _freshened_run_record_needs_persist(record)
-                )
+                or not (run_id in changed_run_ids or _freshened_run_record_needs_persist(record))
             ):
                 continue
             replacements[(run_id, source_signature)] = sign_ai_research_run_record(
@@ -5546,8 +5551,8 @@ class AIStrategyResearchService:
                             workspace_id=str(workspace.id),
                         )
                         and _raw_run_record_needs_freshness_persist(
-                        item,
-                        force=run_id in changed_run_ids,
+                            item,
+                            force=run_id in changed_run_ids,
                         )
                     ):
                         next_runs.append(dict(replacement))

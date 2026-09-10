@@ -239,6 +239,89 @@ class MdCalendarImportLock(Base):
     created_at = Column(PITDateTime, default=_utcnow, nullable=False)
 
 
+class MdCapabilityLedgerEntry(Base):
+    """Append-only deployment attestation for one market-data capability.
+
+    A rollout setting can only narrow this durable record.  It can never turn
+    a missing, stale, ambiguous, or semantically mismatched record into an
+    effective capability.  Each revision retains the reviewed descriptor and
+    expiration evidence needed for a later reader to distinguish source-code
+    declaration, installed runtime, real verification, and deployment
+    authorization.
+    """
+
+    __tablename__ = "md_capability_ledger_entries"
+    __table_args__ = (
+        UniqueConstraint(
+            "capability_id",
+            "revision",
+            name="uq_md_capability_ledger_revision",
+        ),
+        CheckConstraint(
+            "length(capability_id) > 0",
+            name="ck_md_capability_ledger_capability_nonempty",
+        ),
+        CheckConstraint(
+            "revision >= 1",
+            name="ck_md_capability_ledger_revision_positive",
+        ),
+        CheckConstraint(
+            f"length(descriptor_sha256) = {_SHA256_LENGTH}",
+            name="ck_md_capability_ledger_descriptor_sha256_length",
+        ),
+        CheckConstraint(
+            f"length(evidence_sha256) = {_SHA256_LENGTH}",
+            name="ck_md_capability_ledger_evidence_sha256_length",
+        ),
+        CheckConstraint(
+            "effective_until IS NULL OR effective_until > effective_from",
+            name="ck_md_capability_ledger_effective_window",
+        ),
+        CheckConstraint(
+            "installed_capability = false OR declared_capability = true",
+            name="ck_md_capability_ledger_install_requires_declaration",
+        ),
+        CheckConstraint(
+            "(verified_capability = false AND verified_at IS NULL AND verified_until IS NULL) "
+            "OR (verified_capability = true AND installed_capability = true "
+            "AND verified_at IS NOT NULL AND verified_until IS NOT NULL "
+            "AND verified_until > verified_at)",
+            name="ck_md_capability_ledger_verification_state",
+        ),
+        CheckConstraint(
+            "(authorized_capability = false AND authorized_at IS NULL "
+            "AND authorized_until IS NULL) OR "
+            "(authorized_capability = true AND verified_capability = true "
+            "AND authorized_at IS NOT NULL AND authorized_until IS NOT NULL "
+            "AND authorized_until > authorized_at)",
+            name="ck_md_capability_ledger_authorization_state",
+        ),
+        Index(
+            "ix_md_capability_ledger_current",
+            "capability_id",
+            "effective_from",
+            "effective_until",
+        ),
+    )
+
+    id = Column(String(36), primary_key=True, default=_uuid)
+    capability_id = Column(String(192), nullable=False)
+    revision = Column(Integer, nullable=False)
+    descriptor_sha256 = Column(String(_SHA256_LENGTH), nullable=False)
+    evidence_sha256 = Column(String(_SHA256_LENGTH), nullable=False)
+    declared_capability = Column(Boolean, nullable=False, default=False)
+    installed_capability = Column(Boolean, nullable=False, default=False)
+    verified_capability = Column(Boolean, nullable=False, default=False)
+    verified_at = Column(PITDateTime, nullable=True)
+    verified_until = Column(PITDateTime, nullable=True)
+    authorized_capability = Column(Boolean, nullable=False, default=False)
+    authorized_at = Column(PITDateTime, nullable=True)
+    authorized_until = Column(PITDateTime, nullable=True)
+    effective_from = Column(PITDateTime, nullable=False)
+    effective_until = Column(PITDateTime, nullable=True)
+    created_at = Column(PITDateTime, default=_utcnow, nullable=False)
+
+
 class MdFetchLease(Base):
     """Durable owner/fence state for one normalized market-data fetch gap.
 
@@ -1125,6 +1208,7 @@ for _immutable_model in (
     MdCalendarSnapshot,
     MdCalendarEvent,
     MdInstrumentIdentityRevision,
+    MdCapabilityLedgerEntry,
     MdPublication,
     MdResearchDataBindingScope,
     MdResearchDataBindingConsumer,

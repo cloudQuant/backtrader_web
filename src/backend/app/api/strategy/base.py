@@ -6,13 +6,10 @@ import logging
 import typing
 import uuid
 from functools import lru_cache
-from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 
 from app.api.deps import get_current_user
-from app.config import get_settings
-from app.db.database import get_db
 from app.schemas.ai_strategy_research import (
     AIStrategyLiveHandoffApprovalRequest,
     AIStrategyLiveHandoffPackage,
@@ -118,11 +115,7 @@ def get_ai_strategy_research_tasks() -> typing.Any:
 
 
 class _MarketDataResearchBindingRequestFactory:
-    """Open a v2 database session only while the enabled bridge binds a request."""
-
-    def __init__(self, *, artifact_root: Path, signing_key: str) -> None:
-        self._artifact_root = artifact_root
-        self._signing_key = signing_key
+    """Build a request-scoped binding service only for a binding-intent request."""
 
     async def bind_request(
         self,
@@ -131,50 +124,45 @@ class _MarketDataResearchBindingRequestFactory:
         request: AIStrategyResearchRunRequest,
         intent_id: str,
     ) -> AIStrategyResearchRunRequest:
-        """Compose and use the v2 service inside one short-lived DB session."""
-        database_dependency = get_db()
-        try:
-            db = await database_dependency.__anext__()
-            from app.api.data.base import get_legacy_market_data_query_contract_resolver
-            from app.api.data.deps import get_market_data_access_authorizer
-            from app.api.data.queries import get_market_data_query_service
-            from app.services.market_data.research_binding import MarketDataResearchBindingService
+        """Evaluate authorization and durable capability evidence before binding."""
+        from app.db.database import async_session_maker
+        from app.services.market_data.research_binding import (
+            build_market_data_research_binding_service,
+        )
 
-            service = MarketDataResearchBindingService(
+        async with async_session_maker() as db:
+            service = await build_market_data_research_binding_service(
                 db,
-                get_market_data_query_service(db),
-                get_legacy_market_data_query_contract_resolver(db),
-                get_market_data_access_authorizer(db),
-                self._artifact_root,
-                binding_signing_key=self._signing_key,
+                user_id=user_id,
             )
             return await service.bind_request(
                 user_id=user_id,
                 request=request,
                 intent_id=intent_id,
             )
-        except StopAsyncIteration as exc:
-            raise RuntimeError("AI research market-data database dependency is unavailable") from exc
-        finally:
-            await database_dependency.aclose()
 
 
-def get_ai_strategy_research_market_data_binding_service() -> typing.Any | None:
-    """Build the enabled Iteration 197 research-data request factory.
+def get_ai_strategy_research_market_data_binding_service() -> typing.Any:
+    """Return a factory whose request path reads durable capability evidence.
 
-    V2 imports, database sessions, and provider-policy construction are all
-    delayed until ``bind_request`` and therefore absent from legacy API calls
-    while the default-disabled bridge remains off.
+    Constructing this small object does not enable a feature or open a
+    database session.  A request with a market-data binding intent performs
+    authorization and ledger evaluation inside ``bind_request``; legacy
+    requests remain entirely off that path.
     """
-    settings = get_settings()
-    if not (
-        bool(getattr(settings, "MARKET_DATA_QUERY_V2_ENABLED", False))
-        and bool(getattr(settings, "MARKET_DATA_RESEARCH_BACKTEST_BRIDGE_ENABLED", False))
-    ):
-        return None
-    return _MarketDataResearchBindingRequestFactory(
-        artifact_root=Path(str(settings.MARKET_DATA_RESEARCH_ARTIFACT_ROOT)),
-        signing_key=str(settings.MARKET_DATA_RESEARCH_ARTIFACT_SIGNING_KEY),
+    return _MarketDataResearchBindingRequestFactory()
+
+
+def _request_has_market_data_research_binding_intent(
+    request: AIStrategyResearchRunRequest,
+) -> bool:
+    """Return whether a request asks for the durable research-data bridge."""
+    data_config = request.data_config
+    return isinstance(data_config, dict) and any(
+        str(key).casefold() == "market_data_asset_type"
+        or str(key).casefold() == "market_data_binding"
+        or str(key).casefold().startswith("market_data_binding_")
+        for key in data_config
     )
 
 
@@ -210,7 +198,7 @@ def _market_data_research_request_preparer(
             )
         mandate = await mandate_service.ensure_for_request(user_id, request)
         request = request.model_copy(update={"mandate_id": mandate.id})
-        if binding_service is None:
+        if binding_service is None or not _request_has_market_data_research_binding_intent(request):
             return request
         return await binding_service.bind_request(
             user_id=user_id,

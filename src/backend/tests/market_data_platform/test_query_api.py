@@ -11,19 +11,23 @@ from pydantic import ValidationError
 
 from app.api.data.queries import (
     _default_source_policy_registry,
+    build_market_data_query_service,
     execute_market_data_query_with_singleflight,
     get_market_data_access_authorizer,
+    get_market_data_capability_evaluation,
     get_market_data_query_service,
 )
+from app.db.database import async_session_maker
 from app.main import app
 from app.schemas import market_data_platform
-from app.schemas.market_data_platform import MarketDataQueryRequest
+from app.schemas.market_data_platform import MarketDataCapabilitiesResponse, MarketDataQueryRequest
 from app.services.market_data.access import (
     MarketDataAccessAuthorizer,
     MarketDataAuthorizationError,
     MarketDataPrincipal,
     MarketDataQueryAccess,
 )
+from app.services.market_data.capability_ledger import MarketDataCapabilityEvaluation
 from app.services.market_data.publication import MarketDataVisibilityAnchor
 from app.services.market_data.query_resolution import MarketDataQueryResolver
 from app.services.market_data.query_service import (
@@ -212,6 +216,55 @@ def _principal(*, can_read_data: bool = True) -> MarketDataPrincipal:
     )
 
 
+def _capability_evaluation(
+    *,
+    query_v2_enabled: bool,
+    online_fetch_enabled: bool = False,
+    research_cache_fill_enabled: bool = False,
+    research_backtest_bridge_enabled: bool = False,
+) -> SimpleNamespace:
+    """Build a focused endpoint double after durable-ledger tests cover the real read."""
+    return SimpleNamespace(
+        response=MarketDataCapabilitiesResponse(
+            query_v2_enabled=query_v2_enabled,
+            online_fetch_enabled=online_fetch_enabled,
+            research_cache_fill_enabled=research_cache_fill_enabled,
+            research_backtest_bridge_enabled=research_backtest_bridge_enabled,
+        )
+    )
+
+
+def _override_capability_evaluation(**values: bool) -> None:
+    """Keep serialization tests focused on their service double rather than DB setup."""
+    evaluation = _capability_evaluation(**values)
+    app.dependency_overrides[get_market_data_capability_evaluation] = lambda: evaluation
+
+
+@pytest.mark.asyncio
+async def test_query_service_builder_keeps_local_policy_and_limits_only_provider_routes() -> None:
+    """Durable route lifecycle narrows I/O without hiding local policy routes."""
+    full_policy = _default_source_policy_registry("yfinance", (), research_cache_fill_enabled=True)
+    reviewed_routes = full_policy.resolve("market-default-v1").routes
+    selected_route_id = reviewed_routes[0].route_id
+    evaluation = MarketDataCapabilityEvaluation(
+        response=MarketDataCapabilitiesResponse(
+            query_v2_enabled=True,
+            online_fetch_enabled=True,
+            research_cache_fill_enabled=True,
+            research_backtest_bridge_enabled=True,
+        ),
+        effective_source_policies=full_policy,
+        effective_route_ids=frozenset({selected_route_id}),
+    )
+
+    async with async_session_maker() as db:
+        service = build_market_data_query_service(db, evaluation)
+
+    assert tuple(service._source_policies.resolve("market-default-v1").routes) == reviewed_routes
+    assert service._online_route_ids == frozenset({selected_route_id})
+    assert service._allow_online_fetch is True
+
+
 def test_market_data_capabilities_dto_is_strict_and_stable() -> None:
     """The public capability contract has no settings or secret escape hatch."""
     payload = {
@@ -220,11 +273,12 @@ def test_market_data_capabilities_dto_is_strict_and_stable() -> None:
         "online_fetch_enabled": False,
         "research_cache_fill_enabled": False,
         "research_backtest_bridge_enabled": False,
+        "capability_states": [],
     }
 
     response = market_data_platform.MarketDataCapabilitiesResponse.model_validate(payload)
 
-    assert response.model_dump() == payload
+    assert response.model_dump(mode="json") == payload
     with pytest.raises(ValidationError):
         market_data_platform.MarketDataCapabilitiesResponse.model_validate(
             {**payload, "market_data_cursor_signing_key": "must-not-leak"}
@@ -269,22 +323,32 @@ async def test_market_data_capabilities_return_default_disabled_effective_state(
         app.dependency_overrides.pop(get_market_data_access_authorizer, None)
 
     assert response.status_code == 200
-    assert response.json() == {
+    body = response.json()
+    assert {
+        key: body[key]
+        for key in (
+            "version",
+            "query_v2_enabled",
+            "online_fetch_enabled",
+            "research_cache_fill_enabled",
+            "research_backtest_bridge_enabled",
+        )
+    } == {
         "version": "market-data-capabilities-v1",
         "query_v2_enabled": False,
         "online_fetch_enabled": False,
         "research_cache_fill_enabled": False,
         "research_backtest_bridge_enabled": False,
     }
+    assert body["capability_states"]
+    assert all(state["effective"] is False for state in body["capability_states"])
+    assert all("descriptor" not in state for state in body["capability_states"])
     assert len(authorizer.users) == 1
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    (
-        "raw_settings",
-        "expected",
-    ),
+    ("raw_settings",),
     [
         (
             {
@@ -292,12 +356,6 @@ async def test_market_data_capabilities_return_default_disabled_effective_state(
                 "MARKET_DATA_ONLINE_FETCH_ENABLED": True,
                 "MARKET_DATA_RESEARCH_CACHE_FILL_ENABLED": True,
                 "MARKET_DATA_RESEARCH_BACKTEST_BRIDGE_ENABLED": True,
-            },
-            {
-                "query_v2_enabled": False,
-                "online_fetch_enabled": False,
-                "research_cache_fill_enabled": False,
-                "research_backtest_bridge_enabled": False,
             },
         ),
         (
@@ -307,12 +365,6 @@ async def test_market_data_capabilities_return_default_disabled_effective_state(
                 "MARKET_DATA_RESEARCH_CACHE_FILL_ENABLED": True,
                 "MARKET_DATA_RESEARCH_BACKTEST_BRIDGE_ENABLED": True,
             },
-            {
-                "query_v2_enabled": True,
-                "online_fetch_enabled": False,
-                "research_cache_fill_enabled": False,
-                "research_backtest_bridge_enabled": True,
-            },
         ),
         (
             {
@@ -321,23 +373,16 @@ async def test_market_data_capabilities_return_default_disabled_effective_state(
                 "MARKET_DATA_RESEARCH_CACHE_FILL_ENABLED": True,
                 "MARKET_DATA_RESEARCH_BACKTEST_BRIDGE_ENABLED": True,
             },
-            {
-                "query_v2_enabled": True,
-                "online_fetch_enabled": True,
-                "research_cache_fill_enabled": True,
-                "research_backtest_bridge_enabled": True,
-            },
         ),
     ],
 )
-async def test_market_data_capabilities_derives_effective_state_from_server_settings(
+async def test_market_data_capabilities_do_not_derive_effective_state_from_server_settings(
     client,
     auth_headers,
     monkeypatch,
     raw_settings: dict[str, bool],
-    expected: dict[str, bool],
 ) -> None:
-    """Dependent controls cannot report enabled merely because their raw flag is true."""
+    """Flags are kill switches and cannot replace missing durable lifecycle evidence."""
     import app.api.data.queries as queries
 
     authorizer = _AccessAuthorizer(_principal())
@@ -352,10 +397,15 @@ async def test_market_data_capabilities_derives_effective_state_from_server_sett
         app.dependency_overrides.pop(get_market_data_access_authorizer, None)
 
     assert response.status_code == 200
-    assert response.json() == {
-        "version": "market-data-capabilities-v1",
-        **expected,
-    }
+    body = response.json()
+    assert body["query_v2_enabled"] is False
+    assert body["online_fetch_enabled"] is False
+    assert body["research_cache_fill_enabled"] is False
+    assert body["research_backtest_bridge_enabled"] is False
+    assert body["capability_states"]
+    assert all(
+        state["reason_code"] == "CAPABILITY_LEDGER_MISSING" for state in body["capability_states"]
+    )
 
 
 @pytest.mark.asyncio
@@ -517,11 +567,13 @@ async def test_v2_query_endpoint_rejects_research_cache_fill_until_server_opt_in
         "get_settings",
         lambda: SimpleNamespace(MARKET_DATA_QUERY_V2_ENABLED=True),
     )
+    _override_capability_evaluation(query_v2_enabled=True)
     app.dependency_overrides[get_market_data_query_service] = lambda: service
     app.dependency_overrides[get_market_data_access_authorizer] = lambda: authorizer
     try:
         response = await client.post("/api/v1/data/queries", json=request, headers=auth_headers)
     finally:
+        app.dependency_overrides.pop(get_market_data_capability_evaluation, None)
         app.dependency_overrides.pop(get_market_data_query_service, None)
         app.dependency_overrides.pop(get_market_data_access_authorizer, None)
 
@@ -552,11 +604,17 @@ async def test_v2_query_endpoint_allows_research_cache_fill_after_server_opt_in(
             MARKET_DATA_RESEARCH_CACHE_FILL_ENABLED=True,
         ),
     )
+    _override_capability_evaluation(
+        query_v2_enabled=True,
+        online_fetch_enabled=True,
+        research_cache_fill_enabled=True,
+    )
     app.dependency_overrides[get_market_data_query_service] = lambda: service
     app.dependency_overrides[get_market_data_access_authorizer] = lambda: authorizer
     try:
         response = await client.post("/api/v1/data/queries", json=request, headers=auth_headers)
     finally:
+        app.dependency_overrides.pop(get_market_data_capability_evaluation, None)
         app.dependency_overrides.pop(get_market_data_query_service, None)
         app.dependency_overrides.pop(get_market_data_access_authorizer, None)
 
@@ -587,11 +645,13 @@ async def test_v2_query_endpoint_rejects_cache_fill_when_online_fetch_is_effecti
             MARKET_DATA_RESEARCH_CACHE_FILL_ENABLED=True,
         ),
     )
+    _override_capability_evaluation(query_v2_enabled=True)
     app.dependency_overrides[get_market_data_query_service] = lambda: service
     app.dependency_overrides[get_market_data_access_authorizer] = lambda: authorizer
     try:
         response = await client.post("/api/v1/data/queries", json=request, headers=auth_headers)
     finally:
+        app.dependency_overrides.pop(get_market_data_capability_evaluation, None)
         app.dependency_overrides.pop(get_market_data_query_service, None)
         app.dependency_overrides.pop(get_market_data_access_authorizer, None)
 
@@ -616,11 +676,13 @@ async def test_v2_query_endpoint_returns_only_fixed_local_first_shape(
         "get_settings",
         lambda: SimpleNamespace(MARKET_DATA_QUERY_V2_ENABLED=True),
     )
+    _override_capability_evaluation(query_v2_enabled=True)
     app.dependency_overrides[get_market_data_query_service] = lambda: service
     app.dependency_overrides[get_market_data_access_authorizer] = lambda: authorizer
     try:
         response = await client.post("/api/v1/data/queries", json=_payload(), headers=auth_headers)
     finally:
+        app.dependency_overrides.pop(get_market_data_capability_evaluation, None)
         app.dependency_overrides.pop(get_market_data_query_service, None)
         app.dependency_overrides.pop(get_market_data_access_authorizer, None)
 
@@ -669,11 +731,13 @@ async def test_v2_query_endpoint_exposes_strict_historical_status(
         "get_settings",
         lambda: SimpleNamespace(MARKET_DATA_QUERY_V2_ENABLED=True),
     )
+    _override_capability_evaluation(query_v2_enabled=True)
     app.dependency_overrides[get_market_data_query_service] = lambda: service
     app.dependency_overrides[get_market_data_access_authorizer] = lambda: authorizer
     try:
         response = await client.post("/api/v1/data/queries", json=_payload(), headers=auth_headers)
     finally:
+        app.dependency_overrides.pop(get_market_data_capability_evaluation, None)
         app.dependency_overrides.pop(get_market_data_query_service, None)
         app.dependency_overrides.pop(get_market_data_access_authorizer, None)
 
@@ -697,11 +761,13 @@ async def test_v2_query_endpoint_maps_stable_service_code_without_traceback(
         "get_settings",
         lambda: SimpleNamespace(MARKET_DATA_QUERY_V2_ENABLED=True),
     )
+    _override_capability_evaluation(query_v2_enabled=True)
     app.dependency_overrides[get_market_data_query_service] = lambda: service
     app.dependency_overrides[get_market_data_access_authorizer] = lambda: authorizer
     try:
         response = await client.post("/api/v1/data/queries", json=_payload(), headers=auth_headers)
     finally:
+        app.dependency_overrides.pop(get_market_data_capability_evaluation, None)
         app.dependency_overrides.pop(get_market_data_query_service, None)
         app.dependency_overrides.pop(get_market_data_access_authorizer, None)
 
@@ -835,11 +901,13 @@ async def test_v2_query_endpoint_rejects_every_unbound_family_before_catalog_ide
         "get_settings",
         lambda: SimpleNamespace(MARKET_DATA_QUERY_V2_ENABLED=True),
     )
+    _override_capability_evaluation(query_v2_enabled=True)
     app.dependency_overrides[get_market_data_query_service] = lambda: service
     app.dependency_overrides[get_market_data_access_authorizer] = lambda: authorizer
     try:
         response = await client.post("/api/v1/data/queries", json=request, headers=auth_headers)
     finally:
+        app.dependency_overrides.pop(get_market_data_capability_evaluation, None)
         app.dependency_overrides.pop(get_market_data_query_service, None)
         app.dependency_overrides.pop(get_market_data_access_authorizer, None)
 
@@ -866,11 +934,13 @@ async def test_v2_query_endpoint_maps_missing_service_access_to_forbidden(
         "get_settings",
         lambda: SimpleNamespace(MARKET_DATA_QUERY_V2_ENABLED=True),
     )
+    _override_capability_evaluation(query_v2_enabled=True)
     app.dependency_overrides[get_market_data_query_service] = lambda: service
     app.dependency_overrides[get_market_data_access_authorizer] = lambda: authorizer
     try:
         response = await client.post("/api/v1/data/queries", json=_payload(), headers=auth_headers)
     finally:
+        app.dependency_overrides.pop(get_market_data_capability_evaluation, None)
         app.dependency_overrides.pop(get_market_data_query_service, None)
         app.dependency_overrides.pop(get_market_data_access_authorizer, None)
 
@@ -894,6 +964,7 @@ async def test_v2_query_contract_rejects_invalid_public_input_before_service_exe
         "get_settings",
         lambda: SimpleNamespace(MARKET_DATA_QUERY_V2_ENABLED=True),
     )
+    _override_capability_evaluation(query_v2_enabled=True)
     app.dependency_overrides[get_market_data_query_service] = lambda: service
     app.dependency_overrides[get_market_data_access_authorizer] = lambda: authorizer
     invalid = _payload()
@@ -901,6 +972,7 @@ async def test_v2_query_contract_rejects_invalid_public_input_before_service_exe
     try:
         response = await client.post("/api/v1/data/queries", json=invalid, headers=auth_headers)
     finally:
+        app.dependency_overrides.pop(get_market_data_capability_evaluation, None)
         app.dependency_overrides.pop(get_market_data_query_service, None)
         app.dependency_overrides.pop(get_market_data_access_authorizer, None)
 
@@ -953,11 +1025,13 @@ async def test_v2_query_endpoint_maps_current_source_license_denial_to_forbidden
         "get_settings",
         lambda: SimpleNamespace(MARKET_DATA_QUERY_V2_ENABLED=True),
     )
+    _override_capability_evaluation(query_v2_enabled=True)
     app.dependency_overrides[get_market_data_query_service] = lambda: service
     app.dependency_overrides[get_market_data_access_authorizer] = lambda: authorizer
     try:
         response = await client.post("/api/v1/data/queries", json=_payload(), headers=auth_headers)
     finally:
+        app.dependency_overrides.pop(get_market_data_capability_evaluation, None)
         app.dependency_overrides.pop(get_market_data_query_service, None)
         app.dependency_overrides.pop(get_market_data_access_authorizer, None)
 
@@ -1189,20 +1263,23 @@ def test_default_policy_selects_only_exact_unadjusted_liquidity_routes(
         routes = policy.routes_for(context)
 
         assert [route.route_id for route in routes] == [expected_route_id]
-        assert policy.routes_for(
-            SimpleNamespace(
-                identity=context.identity,
-                query=SimpleNamespace(
-                    family_id=f"{asset_type}.liquidity",
-                    data_kind="reference_series",
-                    frequency="1d",
-                    adjustment="qfq",
-                    price_basis="close",
-                    currency="CNY",
-                    unit="share",
-                ),
+        assert (
+            policy.routes_for(
+                SimpleNamespace(
+                    identity=context.identity,
+                    query=SimpleNamespace(
+                        family_id=f"{asset_type}.liquidity",
+                        data_kind="reference_series",
+                        frequency="1d",
+                        adjustment="qfq",
+                        price_basis="close",
+                        currency="CNY",
+                        unit="share",
+                    ),
+                )
             )
-        ) == ()
+            == ()
+        )
         other_routes = policy.routes_for(
             SimpleNamespace(
                 identity=SimpleNamespace(
@@ -1245,19 +1322,22 @@ def test_default_policy_selects_the_exact_etf_nav_route() -> None:
         assert [route.route_id for route in policy.routes_for(context)] == [
             "akshare-fund-nav-primary-v1"
         ]
-        assert policy.routes_for(
-            SimpleNamespace(
-                identity=context.identity,
-                query=SimpleNamespace(
-                    family_id="fund.nav",
-                    data_kind="reference_series",
-                    frequency="1d",
-                    adjustment="unadjusted",
-                    price_basis="close",
-                    currency="CNY",
-                    unit="share",
-                ),
+        assert (
+            policy.routes_for(
+                SimpleNamespace(
+                    identity=context.identity,
+                    query=SimpleNamespace(
+                        family_id="fund.nav",
+                        data_kind="reference_series",
+                        frequency="1d",
+                        adjustment="unadjusted",
+                        price_basis="close",
+                        currency="CNY",
+                        unit="share",
+                    ),
+                )
             )
-        ) == ()
+            == ()
+        )
     finally:
         _default_source_policy_registry.cache_clear()

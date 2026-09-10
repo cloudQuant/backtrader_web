@@ -6,6 +6,7 @@ import importlib.util
 from collections.abc import Awaitable, Callable
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -51,6 +52,7 @@ from app.services.market_data.query_service import MarketDataQueryExecution
 from app.services.market_data.research_binding import (
     MarketDataResearchBindingError,
     MarketDataResearchBindingService,
+    build_market_data_research_binding_service,
 )
 from app.services.market_data.store import LocalObservationRevision
 
@@ -317,6 +319,40 @@ def _identity() -> InstrumentIdentity:
     )
 
 
+@pytest.mark.asyncio
+async def test_production_binding_builder_rejects_settings_only_enablement_before_writes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A fresh builder cannot turn an enabled environment flag into a grant."""
+    import app.api.data.queries as data_queries
+
+    artifact_root = tmp_path / "must-not-be-created"
+    monkeypatch.setattr(
+        data_queries,
+        "get_settings",
+        lambda: SimpleNamespace(
+            MARKET_DATA_QUERY_V2_ENABLED=True,
+            MARKET_DATA_ONLINE_FETCH_ENABLED=True,
+            MARKET_DATA_RESEARCH_CACHE_FILL_ENABLED=True,
+            MARKET_DATA_RESEARCH_BACKTEST_BRIDGE_ENABLED=True,
+            MARKET_DATA_OPENBB_ALLOWED_MARKETS="",
+            MARKET_DATA_OPENBB_PROVIDER="yfinance",
+            MARKET_DATA_RESEARCH_ARTIFACT_ROOT=str(artifact_root),
+            MARKET_DATA_RESEARCH_ARTIFACT_SIGNING_KEY=SIGNING_KEY,
+        ),
+    )
+    user = await _user(username="binding-builder-settings-only")
+
+    async with async_session_maker() as db:
+        with pytest.raises(MarketDataResearchBindingError) as failure:
+            await build_market_data_research_binding_service(db, user_id=user.id)
+        assert await db.scalar(select(func.count()).select_from(MdResearchDataBinding)) == 0
+
+    assert failure.value.code == "MARKET_DATA_BRIDGE_DISABLED"
+    assert not artifact_root.exists()
+
+
 def _execution_for(
     request: MarketDataQueryRequest,
     *,
@@ -397,7 +433,9 @@ def _execution_for(
             )
         )
     expected_keys = tuple(EventKey(event_at) for event_at in event_times)
-    anchor = MarketDataVisibilityAnchor(visible_at=request.knowledge_cutoff or NOW, max_visibility_sequence=3)
+    anchor = MarketDataVisibilityAnchor(
+        visible_at=request.knowledge_cutoff or NOW, max_visibility_sequence=3
+    )
     return MarketDataQueryExecution(
         context=context,
         knowledge_cutoff=request.knowledge_cutoff or NOW,
@@ -771,9 +809,7 @@ async def test_runtime_binding_rechecks_current_read_permission_and_source_polic
             await service.resolve_runtime_binding(**resolve_kwargs)
         assert no_read_access.value.code == "MARKET_DATA_BINDING_RUNTIME_READ_ACCESS_DENIED"
 
-        await db.execute(
-            user_roles.insert().values(user_id=owner.id, role=Role.USER.value)
-        )
+        await db.execute(user_roles.insert().values(user_id=owner.id, role=Role.USER.value))
         await db.commit()
         query_service.execution_error = MarketDataAuthorizationError("SOURCE_LICENSE_DENIED")
         with pytest.raises(MarketDataResearchBindingError) as no_source_access:

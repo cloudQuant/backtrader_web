@@ -1,6 +1,6 @@
 # MD-197-SCOPE-MANIFEST：冻结基线后的范围证据工具
 
-> 状态：已为当前 `dev` 候选生成并验证范围清单（2026-09-10；manifest SHA-256：`d1dd587a1d199c2b155789d1c24d53eb3c0e320165b62daf5c57fc55d3544cd1`）。
+> 状态：已为当前 `dev` 候选生成并验证范围清单（2026-09-10；manifest SHA-256：`e06de85ea5a48a265c7737cba9ec1ebdd1b583b45699ec3e9873fca1bf2b1265`）。
 >
 > 冻结输入：[iter196-market-data-baseline-20260909.json](iter196-market-data-baseline-20260909.json)；生成结果：[iteration197-market-data-scope-manifest-20260909.json](iteration197-market-data-scope-manifest-20260909.json)。基线引用迭代 196 的冻结候选和收据 SHA-256，而不是当前工作树或测试夹具。该 artifact 只覆盖 21 个公开 family 与 UI/API 输入；不覆盖私有估值 collector、`md_source_payloads` / `md_source_snapshot_payload_refs` 迁移、shared BLOB 完整性或完整 receipt 重建。
 
@@ -61,7 +61,8 @@
 ## 行语义与边界
 
 - `declared_compatibility_periods` 是家族的已声明频率与现有页面 `daily/weekly/monthly` 的交集；它不表示该家族已配置来源。
-- `v2_query_periods` 仅为当前市场页可明确选择的 `ready`、已配置来源、无维度、`calendar_grid` 且 `bars` 或 `reference_series` 合同填写。页面默认仍是 `asset.realtime`；其他非实时行必须由用户显式选择，不能由前端或 provider 猜测为可执行。
+- `v2_query_available` 表示当前市场页可以按服务端签发的精确 family、状态和 source policy 进入 v2 合同链；`v2_query_frequencies` 保留该 family 的完整 v2 频率集合。当前公共 ready allowlist 仅包含 `bars`、`reference_series` 与单记录 `quote_snapshot` 的精确合同形状；`valuation_snapshot`、期权 slice、曲面、报告和库存家族即使出现在声明清单也必须为 `unconfigured/not_applicable`，前端不得把它们变为可选或可查询。
+- `v2_query_periods` 仅表示现有 `daily/weekly/monthly` 兼容 period 输入的交集。合格的 ready 快照或分钟频率可以由 v2 UI 直接表达，但不会被这个兼容字段遗漏后误记为不可选；未配置报告类不得因此得到 query 路径。页面默认仍是 `asset.realtime`；其他非实时行必须由用户显式选择，不能由前端或 provider 猜测为可执行。
 - `declared_api_frequency_inputs` 是该合同所声明且被 public query schema 接受的频率；不是上游提供方能力承诺。
 - `contract_status=unconfigured` 仍会进入 21 行范围清单，以防需求、页面和服务端合同之间产生静默遗漏；它绝不是可取数状态。
 

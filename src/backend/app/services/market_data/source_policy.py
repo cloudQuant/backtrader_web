@@ -214,10 +214,7 @@ class MarketDataProviderRoute:
                 or getattr(context.query, "family_id", None) == self.family_id
             )
             and (self.product_types is None or product_type in self.product_types)
-            and (
-                self.fund_identity_kinds is None
-                or fund_identity_kind in self.fund_identity_kinds
-            )
+            and (self.fund_identity_kinds is None or fund_identity_kind in self.fund_identity_kinds)
         )
 
 
@@ -263,16 +260,39 @@ class MarketDataSourcePolicy:
 class MarketDataSourcePolicyRegistry:
     """Immutable lookup for approved policies; it never selects a default."""
 
-    def __init__(self, policies: Iterable[MarketDataSourcePolicy]) -> None:
+    def __init__(
+        self,
+        policies: Iterable[MarketDataSourcePolicy],
+        *,
+        _allow_empty: bool = False,
+    ) -> None:
         normalized = tuple(policies)
+        if not isinstance(_allow_empty, bool):
+            raise TypeError("_allow_empty must be a bool")
         if not normalized:
-            raise ValueError("source policy registry requires at least one policy")
+            if not _allow_empty:
+                raise ValueError("source policy registry requires at least one policy")
+            self._policies: dict[str, MarketDataSourcePolicy] = {}
+            return
         if any(not isinstance(policy, MarketDataSourcePolicy) for policy in normalized):
             raise TypeError("policies must be MarketDataSourcePolicy values")
         policy_ids = [policy.policy_id for policy in normalized]
         if len(policy_ids) != len(set(policy_ids)):
             raise ValueError("source policy identifiers must be unique")
         self._policies = {policy.policy_id: policy for policy in normalized}
+
+    @classmethod
+    def empty(cls) -> MarketDataSourcePolicyRegistry:
+        """Return a deliberate no-policy registry for a fail-closed narrowed view.
+
+        Deployment capability gates can remove every route from an otherwise
+        reviewed policy.  Constructing a normal registry with no policies is
+        intentionally invalid, but the narrowed view must still be representable
+        without retaining a disabled route as an accidental fallback.  Its
+        inherited ``resolve`` method returns ``SOURCE_POLICY_UNAVAILABLE`` for
+        every public policy ID.
+        """
+        return cls((), _allow_empty=True)
 
     def resolve(self, policy_id: str | None) -> MarketDataSourcePolicy:
         """Resolve one exact policy ID without a fallback or prefix match."""

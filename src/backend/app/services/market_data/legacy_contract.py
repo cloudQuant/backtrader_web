@@ -41,12 +41,21 @@ from app.services.market_data.openbb_runtime import (
 )
 
 _FREQUENCY_BY_LEGACY_PERIOD = {
+    # ``daily``/``weekly``/``monthly`` are retained for the legacy page
+    # selector. A server-issued family bundle may also select an exact public
+    # v2 cadence directly. Mapping it here is not a route grant: the exact
+    # ready-family, declared-frequency, semantic, catalog, identity, and
+    # reviewed-route checks below all still have to succeed.
+    "5min": "5min",
+    "30min": "30min",
+    "1h": "1h",
     "daily": "1d",
     "weekly": "1w",
     "monthly": "1mo",
     "1d": "1d",
     "1w": "1w",
     "1mo": "1mo",
+    "snapshot": "snapshot",
 }
 _DATE_ALIGNED_BAR_FREQUENCIES = frozenset({"1d", "1w", "1mo"})
 _DAILY_BAR_FREQUENCIES = frozenset({"1d"})
@@ -233,6 +242,7 @@ class LegacyMarketDataQueryContractResolver:
             family_id=family_contract.family_id,
             asset_type=identity.asset_type,
             venue=identity.venue,
+            data_kind=family_contract.data_kind,
             frequency=frequency,
             semantics=semantics,
             product_type=identity.identity.product_type,
@@ -294,8 +304,7 @@ class LegacyMarketDataQueryContractResolver:
                     .order_by(MdInstrumentLookupKey.market, MdInstrumentLookupKey.canonical_id)
                     .limit(_MAX_LEGACY_LOOKUP_CANDIDATES + 1)
                 )
-            )
-            .all()
+            ).all()
         )
         if len(rows) > _MAX_LEGACY_LOOKUP_CANDIDATES:
             return None
@@ -326,6 +335,7 @@ class LegacyMarketDataQueryContractResolver:
         semantics: _SemanticDefaults | None,
         product_type: str | None = None,
         fund_identity_kind: str | None = None,
+        data_kind: str | None = None,
     ) -> bool:
         """Match one exact family to its default-policy route and semantics.
 
@@ -340,6 +350,7 @@ class LegacyMarketDataQueryContractResolver:
             return (
                 asset_type == "stock"
                 and venue in {"CN-SSE", "CN-SZSE"}
+                and data_kind in {None, "reference_series"}
                 and frequency in _DAILY_BAR_FREQUENCIES
                 and semantics == _CN_STOCK_FUND_LIQUIDITY_DEFAULTS
             )
@@ -347,6 +358,7 @@ class LegacyMarketDataQueryContractResolver:
             return (
                 asset_type == "fund"
                 and venue in {"CN-SSE", "CN-SZSE"}
+                and data_kind in {None, "reference_series"}
                 and frequency in _DAILY_BAR_FREQUENCIES
                 and semantics == _CN_STOCK_FUND_LIQUIDITY_DEFAULTS
             )
@@ -356,6 +368,7 @@ class LegacyMarketDataQueryContractResolver:
                 and venue in {"CN-SSE", "CN-SZSE"}
                 and product_type == "ETF"
                 and fund_identity_kind == "LISTING"
+                and data_kind in {None, "reference_series"}
                 and frequency in _DAILY_BAR_FREQUENCIES
                 and semantics == _CN_ETF_NAV_DEFAULTS
             )
@@ -363,6 +376,7 @@ class LegacyMarketDataQueryContractResolver:
             return (
                 asset_type == "fx"
                 and venue in {"OTC", "CN-OTC"}
+                and data_kind in {None, "bars"}
                 and frequency in _DAILY_BAR_FREQUENCIES
                 and semantics == _CN_FX_DEFAULTS
             )
@@ -370,23 +384,41 @@ class LegacyMarketDataQueryContractResolver:
             return False
         if asset_type in {"stock", "fund"} and venue in {"CN-SSE", "CN-SZSE"}:
             return (
-                frequency in _DATE_ALIGNED_BAR_FREQUENCIES
+                data_kind in {None, "bars"}
+                and frequency in _DATE_ALIGNED_BAR_FREQUENCIES
                 and semantics == _CN_STOCK_FUND_DEFAULTS
             )
         if asset_type == "futures" and venue == "CFFEX":
-            return frequency in _DAILY_BAR_FREQUENCIES and semantics == _CN_FUTURES_DEFAULTS
+            return (
+                data_kind in {None, "bars"}
+                and frequency in _DAILY_BAR_FREQUENCIES
+                and semantics == _CN_FUTURES_DEFAULTS
+            )
         if asset_type == "bond" and venue in {"SSE", "SZSE", "CN-SSE", "CN-SZSE"}:
-            return frequency in _DAILY_BAR_FREQUENCIES and semantics == _CN_BOND_DEFAULTS
+            return (
+                data_kind in {None, "bars"}
+                and frequency in _DAILY_BAR_FREQUENCIES
+                and semantics == _CN_BOND_DEFAULTS
+            )
         if asset_type == "option" and venue == "CFFEX":
-            return frequency in _DAILY_BAR_FREQUENCIES and semantics == _CN_OPTION_DEFAULTS
+            return (
+                data_kind in {None, "bars"}
+                and frequency in _DAILY_BAR_FREQUENCIES
+                and semantics == _CN_OPTION_DEFAULTS
+            )
         if asset_type == "fx" and venue in {"OTC", "CN-OTC"}:
-            return frequency in _DAILY_BAR_FREQUENCIES and semantics == _CN_FX_DEFAULTS
+            return (
+                data_kind in {None, "bars"}
+                and frequency in _DAILY_BAR_FREQUENCIES
+                and semantics == _CN_FX_DEFAULTS
+            )
         return any(
             _permit_matches_legacy_request(
                 permit,
                 family_id=family_id,
                 asset_type=asset_type,
                 venue=venue,
+                data_kind=data_kind or "bars",
                 frequency=frequency,
                 semantics=semantics,
             )
@@ -400,6 +432,7 @@ def _permit_matches_legacy_request(
     family_id: str,
     asset_type: str,
     venue: str | None,
+    data_kind: str,
     frequency: str,
     semantics: _SemanticDefaults,
 ) -> bool:
@@ -408,7 +441,7 @@ def _permit_matches_legacy_request(
         permit.family_id == family_id
         and permit.asset_type == asset_type
         and permit.market == venue
-        and permit.data_kind == "bars"
+        and permit.data_kind == data_kind
         and permit.frequency == frequency
         and permit.adjustment == semantics.adjustment
         and permit.price_basis == semantics.price_basis

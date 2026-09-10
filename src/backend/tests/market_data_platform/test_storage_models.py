@@ -38,7 +38,8 @@ MERGE_REVISION = "20260909_ai_research_market_data_merge"
 RESEARCH_BINDINGS_REVISION = "20260909_market_data_research_bindings"
 RESEARCH_BINDING_CONSUMERS_REVISION = "20260909_market_data_research_binding_consumers"
 SHARED_SOURCE_PAYLOADS_REVISION = "20260910_market_data_shared_source_payloads"
-INTEGRATED_HEAD_REVISION = SHARED_SOURCE_PAYLOADS_REVISION
+CAPABILITY_LEDGER_REVISION = "20260910_market_data_capability_ledger"
+INTEGRATED_HEAD_REVISION = CAPABILITY_LEDGER_REVISION
 OBSERVATION_STORAGE_TABLES = {
     "md_instrument_lookup_keys",
     "md_data_series",
@@ -137,6 +138,34 @@ def _load_shared_source_payloads_migration() -> ModuleType:
     return module
 
 
+def _load_capability_ledger_migration() -> ModuleType:
+    """Load the capability-ledger revision for direct downgrade safety probes."""
+    migration_path = (
+        BACKEND_ROOT / "alembic" / "versions" / "20260910_market_data_capability_ledger.py"
+    )
+    spec = importlib.util.spec_from_file_location(
+        "iteration197_capability_ledger_migration", migration_path
+    )
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _load_fetch_lease_migration() -> ModuleType:
+    """Load the lease revision for direct MySQL rollback-safety probes."""
+    migration_path = BACKEND_ROOT / "alembic" / "versions" / "20260909_market_data_fetch_leases.py"
+    spec = importlib.util.spec_from_file_location(
+        "iteration197_fetch_lease_migration", migration_path
+    )
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def _load_source_governance_migration() -> ModuleType:
     """Load the source-governance revision for isolated maintenance-fence probes."""
     migration_path = (
@@ -194,9 +223,9 @@ def test_unreleased_legacy_check_names_are_accepted_only_with_matching_semantics
     governance_migration = _load_source_governance_migration()
     governance_table = governance_migration._CALENDAR_SNAPSHOTS
     governance_name = "ck_md_calsnap_src_gov_desc_sha256_len"
-    governance_legacy_name = governance_migration._LEGACY_TABLE_CHECK_NAMES[
-        governance_table
-    ][governance_name][0]
+    governance_legacy_name = governance_migration._LEGACY_TABLE_CHECK_NAMES[governance_table][
+        governance_name
+    ][0]
     governance_expression = governance_migration._TABLE_CHECKS[governance_table][governance_name]
     assert (
         governance_migration._matching_check_name(
@@ -313,18 +342,26 @@ def test_constraint_portability_migration_preserves_a_stamped_legacy_sqlite_cand
                 for legacy_name, (portable_name, expression) in renames.items():
                     assert observed[legacy_name] == migration._normalized_expression(expression)
                     assert portable_name not in observed
-            assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == (
-                CONSTRAINT_NAME_PORTABILITY_REVISION
+            assert connection.execute(
+                text("SELECT version_num FROM alembic_version")
+            ).scalar_one() == (CONSTRAINT_NAME_PORTABILITY_REVISION)
+            assert (
+                connection.execute(
+                    text(
+                        "SELECT count(*) FROM md_source_snapshots WHERE id = 'snapshot-legacy-names'"
+                    )
+                ).scalar_one()
+                == 1
             )
-            assert connection.execute(
-                text("SELECT count(*) FROM md_source_snapshots WHERE id = 'snapshot-legacy-names'")
-            ).scalar_one() == 1
-            assert connection.execute(
-                text(
-                    "SELECT count(*) FROM md_calendar_events "
-                    "WHERE id = 'calendar-event-legacy-names'"
-                )
-            ).scalar_one() == 1
+            assert (
+                connection.execute(
+                    text(
+                        "SELECT count(*) FROM md_calendar_events "
+                        "WHERE id = 'calendar-event-legacy-names'"
+                    )
+                ).scalar_one()
+                == 1
+            )
             assert connection.exec_driver_sql("PRAGMA foreign_key_check").all() == []
     finally:
         engine.dispose()
@@ -342,15 +379,15 @@ def test_constraint_portability_normalizes_only_the_postgresql_varchar_text_cast
         "length(provider_request_fingerprint_sha256::text) = 64"
     )
 
-    assert migration._normalized_expression(reflected) == migration._normalized_expression(expression)
+    assert migration._normalized_expression(reflected) == migration._normalized_expression(
+        expression
+    )
     assert migration._normalized_expression(
         "provider_request_fingerprint_sha256 IS NULL OR "
         "length(provider_request_fingerprint_sha256::text) = 63"
     ) != migration._normalized_expression(expression)
 
-    legacy_name, (portable_name, _) = next(
-        iter(migration._RENAMES["md_source_snapshots"].items())
-    )
+    legacy_name, (portable_name, _) = next(iter(migration._RENAMES["md_source_snapshots"].items()))
     postgres_truncated_name = legacy_name[:63]
     assert postgres_truncated_name in migration._legacy_constraint_names(legacy_name)
     assert migration._validate_rename_state(
@@ -720,8 +757,7 @@ def test_storage_models_register_generic_cross_asset_fact_tables() -> None:
     )
     assert any(
         index.name == "ix_md_source_snapshot_provider_request_id"
-        and tuple(column.name for column in index.columns)
-        == ("provider_id", "provider_request_id")
+        and tuple(column.name for column in index.columns) == ("provider_id", "provider_request_id")
         and index.unique
         for index in MdSourceSnapshot.__table__.indexes
     )
@@ -732,9 +768,7 @@ def test_storage_models_register_generic_cross_asset_fact_tables() -> None:
         "source_registry_id",
         "source_governance_state",
         "source_governance_descriptor_sha256",
-    } <= set(
-        MdCalendarSnapshot.__table__.c.keys()
-    )
+    } <= set(MdCalendarSnapshot.__table__.c.keys())
     assert {"calendar_snapshot_id", "trading_date", "event_type", "event_sha256"} <= set(
         MdCalendarEvent.__table__.c.keys()
     )
@@ -1260,7 +1294,7 @@ def test_observation_revision_is_linear_child_of_catalog_revision() -> None:
 
 
 def test_constraint_name_portability_revision_extends_the_integrated_storage_graph() -> None:
-    """The merge remains intact before the strict binding consumer successor."""
+    """The integrated evidence graph retains its single capability-ledger head."""
     script = ScriptDirectory.from_config(_config("sqlite://"))
 
     shared_revision = script.get_revision(SHARED_DATASET_BINDINGS_REVISION)
@@ -1274,6 +1308,7 @@ def test_constraint_name_portability_revision_extends_the_integrated_storage_gra
     research_bindings_revision = script.get_revision(RESEARCH_BINDINGS_REVISION)
     research_binding_consumers_revision = script.get_revision(RESEARCH_BINDING_CONSUMERS_REVISION)
     shared_source_payloads_revision = script.get_revision(SHARED_SOURCE_PAYLOADS_REVISION)
+    capability_ledger_revision = script.get_revision(CAPABILITY_LEDGER_REVISION)
     integrated_head_revision = script.get_revision(INTEGRATED_HEAD_REVISION)
     assert shared_revision is not None
     assert shared_revision.down_revision == OBSERVATIONS_REVISION
@@ -1300,8 +1335,10 @@ def test_constraint_name_portability_revision_extends_the_integrated_storage_gra
     assert research_binding_consumers_revision.down_revision == RESEARCH_BINDINGS_REVISION
     assert shared_source_payloads_revision is not None
     assert shared_source_payloads_revision.down_revision == RESEARCH_BINDING_CONSUMERS_REVISION
+    assert capability_ledger_revision is not None
+    assert capability_ledger_revision.down_revision == SHARED_SOURCE_PAYLOADS_REVISION
     assert integrated_head_revision is not None
-    assert integrated_head_revision.down_revision == RESEARCH_BINDING_CONSUMERS_REVISION
+    assert integrated_head_revision.down_revision == SHARED_SOURCE_PAYLOADS_REVISION
     assert script.get_heads() == [INTEGRATED_HEAD_REVISION]
 
 
@@ -1371,14 +1408,16 @@ def test_shared_source_payload_migration_adds_child_evidence_without_parent_rewr
             "content_sha256",
             "payload_role",
             "created_at",
-        } == {
-            column["name"]
-            for column in inspector.get_columns("md_source_snapshot_payload_refs")
-        }
+        } == {column["name"] for column in inspector.get_columns("md_source_snapshot_payload_refs")}
         with engine.connect() as connection:
-            assert connection.execute(
-                text("SELECT count(*) FROM md_source_snapshots WHERE id = 'snapshot-shared-payload'")
-            ).scalar_one() == 1
+            assert (
+                connection.execute(
+                    text(
+                        "SELECT count(*) FROM md_source_snapshots WHERE id = 'snapshot-shared-payload'"
+                    )
+                ).scalar_one()
+                == 1
+            )
 
         payload_hash = _sha("shared-payload-blob")
         with engine.begin() as connection:
@@ -1398,7 +1437,9 @@ def test_shared_source_payload_migration_adds_child_evidence_without_parent_rewr
                 ),
                 {"hash": payload_hash, "now": receipt_at},
             )
-        with pytest.raises(RuntimeError, match="MARKET_DATA_SHARED_SOURCE_PAYLOAD_DOWNGRADE_BLOCKED"):
+        with pytest.raises(
+            RuntimeError, match="MARKET_DATA_SHARED_SOURCE_PAYLOAD_DOWNGRADE_BLOCKED"
+        ):
             command.downgrade(config, RESEARCH_BINDING_CONSUMERS_REVISION)
     finally:
         config.attributes.pop("connection", None)
@@ -1431,10 +1472,7 @@ def test_shared_source_payload_migration_rejects_mysql_binary_payload_schema_dri
                 expected_type, nullable = definition
                 assert isinstance(expected_type, sa.types.TypeEngine)
                 actual_type = expected_type.dialect_impl(dialect)
-                if (
-                    table_name == migration._PAYLOADS
-                    and column_name == "canonical_payload_bytes"
-                ):
+                if table_name == migration._PAYLOADS and column_name == "canonical_payload_bytes":
                     actual_type = wrong_binary_type
                 rendered.append(
                     {
@@ -1477,13 +1515,20 @@ def test_shared_source_payload_migration_rejects_mysql_binary_payload_schema_dri
                     "referred_columns": referred_columns,
                     "options": {"ondelete": ondelete},
                 }
-                for name, (columns, referred_table, referred_columns, ondelete) in foreign_keys.items()
+                for name, (
+                    columns,
+                    referred_table,
+                    referred_columns,
+                    ondelete,
+                ) in foreign_keys.items()
             ]
 
     bind = SimpleNamespace(dialect=dialect)
     monkeypatch.setattr(migration.sa, "inspect", lambda _bind: _Inspector())
 
-    with pytest.raises(RuntimeError, match="MARKET_DATA_SHARED_SOURCE_PAYLOAD_SCHEMA_DRIFT") as drift:
+    with pytest.raises(
+        RuntimeError, match="MARKET_DATA_SHARED_SOURCE_PAYLOAD_SCHEMA_DRIFT"
+    ) as drift:
         migration._require_absent_or_exact_tables(bind)
 
     assert "canonical_payload_bytes" in str(drift.value)
@@ -1526,8 +1571,7 @@ def test_shared_source_payload_downgrade_locks_postgresql_evidence_before_empty_
     migration.downgrade()
 
     lock_statement = (
-        "LOCK TABLE md_source_payloads, md_source_snapshot_payload_refs "
-        "IN ACCESS EXCLUSIVE MODE"
+        "LOCK TABLE md_source_payloads, md_source_snapshot_payload_refs IN ACCESS EXCLUSIVE MODE"
     )
     assert "SET LOCAL lock_timeout = '5s'" in calls
     assert lock_statement in calls
@@ -1537,6 +1581,231 @@ def test_shared_source_payload_downgrade_locks_postgresql_evidence_before_empty_
         "DROP_TABLE:md_source_snapshot_payload_refs",
         "DROP_TABLE:md_source_payloads",
     ]
+
+
+def test_capability_ledger_downgrade_locks_postgresql_before_empty_check(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """PostgreSQL attestation writers cannot race an empty-table proof."""
+    migration = _load_capability_ledger_migration()
+    calls: list[str] = []
+
+    class _PostgresBind:
+        dialect = postgresql.dialect()
+
+        def execute(self, statement: object, *_args: object, **_kwargs: object) -> None:
+            calls.append(str(statement))
+
+    bind = _PostgresBind()
+
+    def _assert_empty(observed_bind: object) -> None:
+        assert observed_bind is bind
+        calls.append("EMPTY_CHECK")
+
+    monkeypatch.setattr(migration, "_is_offline", lambda: False)
+    monkeypatch.setattr(migration, "_require_absent_or_exact_table", lambda _bind: True)
+    monkeypatch.setattr(migration, "_assert_downgrade_safe", _assert_empty)
+    monkeypatch.setattr(
+        migration,
+        "op",
+        SimpleNamespace(
+            get_bind=lambda: bind,
+            drop_index=lambda *_args, **_kwargs: calls.append("DROP_INDEX"),
+            drop_table=lambda table_name: calls.append(f"DROP_TABLE:{table_name}"),
+        ),
+    )
+
+    migration.downgrade()
+
+    lock_statement = "LOCK TABLE md_capability_ledger_entries IN ACCESS EXCLUSIVE MODE"
+    assert "SET LOCAL lock_timeout = '5s'" in calls
+    assert lock_statement in calls
+    assert calls.index(lock_statement) < calls.index("EMPTY_CHECK")
+    assert calls[-2:] == ["DROP_INDEX", "DROP_TABLE:md_capability_ledger_entries"]
+
+
+def test_capability_ledger_downgrade_refuses_mysql_before_empty_check(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """MySQL implicit DDL commits cannot safely erase an append-only ledger."""
+    migration = _load_capability_ledger_migration()
+    calls: list[str] = []
+
+    class _MySqlBind:
+        dialect = mysql.dialect()
+
+    bind = _MySqlBind()
+    monkeypatch.setattr(migration, "_is_offline", lambda: False)
+    monkeypatch.setattr(
+        migration,
+        "_require_absent_or_exact_table",
+        lambda _bind: calls.append("SCHEMA_CHECK") or True,
+    )
+    monkeypatch.setattr(
+        migration,
+        "op",
+        SimpleNamespace(
+            get_bind=lambda: bind,
+            drop_index=lambda *_args, **_kwargs: calls.append("DROP_INDEX"),
+            drop_table=lambda table_name: calls.append(f"DROP_TABLE:{table_name}"),
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match="MARKET_DATA_CAPABILITY_LEDGER_DOWNGRADE_BLOCKED"):
+        migration.downgrade()
+
+    assert calls == []
+
+
+def test_fetch_lease_downgrade_refuses_mysql_before_empty_check(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """MySQL cannot atomically prove issued lease evidence remains absent."""
+    migration = _load_fetch_lease_migration()
+    calls: list[str] = []
+
+    class _MySqlBind:
+        dialect = mysql.dialect()
+
+    bind = _MySqlBind()
+    monkeypatch.setattr(migration, "_is_offline", lambda: False)
+    monkeypatch.setattr(
+        migration,
+        "_assert_source_binding_downgrade_safe",
+        lambda _bind: calls.append("SOURCE_BINDING_CHECK"),
+    )
+    monkeypatch.setattr(
+        migration,
+        "_assert_downgrade_safe",
+        lambda _bind: calls.append("LEASE_CHECK"),
+    )
+    monkeypatch.setattr(
+        migration,
+        "op",
+        SimpleNamespace(
+            get_bind=lambda: bind,
+            drop_index=lambda *_args, **_kwargs: calls.append("DROP_INDEX"),
+            drop_table=lambda table_name: calls.append(f"DROP_TABLE:{table_name}"),
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match="MARKET_DATA_FETCH_LEASE_DOWNGRADE_BLOCKED"):
+        migration.downgrade()
+
+    assert calls == []
+
+
+def test_fetch_lease_downgrade_locks_postgresql_before_empty_checks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """PostgreSQL writers cannot add lease evidence after the checks begin."""
+    migration = _load_fetch_lease_migration()
+    calls: list[str] = []
+
+    class _PostgresBind:
+        dialect = postgresql.dialect()
+
+        def execute(self, statement: object, *_args: object, **_kwargs: object) -> None:
+            calls.append(str(statement))
+
+    class _Inspector:
+        def has_table(self, table_name: str) -> bool:
+            return table_name in {migration._SOURCE_SNAPSHOTS, migration._TABLE}
+
+    bind = _PostgresBind()
+    monkeypatch.setattr(migration, "_is_offline", lambda: False)
+    monkeypatch.setattr(migration.sa, "inspect", lambda _bind: _Inspector())
+    monkeypatch.setattr(
+        migration,
+        "_assert_source_binding_downgrade_safe",
+        lambda _bind: calls.append("SOURCE_BINDING_CHECK"),
+    )
+    monkeypatch.setattr(
+        migration,
+        "_assert_downgrade_safe",
+        lambda _bind: calls.append("LEASE_CHECK"),
+    )
+    monkeypatch.setattr(
+        migration,
+        "_drop_source_binding_columns_and_constraint",
+        lambda _bind: calls.append("DROP_SOURCE_BINDING_COLUMNS"),
+    )
+    monkeypatch.setattr(
+        migration,
+        "op",
+        SimpleNamespace(
+            get_bind=lambda: bind,
+            drop_index=lambda *_args, **_kwargs: calls.append("DROP_INDEX"),
+            drop_table=lambda table_name: calls.append(f"DROP_TABLE:{table_name}"),
+        ),
+    )
+
+    migration.downgrade()
+
+    lock_statement = "LOCK TABLE md_source_snapshots, md_fetch_leases IN ACCESS EXCLUSIVE MODE"
+    assert "SET LOCAL lock_timeout = '5s'" in calls
+    assert lock_statement in calls
+    assert calls.index(lock_statement) < calls.index("SOURCE_BINDING_CHECK")
+    assert calls.index(lock_statement) < calls.index("LEASE_CHECK")
+    assert calls[-3:] == [
+        "DROP_SOURCE_BINDING_COLUMNS",
+        "DROP_INDEX",
+        "DROP_TABLE:md_fetch_leases",
+    ]
+
+
+def test_capability_ledger_migration_blocks_nonempty_sqlite_downgrade(
+    tmp_path: Path,
+) -> None:
+    """A durable ledger entry remains intact when rollback is requested."""
+    database_path = tmp_path / "market-data-capability-ledger.sqlite3"
+    config = _config(f"sqlite+aiosqlite:///{database_path}")
+    engine = create_engine(f"sqlite:///{database_path}")
+    observed_at = datetime(2026, 9, 10, 12, tzinfo=timezone.utc)
+    expires_at = datetime(2026, 9, 11, 12, tzinfo=timezone.utc)
+    try:
+        command.upgrade(config, INTEGRATED_HEAD_REVISION)
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "INSERT INTO md_capability_ledger_entries ("
+                    "id, capability_id, revision, descriptor_sha256, evidence_sha256, "
+                    "declared_capability, installed_capability, verified_capability, "
+                    "verified_at, verified_until, authorized_capability, authorized_at, "
+                    "authorized_until, effective_from, effective_until, created_at"
+                    ") VALUES ("
+                    ":id, :capability_id, :revision, :descriptor_sha256, :evidence_sha256, "
+                    ":declared_capability, :installed_capability, :verified_capability, "
+                    ":verified_at, :verified_until, :authorized_capability, :authorized_at, "
+                    ":authorized_until, :effective_from, :effective_until, :created_at"
+                    ")"
+                ),
+                {
+                    "id": "capability-ledger-entry-1",
+                    "capability_id": "market-data.query-v2",
+                    "revision": 1,
+                    "descriptor_sha256": _sha("descriptor"),
+                    "evidence_sha256": _sha("evidence"),
+                    "declared_capability": True,
+                    "installed_capability": True,
+                    "verified_capability": True,
+                    "verified_at": observed_at,
+                    "verified_until": expires_at,
+                    "authorized_capability": True,
+                    "authorized_at": observed_at,
+                    "authorized_until": expires_at,
+                    "effective_from": observed_at,
+                    "effective_until": expires_at,
+                    "created_at": observed_at,
+                },
+            )
+
+        with pytest.raises(RuntimeError, match="MARKET_DATA_CAPABILITY_LEDGER_DOWNGRADE_BLOCKED"):
+            command.downgrade(config, SHARED_SOURCE_PAYLOADS_REVISION)
+
+        assert inspect(engine).has_table("md_capability_ledger_entries")
+    finally:
+        engine.dispose()
 
 
 def test_exact_identity_collation_migration_accepts_sqlite_binary_defaults_and_blocks_evidence_rollback(
@@ -1552,7 +1821,9 @@ def test_exact_identity_collation_migration_accepts_sqlite_binary_defaults_and_b
         with engine.connect() as connection:
             table_sql = {
                 table_name: connection.execute(
-                    text("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = :table_name"),
+                    text(
+                        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = :table_name"
+                    ),
                     {"table_name": table_name},
                 ).scalar_one()
                 for table_name in ("md_instrument_identity_revisions", "md_instrument_lookup_keys")
@@ -2081,7 +2352,9 @@ def test_source_governance_migration_accepts_complete_startup_created_schema(
         command.stamp(config, SOURCE_RECEIPT_EVIDENCE_REVISION)
         command.upgrade(config, SOURCE_GOVERNANCE_REVISION)
 
-        source_columns = {column["name"] for column in inspect(engine).get_columns("md_source_snapshots")}
+        source_columns = {
+            column["name"] for column in inspect(engine).get_columns("md_source_snapshots")
+        }
         calendar_columns = {
             column["name"] for column in inspect(engine).get_columns("md_calendar_snapshots")
         }

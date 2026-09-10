@@ -164,6 +164,7 @@ def _bound_runtime_binding_metadata(binding: Any) -> dict[str, Any]:
         "artifact_size_bytes",
         "manifest_hash",
         "query_semantics",
+        "runtime_capability_context",
     )
     missing = [name for name in required_fields if getattr(binding, name, None) in (None, "")]
     if missing:
@@ -179,9 +180,14 @@ def _bound_runtime_binding_metadata(binding: Any) -> dict[str, Any]:
         artifact_size_bytes = int(binding.artifact_size_bytes)
         manifest_hash = binding.manifest_hash
         query_semantics = binding.query_semantics
+        runtime_capability_context = binding.runtime_capability_context
     except (AttributeError, TypeError, ValueError) as exc:
         raise MarketDataBindingRuntimeError("MARKET_DATA_BINDING_RUNTIME_CONFIG_INVALID") from exc
-    if artifact_size_bytes < 1 or not isinstance(query_semantics, Mapping):
+    if (
+        artifact_size_bytes < 1
+        or not isinstance(query_semantics, Mapping)
+        or not isinstance(runtime_capability_context, Mapping)
+    ):
         raise MarketDataBindingRuntimeError("MARKET_DATA_BINDING_RUNTIME_CONFIG_INVALID")
 
     return {
@@ -194,7 +200,54 @@ def _bound_runtime_binding_metadata(binding: Any) -> dict[str, Any]:
         "artifact_size_bytes": artifact_size_bytes,
         "manifest_hash": str(manifest_hash),
         "query_semantics": deepcopy(dict(query_semantics)),
+        # The child runtime cannot safely reconstruct an async ledger decision.
+        # Carry only the short-lived server-signed proof emitted by the
+        # request-scoped resolver; it is verified again before artifact I/O.
+        "runtime_capability_context": deepcopy(dict(runtime_capability_context)),
     }
+
+
+def _verify_bound_runtime_capability_context(
+    metadata: Mapping[str, Any],
+    *,
+    workspace_id: Any,
+    unit_id: Any,
+) -> None:
+    """Require a live server-issued permit before materializing bound runtime files.
+
+    ``sync_unit_runtime`` is also reachable outside the async request path.
+    A binding-shaped object alone is therefore insufficient: before it can
+    create a config or runner, its short-lived permit must authenticate the
+    exact binding owner and the exact workspace/unit it is being materialized
+    for.  Artifact bytes are checked again by the generated runtime before
+    any file descriptor is opened.
+    """
+    try:
+        from app.config import get_settings
+        from app.services.market_data.research_binding import (
+            verify_market_data_runtime_capability_context,
+        )
+
+        settings = get_settings()
+        signing_key = str(getattr(settings, "MARKET_DATA_RESEARCH_ARTIFACT_SIGNING_KEY", "") or "")
+        verify_market_data_runtime_capability_context(
+            metadata["runtime_capability_context"],
+            signing_key,
+            binding_id=str(metadata["binding_id"]),
+            binding_hash=str(metadata["binding_hash"]),
+            owner_user_id=str(metadata["owner_user_id"]),
+            workspace_id=str(workspace_id or ""),
+            unit_id=str(unit_id or ""),
+        )
+    except MarketDataBindingRuntimeError:
+        raise
+    except Exception as exc:
+        message = str(exc).strip()
+        if message.startswith("MARKET_DATA_BINDING_"):
+            raise MarketDataBindingRuntimeError(message) from exc
+        raise MarketDataBindingRuntimeError(
+            "MARKET_DATA_BINDING_CAPABILITY_CONTEXT_INVALID"
+        ) from exc
 
 
 async def resolve_required_market_data_binding(
@@ -255,18 +308,21 @@ async def resolve_required_market_data_binding(
         timeframe_n = 0
     raw_start = str(data_config.get("start_date") or "").strip()
     raw_end = str(data_config.get("end_date") or "").strip()
-    if not all(
-        (
-            binding_id,
-            binding_hash,
-            signature,
-            intent_id,
-            symbol,
-            timeframe,
-            raw_start,
-            raw_end,
+    if (
+        not all(
+            (
+                binding_id,
+                binding_hash,
+                signature,
+                intent_id,
+                symbol,
+                timeframe,
+                raw_start,
+                raw_end,
+            )
         )
-    ) or timeframe_n < 1:
+        or timeframe_n < 1
+    ):
         raise MarketDataBindingRuntimeError("MARKET_DATA_BINDING_RUNTIME_CONFIG_INVALID")
     if str(data_config.get("range_type") or "date").strip().lower() != "date":
         raise MarketDataBindingRuntimeError("MARKET_DATA_BINDING_RUNTIME_WINDOW_INVALID")
@@ -280,7 +336,11 @@ async def resolve_required_market_data_binding(
             build_market_data_research_binding_service,
         )
 
-        return await build_market_data_research_binding_service(db).resolve_runtime_binding(
+        service = await build_market_data_research_binding_service(
+            db,
+            user_id=str(user_id),
+        )
+        return await service.resolve_runtime_binding(
             user_id=str(user_id),
             binding_id=binding_id,
             binding_hash=binding_hash,
@@ -1397,8 +1457,6 @@ def _market_data_binding_artifact_root() -> Path:
     from app.config import get_settings
 
     settings = get_settings()
-    if not bool(getattr(settings, "MARKET_DATA_RESEARCH_BACKTEST_BRIDGE_ENABLED", False)):
-        raise MarketDataBindingRuntimeError("MARKET_DATA_BINDING_RUNTIME_DISABLED")
     raw_root = str(getattr(settings, "MARKET_DATA_RESEARCH_ARTIFACT_ROOT", "") or "").strip()
     root = Path(raw_root).expanduser()
     if not raw_root or not root.is_absolute():
@@ -1430,7 +1488,10 @@ def _validated_market_data_binding_payload(data: Mapping[str, Any]) -> dict[str,
         "artifact_size_bytes",
         "manifest_hash",
         "query_semantics",
+        "runtime_capability_context",
     }
+    if "runtime_capability_context" not in metadata:
+        raise MarketDataBindingRuntimeError("MARKET_DATA_BINDING_CAPABILITY_CONTEXT_REQUIRED")
     if set(metadata) != expected_metadata_keys:
         raise MarketDataBindingRuntimeError("MARKET_DATA_BINDING_RUNTIME_CONFIG_INVALID")
 
@@ -1439,12 +1500,11 @@ def _validated_market_data_binding_payload(data: Mapping[str, Any]) -> dict[str,
         from app.services.market_data.research_binding import (
             build_market_data_binding_signature_payload,
             verify_market_data_binding_signature,
+            verify_market_data_runtime_capability_context,
         )
 
         settings = get_settings()
-        signing_key = str(
-            getattr(settings, "MARKET_DATA_RESEARCH_ARTIFACT_SIGNING_KEY", "") or ""
-        )
+        signing_key = str(getattr(settings, "MARKET_DATA_RESEARCH_ARTIFACT_SIGNING_KEY", "") or "")
         expected_payload = build_market_data_binding_signature_payload(
             binding_id=str(metadata["binding_id"]),
             binding_hash=str(metadata["binding_hash"]),
@@ -1457,6 +1517,13 @@ def _validated_market_data_binding_payload(data: Mapping[str, Any]) -> dict[str,
         signed_payload = verify_market_data_binding_signature(
             str(metadata["signature"]),
             signing_key,
+        )
+        verify_market_data_runtime_capability_context(
+            metadata["runtime_capability_context"],
+            signing_key,
+            binding_id=str(expected_payload["binding_id"]),
+            binding_hash=str(expected_payload["binding_hash"]),
+            owner_user_id=str(expected_payload["owner_user_id"]),
         )
     except MarketDataBindingRuntimeError:
         raise
@@ -1643,7 +1710,9 @@ def open_verified_market_data_binding_file(
     root = _market_data_binding_artifact_root()
     artifact_fd: int | None = None
     try:
-        artifact_fd, artifact_path = _open_verified_market_data_binding_descriptor(root, binding_hash)
+        artifact_fd, artifact_path = _open_verified_market_data_binding_descriptor(
+            root, binding_hash
+        )
         with os.fdopen(artifact_fd, "rb", closefd=True) as handle:
             artifact_fd = None
             _verify_open_market_data_binding_artifact(handle, expected_payload)
@@ -1685,6 +1754,7 @@ def _build_unit_config(
     workspace_settings: dict[str, Any],
     *,
     market_data_binding: Any | None = None,
+    verified_market_data_binding_metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     strategy_id = str(unit.strategy_id or "").strip()
     if not strategy_id:
@@ -1710,9 +1780,7 @@ def _build_unit_config(
     if binding_required and market_data_binding is None:
         # Direct callers such as optimisation must not accidentally bypass the
         # DB/HMAC revalidation performed by ``WorkspaceRunOpsMixin.run_units``.
-        raise MarketDataBindingRuntimeError(
-            "MARKET_DATA_BINDING_RUNTIME_REVALIDATION_REQUIRED"
-        )
+        raise MarketDataBindingRuntimeError("MARKET_DATA_BINDING_RUNTIME_REVALIDATION_REQUIRED")
     data_config = _normalize_unit_data_config(
         _bound_data_config(raw_data_config) if binding_required else raw_data_config
     )
@@ -1735,10 +1803,20 @@ def _build_unit_config(
     if binding_required:
         if not _bool_value(data_config.get("use_end_date"), True):
             raise MarketDataBindingRuntimeError("MARKET_DATA_BINDING_RUNTIME_WINDOW_INVALID")
-        binding_metadata = _bound_runtime_binding_metadata(market_data_binding)
-        bound_asset_type = str(
-            binding_metadata["query_semantics"].get("asset_type") or ""
-        ).strip()
+        binding_metadata = (
+            deepcopy(verified_market_data_binding_metadata)
+            if verified_market_data_binding_metadata is not None
+            else _bound_runtime_binding_metadata(market_data_binding)
+        )
+        if not isinstance(binding_metadata, dict):
+            raise MarketDataBindingRuntimeError("MARKET_DATA_BINDING_RUNTIME_CONFIG_INVALID")
+        if verified_market_data_binding_metadata is None:
+            _verify_bound_runtime_capability_context(
+                binding_metadata,
+                workspace_id=unit.workspace_id,
+                unit_id=unit.id,
+            )
+        bound_asset_type = str(binding_metadata["query_semantics"].get("asset_type") or "").strip()
         if not bound_asset_type:
             raise MarketDataBindingRuntimeError("MARKET_DATA_BINDING_RUNTIME_CONFIG_INVALID")
         # The binding service, rather than a mutable unit category, defines
@@ -1799,9 +1877,21 @@ def sync_unit_runtime(
     *,
     market_data_binding: Any | None = None,
 ) -> Path:
+    binding_required = _market_data_binding_required(dict(unit.data_config or {}))
+    verified_binding_metadata: dict[str, Any] | None = None
+    if binding_required and market_data_binding is not None:
+        # Verify before creating the runtime directory.  This keeps direct
+        # synchronous callers from leaving a materialized artifact config on
+        # the strength of a stale call or a removed settings-only gate.
+        verified_binding_metadata = _bound_runtime_binding_metadata(market_data_binding)
+        _verify_bound_runtime_capability_context(
+            verified_binding_metadata,
+            workspace_id=unit.workspace_id,
+            unit_id=unit.id,
+        )
     target_dir = unit_dir(unit.workspace_id, unit.id)
     target_dir.mkdir(parents=True, exist_ok=True)
-    if _market_data_binding_required(dict(unit.data_config or {})) and market_data_binding is None:
+    if binding_required and market_data_binding is None:
         # Unit creation/update happens synchronously, while binding ownership,
         # signature, artifact bytes, and OOS subset checks require the async
         # database boundary in ``run_units``.  Do not write a generic runtime
@@ -1825,6 +1915,7 @@ def sync_unit_runtime(
         unit,
         workspace_settings,
         market_data_binding=market_data_binding,
+        verified_market_data_binding_metadata=verified_binding_metadata,
     )
     with (target_dir / "config.yaml").open("w", encoding="utf-8") as handle:
         yaml.safe_dump(config, handle, allow_unicode=True, sort_keys=False)

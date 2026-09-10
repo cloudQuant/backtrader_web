@@ -813,6 +813,7 @@ def _service(
     store: _Store,
     provider_routes: tuple[Any, ...],
     allow_online_fetch: bool = True,
+    online_route_ids: frozenset[str] | None = None,
     cursor_signing_key: str = _CURSOR_SIGNING_KEY,
     cursor_ttl: timedelta = timedelta(minutes=15),
     snapshot_freshness_policies: SnapshotFreshnessPolicyRegistry | None = None,
@@ -847,6 +848,7 @@ def _service(
         ),
         snapshot_freshness_policies=snapshot_freshness_policies,
         allow_online_fetch=allow_online_fetch,
+        online_route_ids=online_route_ids,
         clock=lambda: _at(12),
         cursor_signing_key=cursor_signing_key,
         cursor_ttl=cursor_ttl,
@@ -1840,6 +1842,43 @@ async def test_online_fetch_switch_reports_disabled_without_touching_provider() 
     assert provider.requests == []
     assert result.coverage.status.value == "incomplete"
     assert [warning.code for warning in result.warnings] == ["ONLINE_FETCH_DISABLED"]
+
+
+@pytest.mark.asyncio
+async def test_durable_online_route_filter_preserves_local_rereads_but_blocks_provider_io() -> None:
+    """An unavailable lifecycle route cannot hide cached facts or invoke its adapter."""
+    cached_store = _Store(
+        calendar=_calendar(),
+        revisions=[_revision(_at(hour)) for hour in (9, 10, 11)],
+    )
+    cached_provider = _Provider(_provider_result())
+
+    cached_result = await _service(
+        context=_context(),
+        store=cached_store,
+        provider_routes=(_route(cached_provider),),
+        online_route_ids=frozenset(),
+    ).execute(_request())
+
+    assert cached_result.coverage.status.value == "complete"
+    assert len(cached_result.observations) == 3
+    assert cached_provider.requests == []
+    assert cached_result.warnings == ()
+
+    missing_store = _Store(calendar=_calendar(), revisions=[])
+    missing_provider = _Provider(_provider_result())
+    missing_result = await _service(
+        context=_context(),
+        store=missing_store,
+        provider_routes=(_route(missing_provider),),
+        online_route_ids=frozenset(),
+    ).execute(_request())
+
+    assert missing_result.coverage.status.value == "incomplete"
+    assert missing_provider.requests == []
+    assert [warning.code for warning in missing_result.warnings] == [
+        "SOURCE_POLICY_NO_ELIGIBLE_PROVIDER"
+    ]
 
 
 @pytest.mark.asyncio

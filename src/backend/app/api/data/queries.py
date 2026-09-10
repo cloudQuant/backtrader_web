@@ -17,7 +17,7 @@ from app.api.data.deps import (
 from app.api.data.deps import (
     get_market_data_access_authorizer as _get_market_data_access_authorizer,
 )
-from app.config import Settings, get_settings
+from app.config import get_settings
 from app.db.database import get_db
 from app.schemas.market_data_platform import (
     MarketDataCapabilitiesResponse,
@@ -37,6 +37,10 @@ from app.services.market_data.access import (
     MarketDataQueryAccess,
 )
 from app.services.market_data.akshare_provider import AkShareMarketDataProvider
+from app.services.market_data.capability_ledger import (
+    MarketDataCapabilityEvaluation,
+    MarketDataCapabilityLedger,
+)
 from app.services.market_data.catalog import DataCatalogResolver
 from app.services.market_data.dataset_contracts import (
     DEFAULT_DATASET_CONTRACT_REGISTRY,
@@ -294,56 +298,90 @@ def _default_source_policy_registry(
     )
 
 
-def _openbb_markets(settings: Settings) -> tuple[str, ...]:
+def _openbb_markets(settings: object) -> tuple[str, ...]:
     """Read the already-normalized operator allow-list into a cacheable tuple."""
-    return tuple(
-        item.strip()
-        for item in settings.MARKET_DATA_OPENBB_ALLOWED_MARKETS.split(",")
-        if item.strip()
+    configured_markets = getattr(settings, "MARKET_DATA_OPENBB_ALLOWED_MARKETS", "")
+    if not isinstance(configured_markets, str):
+        return ()
+    return tuple(item.strip() for item in configured_markets.split(",") if item.strip())
+
+
+def _openbb_provider(settings: object) -> str:
+    """Keep incomplete test/deployment settings from becoming a provider grant."""
+    configured_provider = getattr(settings, "MARKET_DATA_OPENBB_PROVIDER", "yfinance")
+    if not isinstance(configured_provider, str) or not configured_provider.strip():
+        return "yfinance"
+    return configured_provider.strip()
+
+
+def _source_policies_from_settings(settings: object) -> MarketDataSourcePolicyRegistry:
+    """Build the full reviewed policy before the ledger narrows capabilities."""
+    return _default_source_policy_registry(
+        _openbb_provider(settings),
+        _openbb_markets(settings),
+        # Cache-fill is deliberately present in the static reviewed policy.
+        # Its environment kill switch and durable lifecycle evidence are
+        # intersected by ``MarketDataCapabilityLedger``; omitting it here
+        # would turn a setting into an implicit policy rewrite.
+        research_cache_fill_enabled=True,
     )
 
 
-def get_market_data_query_service(
-    db: AsyncSession = Depends(get_db),
-    _access: MarketDataQueryAccess = Depends(get_authorized_market_data_access),
+async def evaluate_market_data_capabilities(
+    db: AsyncSession,
+    *,
+    settings: object | None = None,
+) -> MarketDataCapabilityEvaluation:
+    """Read effective capability state from durable lifecycle evidence.
+
+    Callers must authorize their principal before invoking this helper.  It
+    intentionally has no FastAPI dependencies so request, research, and
+    runtime consumers can share one fail-closed evaluation without manually
+    calling a dependency function.
+    """
+    effective_settings = get_settings() if settings is None else settings
+    return await MarketDataCapabilityLedger(db).evaluate(
+        settings=effective_settings,
+        source_policies=_source_policies_from_settings(effective_settings),
+    )
+
+
+def build_market_data_query_service(
+    db: AsyncSession,
+    capabilities: MarketDataCapabilityEvaluation,
 ) -> MarketDataQueryService:
-    """Compose the v2 query service only after data-read authorization succeeds."""
-    settings = get_settings()
-    capabilities = _market_data_capabilities_from_settings(settings)
+    """Compose a query service from one already-authorized durable evaluation."""
+    if not isinstance(capabilities, MarketDataCapabilityEvaluation):
+        raise TypeError("capabilities must be a MarketDataCapabilityEvaluation")
     return MarketDataQueryService(
         resolver=MarketDataQueryResolver(
             catalog=DataCatalogResolver(db),
             identities=MarketDataIdentityResolver(db),
         ),
         store=MarketDataStore(db),
-        source_policies=_default_source_policy_registry(
-            settings.MARKET_DATA_OPENBB_PROVIDER,
-            _openbb_markets(settings),
-            capabilities.research_cache_fill_enabled,
-        ),
-        allow_online_fetch=capabilities.online_fetch_enabled,
+        source_policies=capabilities.effective_source_policies,
+        allow_online_fetch=capabilities.response.online_fetch_enabled,
+        # Keep the full reviewed policy for local reads.  Durable deployment
+        # evidence narrows provider I/O only, so an expired route attestation
+        # cannot make already-persisted local facts disappear.
+        online_route_ids=capabilities.effective_route_ids,
     )
 
 
-def _market_data_capabilities_from_settings(settings: Settings) -> MarketDataCapabilitiesResponse:
-    """Return only effective server-owned rollout controls for authenticated clients.
+async def get_market_data_capability_evaluation(
+    db: AsyncSession = Depends(get_db),
+    _access: MarketDataQueryAccess = Depends(get_authorized_market_data_access),
+) -> MarketDataCapabilityEvaluation:
+    """Read durable lifecycle state only after current data-read authorization."""
+    return await evaluate_market_data_capabilities(db)
 
-    Dependent controls deliberately compose their prerequisites here rather
-    than echoing raw environment flags.  The research backtest bridge reads
-    strict local-only artifacts, so it requires v2 but not online fetching.
-    """
-    query_v2_enabled = bool(getattr(settings, "MARKET_DATA_QUERY_V2_ENABLED", False))
-    online_fetch_enabled = query_v2_enabled and bool(
-        getattr(settings, "MARKET_DATA_ONLINE_FETCH_ENABLED", False)
-    )
-    return MarketDataCapabilitiesResponse(
-        query_v2_enabled=query_v2_enabled,
-        online_fetch_enabled=online_fetch_enabled,
-        research_cache_fill_enabled=online_fetch_enabled
-        and bool(getattr(settings, "MARKET_DATA_RESEARCH_CACHE_FILL_ENABLED", False)),
-        research_backtest_bridge_enabled=query_v2_enabled
-        and bool(getattr(settings, "MARKET_DATA_RESEARCH_BACKTEST_BRIDGE_ENABLED", False)),
-    )
+
+async def get_market_data_query_service(
+    db: AsyncSession = Depends(get_db),
+    capabilities: MarketDataCapabilityEvaluation = Depends(get_market_data_capability_evaluation),
+) -> MarketDataQueryService:
+    """Compose the v2 service from the same durable capability read as the endpoint."""
+    return build_market_data_query_service(db, capabilities)
 
 
 def get_market_data_query_bundle_request(
@@ -392,10 +430,10 @@ def get_market_data_query_bundle_request(
     summary="Read effective market-data rollout capabilities",
 )
 async def get_market_data_capabilities(
-    _read_authorized: None = Depends(require_authorized_market_data_read),
+    capabilities: MarketDataCapabilityEvaluation = Depends(get_market_data_capability_evaluation),
 ) -> MarketDataCapabilitiesResponse:
-    """Return bounded server-derived feature state after current data-read authorization."""
-    return _market_data_capabilities_from_settings(get_settings())
+    """Return durable effective state after current data-read authorization."""
+    return capabilities.response
 
 
 async def execute_market_data_query_with_singleflight(
@@ -477,9 +515,7 @@ async def execute_market_data_query_with_singleflight(
         # this follower's execution context after its old read transaction is
         # ended, so a changed role/entitlement cannot be smuggled through the
         # coalesced local reread.
-        current_principal = await access.authorizer.revalidate_principal(
-            principal=access.principal
-        )
+        current_principal = await access.authorizer.revalidate_principal(principal=access.principal)
         follower_access = MarketDataQueryAccess(
             principal=current_principal,
             authorizer=access.authorizer,
@@ -503,6 +539,7 @@ async def execute_market_data_query_with_singleflight(
 )
 async def get_market_data_query_bundle(
     request: MarketDataQueryBundleRequest = Depends(get_market_data_query_bundle_request),
+    capabilities: MarketDataCapabilityEvaluation = Depends(get_market_data_capability_evaluation),
 ) -> MarketDataQueryBundleResponse:
     """Return static product contracts without resolving data or invoking providers.
 
@@ -511,7 +548,7 @@ async def get_market_data_query_bundle(
     the v2 data endpoint; the bundle itself cannot trigger online fetches or
     create a fallback data path.
     """
-    if not get_settings().MARKET_DATA_QUERY_V2_ENABLED:
+    if not capabilities.response.query_v2_enabled:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail={"code": "MARKET_DATA_QUERY_V2_DISABLED"},
@@ -534,19 +571,18 @@ async def query_market_data(
     request: PublicMarketDataQueryRequest,
     db: AsyncSession = Depends(get_db),
     access: MarketDataQueryAccess = Depends(get_authorized_market_data_access),
+    capabilities: MarketDataCapabilityEvaluation = Depends(get_market_data_capability_evaluation),
     service: MarketDataQueryService = Depends(get_market_data_query_service),
 ) -> MarketDataQueryResponse:
     """Execute a typed v2 data query after the deployment gate is enabled."""
-    settings = get_settings()
-    capabilities = _market_data_capabilities_from_settings(settings)
-    if not capabilities.query_v2_enabled:
+    if not capabilities.response.query_v2_enabled:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail={"code": "MARKET_DATA_QUERY_V2_DISABLED"},
         )
     if (
         request.purpose == _RESEARCH_CACHE_FILL_PURPOSE
-        and not capabilities.research_cache_fill_enabled
+        and not capabilities.response.research_cache_fill_enabled
     ):
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,

@@ -19,15 +19,15 @@
               class="market-data-platform-status"
               data-test="market-data-platform-status"
             >
-              <span>路径</span>
+              <span>{{ t('dataMgmt.marketDataPlatformPathLabel') }}</span>
               <el-tag :type="marketDataPlatformTagType">
                 {{ marketDataPlatformSourceText }}
               </el-tag>
-              <span>缓存</span>
+              <span>{{ t('dataMgmt.marketDataPlatformCacheLabel') }}</span>
               <el-tag :type="marketDataPlatformTagType">
                 {{ marketDataPlatformCacheText }}
               </el-tag>
-              <span>覆盖</span>
+              <span>{{ t('dataMgmt.marketDataPlatformCoverageLabel') }}</span>
               <el-tag :type="marketDataPlatformTagType">
                 {{ marketDataPlatformCoverageText }}
               </el-tag>
@@ -126,7 +126,7 @@
           v-if="selectableDataFamilies.length"
           :model-value="selectedFamilyId"
           data-test="market-data-family-select"
-          placeholder="数据族"
+          :placeholder="t('dataMgmt.dataFamilySelectPlaceholder')"
           @update:model-value="selectDataFamily"
         >
           <el-option
@@ -395,7 +395,7 @@
     </section>
 
     <section
-      v-if="!isReferenceSeriesSelected"
+      v-if="!isReferenceSeriesSelected && !isGenericObservationSelected"
       class="market-workbench-grid"
     >
       <el-card class="market-chart-card">
@@ -646,7 +646,7 @@
     >
       <template #header>
         <div class="section-header">
-          <span>参考序列</span>
+          <span>{{ t('dataMgmt.referenceSeriesTitle') }}</span>
           <el-tag
             v-if="referenceSeriesResult"
             size="small"
@@ -688,6 +688,56 @@
       <el-empty
         v-else
         :description="referenceSeriesEmptyText"
+      />
+    </el-card>
+
+    <el-card
+      v-else-if="isGenericObservationSelected"
+      class="history-table-card"
+      data-test="market-generic-observation-table"
+    >
+      <template #header>
+        <div class="section-header">
+          <span>{{ t('dataMgmt.genericObservationTitle') }}</span>
+          <el-tag
+            v-if="genericObservationResult"
+            size="small"
+            type="success"
+          >
+            {{ t('dataMgmt.historyRows', { count: genericObservationRows.length }) }}
+          </el-tag>
+          <el-tag
+            size="small"
+            type="info"
+            data-test="market-generic-observation-family"
+          >
+            {{ selectedFamilyId }} · {{ genericObservationResult?.dataKind || selectedMarketPageFamily?.data_kind || '-' }}
+          </el-tag>
+        </div>
+      </template>
+      <el-table
+        v-if="genericObservationRows.length"
+        v-loading="loading"
+        :data="genericObservationRows"
+        stripe
+        max-height="520"
+        data-test="market-generic-observation-rows"
+      >
+        <el-table-column
+          v-for="column in genericObservationColumns"
+          :key="`${column.source}:${column.key}`"
+          :prop="column.key"
+          :label="column.label"
+          min-width="140"
+        >
+          <template #default="{ row }">
+            {{ formatGenericObservationCell(row, column) }}
+          </template>
+        </el-table-column>
+      </el-table>
+      <el-empty
+        v-else
+        :description="genericObservationEmptyText"
       />
     </el-card>
 
@@ -804,10 +854,16 @@ const {
   marketDataPlatformProvenance,
   displayHistoryRows,
   isReferenceSeriesSelected,
+  isGenericObservationSelected,
   referenceSeriesResult,
   referenceSeriesRows,
   referenceSeriesTableColumns,
   referenceSeriesEmptyText,
+  genericObservationResult,
+  genericObservationRows,
+  genericObservationColumns,
+  genericObservationEmptyText,
+  selectedMarketPageFamily,
   chartCanRender,
   activeAssetConfig,
   activeAssetIcon,
@@ -850,6 +906,7 @@ const {
   loadRelatedTables,
   goTableDetail,
   formatHistoryCell,
+  formatGenericObservationCell,
   formatNumber,
   coverageStatusTagType,
   coverageStatusLabel,

@@ -83,8 +83,7 @@ class MarketDataQueryResolver:
         # sole exception is an explicit internal-only resolver instance used
         # by lower-level persistence/revision workflows, never an API route.
         has_family_binding = (
-            request.family_id is not None
-            and request.family_contract_version is not None
+            request.family_id is not None and request.family_contract_version is not None
         )
         if not has_family_binding and (
             not self._allow_unbound_internal_requests
@@ -96,6 +95,14 @@ class MarketDataQueryResolver:
             raise MarketDataQueryResolutionError("DATASET_REQUIRED")
         if request.source_policy_id is None:
             raise MarketDataQueryResolutionError("SOURCE_POLICY_REQUIRED")
+        if has_family_binding:
+            try:
+                self._family_contracts.assert_executable_family_preflight(
+                    family_id=request.family_id,
+                    family_contract_version=request.family_contract_version,
+                )
+            except DatasetContractRegistryError as exc:
+                raise MarketDataQueryResolutionError(exc.code) from exc
 
         try:
             storage = await self._catalog.resolve_primary(request.dataset_code)

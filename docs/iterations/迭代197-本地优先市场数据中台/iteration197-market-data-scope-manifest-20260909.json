@@ -26,6 +26,10 @@
           "period": "1d"
         },
         {
+          "frequency": "1h",
+          "period": "1h"
+        },
+        {
           "frequency": "1mo",
           "period": "1mo"
         },
@@ -34,12 +38,24 @@
           "period": "1w"
         },
         {
+          "frequency": "30min",
+          "period": "30min"
+        },
+        {
+          "frequency": "5min",
+          "period": "5min"
+        },
+        {
           "frequency": "1d",
           "period": "daily"
         },
         {
           "frequency": "1mo",
           "period": "monthly"
+        },
+        {
+          "frequency": "snapshot",
+          "period": "snapshot"
         },
         {
           "frequency": "1w",
@@ -86,7 +102,7 @@
         "monthly"
       ],
       "source_path": "src/frontend/src/views/data/useDataPage.ts",
-      "source_sha256": "fc4d65341b25fa2c036e5529f593082702e09933c4e2ccd7c0e7a87f9f30c020"
+      "source_sha256": "6d6e5cf142ca08ffcff4aaa585186e0e4619d22a77accc4af141f1ce544ae0e2"
     }
   },
   "iter196_baseline": {
@@ -98,7 +114,7 @@
     "schema_version": "iter196-market-data-baseline-v1",
     "status": "frozen"
   },
-  "manifest_sha256": "d1dd587a1d199c2b155789d1c24d53eb3c0e320165b62daf5c57fc55d3544cd1",
+  "manifest_sha256": "e06de85ea5a48a265c7737cba9ec1ebdd1b583b45699ec3e9873fca1bf2b1265",
   "rows": [
     {
       "api": {
@@ -144,10 +160,12 @@
         ],
         "market_page_asset_supported": true,
         "market_page_family_declared": true,
+        "v2_query_available": false,
+        "v2_query_frequencies": [],
         "v2_query_periods": []
       },
       "reason_code": "DATASET_CONTRACT_UNCONFIGURED",
-      "row_sha256": "442e6d12cb5d309d8a0b8504683e70b8ebc05e504d976d623e41bd882cd11f0b",
+      "row_sha256": "522a4b050dfe8b790816a683159e10464c70f96c7e0b3882b725f4e070cdabe1",
       "source_policy_id": null,
       "strategy_page_production_status": "not_enabled_by_scope_manifest"
     },
@@ -157,7 +175,9 @@
         "declared_api_frequency_inputs": [
           "snapshot"
         ],
-        "legacy_period_aliases": []
+        "legacy_period_aliases": [
+          "snapshot"
+        ]
       },
       "asset_type": "bond",
       "contract_status": "unconfigured",
@@ -191,10 +211,12 @@
         ],
         "market_page_asset_supported": true,
         "market_page_family_declared": true,
+        "v2_query_available": false,
+        "v2_query_frequencies": [],
         "v2_query_periods": []
       },
       "reason_code": "DATASET_CONTRACT_UNCONFIGURED",
-      "row_sha256": "5823d4dfae04eac5a6638614d3f24b3aa01050952df8dd97617d686947561eae",
+      "row_sha256": "7164e4babeba2e89e464395b29d861ae2f974edb2c4f306509e74aefbca2ba76",
       "source_policy_id": null,
       "strategy_page_production_status": "not_enabled_by_scope_manifest"
     },
@@ -246,12 +268,16 @@
         ],
         "market_page_asset_supported": true,
         "market_page_family_declared": true,
+        "v2_query_available": true,
+        "v2_query_frequencies": [
+          "1d"
+        ],
         "v2_query_periods": [
           "daily"
         ]
       },
       "reason_code": null,
-      "row_sha256": "f0f38dfad721a0216924ce896c396767a03121c3a6a449f6d81ec913706cb6c2",
+      "row_sha256": "54dede1ca78364efe91bfaab920b7df07e86a273518bc664d5f625d7cf2ce39a",
       "source_policy_id": "market-default-v1",
       "strategy_page_production_status": "not_enabled_by_scope_manifest"
     },
@@ -308,10 +334,12 @@
         ],
         "market_page_asset_supported": true,
         "market_page_family_declared": true,
+        "v2_query_available": false,
+        "v2_query_frequencies": [],
         "v2_query_periods": []
       },
       "reason_code": "DATASET_CONTRACT_UNCONFIGURED",
-      "row_sha256": "897e2e2fa8232e2f05a3cde1a805bda389fed95b9f389a19b16fc0f1476009b2",
+      "row_sha256": "864e50387fd690cd1c148303fbc203cb59d5b074f58f0c66ac304e13f04591a0",
       "source_policy_id": null,
       "strategy_page_production_status": "not_enabled_by_scope_manifest"
     },
@@ -360,10 +388,12 @@
         ],
         "market_page_asset_supported": true,
         "market_page_family_declared": true,
+        "v2_query_available": false,
+        "v2_query_frequencies": [],
         "v2_query_periods": []
       },
       "reason_code": "SOURCE_ROUTE_UNCONFIGURED",
-      "row_sha256": "3cd9a26e8d6dad6c991cae2f85860b1ed7cc534ac2f2f4ec35bf31e3473deaa1",
+      "row_sha256": "980f7e20f425b3346fa334bd2baa94945764aaf4e49406a44a48190f9212d9d4",
       "source_policy_id": null,
       "strategy_page_production_status": "not_enabled_by_scope_manifest"
     },
@@ -373,7 +403,9 @@
         "declared_api_frequency_inputs": [
           "snapshot"
         ],
-        "legacy_period_aliases": []
+        "legacy_period_aliases": [
+          "snapshot"
+        ]
       },
       "asset_type": "crypto",
       "contract_status": "unconfigured",
@@ -408,10 +440,12 @@
         ],
         "market_page_asset_supported": true,
         "market_page_family_declared": true,
+        "v2_query_available": false,
+        "v2_query_frequencies": [],
         "v2_query_periods": []
       },
       "reason_code": "SOURCE_ROUTE_UNCONFIGURED",
-      "row_sha256": "7e1c44cef2c7f314f82fc952d2143f0583f329ceb8b89282515e07b98a9f9cbe",
+      "row_sha256": "2a3e46a2a4b075cc330ca961f03dcbe1a4e7124a2b25b354fc496b238d2a3f79",
       "source_policy_id": null,
       "strategy_page_production_status": "not_enabled_by_scope_manifest"
     },
@@ -457,12 +491,16 @@
         ],
         "market_page_asset_supported": true,
         "market_page_family_declared": true,
+        "v2_query_available": true,
+        "v2_query_frequencies": [
+          "1d"
+        ],
         "v2_query_periods": [
           "daily"
         ]
       },
       "reason_code": null,
-      "row_sha256": "6ce2191d64300f5e7ff497c4187717ec8edd89ea48b92e141906685786ebcdcd",
+      "row_sha256": "fc61388c07e5790b78cb26251c8e2365aaeb05ff1a1b2d95a5caeb4c63b8b075",
       "source_policy_id": "market-default-v1",
       "strategy_page_production_status": "not_enabled_by_scope_manifest"
     },
@@ -509,12 +547,16 @@
         ],
         "market_page_asset_supported": true,
         "market_page_family_declared": true,
+        "v2_query_available": true,
+        "v2_query_frequencies": [
+          "1d"
+        ],
         "v2_query_periods": [
           "daily"
         ]
       },
       "reason_code": null,
-      "row_sha256": "431a01e2f80cdc3c43a063d4ff5cb96545735dfd41ceb167a51b61531056a07d",
+      "row_sha256": "a1241dc8c885311f74c3a6f61b6bbf36cf4805f19cbd7ffed3c13862e57b5ad0",
       "source_policy_id": "market-default-v1",
       "strategy_page_production_status": "not_enabled_by_scope_manifest"
     },
@@ -576,6 +618,12 @@
         ],
         "market_page_asset_supported": true,
         "market_page_family_declared": true,
+        "v2_query_available": true,
+        "v2_query_frequencies": [
+          "1d",
+          "1w",
+          "1mo"
+        ],
         "v2_query_periods": [
           "daily",
           "weekly",
@@ -583,7 +631,7 @@
         ]
       },
       "reason_code": null,
-      "row_sha256": "fbac59d7b855ca35963e1f5114c5a3e71eac676a6b7dd635949af84a808ad70a",
+      "row_sha256": "028f89c5ca5a80f25900724caaf9a81322d09f5667dcbe88442fd6cae03065bc",
       "source_policy_id": "market-default-v1",
       "strategy_page_production_status": "not_enabled_by_scope_manifest"
     },
@@ -640,10 +688,12 @@
         ],
         "market_page_asset_supported": true,
         "market_page_family_declared": true,
+        "v2_query_available": false,
+        "v2_query_frequencies": [],
         "v2_query_periods": []
       },
       "reason_code": "DATASET_CONTRACT_UNCONFIGURED",
-      "row_sha256": "2360f0d207455b1d52d728b66a923b538593dc8e143e2a5ab78cae5392f29b11",
+      "row_sha256": "d8f04d55b22936f70638d2fe86f8a8f71ff81ef681b31b6a44e90d5361ff27b5",
       "source_policy_id": null,
       "strategy_page_production_status": "not_enabled_by_scope_manifest"
     },
@@ -696,12 +746,16 @@
         ],
         "market_page_asset_supported": true,
         "market_page_family_declared": true,
+        "v2_query_available": true,
+        "v2_query_frequencies": [
+          "1d"
+        ],
         "v2_query_periods": [
           "daily"
         ]
       },
       "reason_code": null,
-      "row_sha256": "162fcb1d48ed38ab8eaeb71aa71f858f10f9e4cfab41ecdc79c48a84956ab9b5",
+      "row_sha256": "e2b1d2f07715409b7d924cfecf029627b3c7239c1a395db336449111a535d455",
       "source_policy_id": "market-default-v1",
       "strategy_page_production_status": "not_enabled_by_scope_manifest"
     },
@@ -748,10 +802,12 @@
         ],
         "market_page_asset_supported": true,
         "market_page_family_declared": true,
+        "v2_query_available": false,
+        "v2_query_frequencies": [],
         "v2_query_periods": []
       },
       "reason_code": "DATASET_CONTRACT_UNCONFIGURED",
-      "row_sha256": "21d6a78ae7cd9b6c3c8ea89b45172aaf42f56d8f34147b0445cafad9e77850d8",
+      "row_sha256": "70e2c3b1497ff07a55ef0bc5e4a61f3df85a7f190f99fafad243918666acaf8b",
       "source_policy_id": null,
       "strategy_page_production_status": "not_enabled_by_scope_manifest"
     },
@@ -799,10 +855,12 @@
         ],
         "market_page_asset_supported": true,
         "market_page_family_declared": true,
+        "v2_query_available": false,
+        "v2_query_frequencies": [],
         "v2_query_periods": []
       },
       "reason_code": "DATASET_CONTRACT_UNCONFIGURED",
-      "row_sha256": "613b217f06eeb11aab87331f5fe4e9dfe9e5194e97b20d839cbcef27e17de527",
+      "row_sha256": "3ea48b39088a17ea43ab4af05b7cdff2e9d24486c7d38ae1e58d9583fc19a116",
       "source_policy_id": null,
       "strategy_page_production_status": "not_enabled_by_scope_manifest"
     },
@@ -850,12 +908,16 @@
         ],
         "market_page_asset_supported": true,
         "market_page_family_declared": true,
+        "v2_query_available": true,
+        "v2_query_frequencies": [
+          "1d"
+        ],
         "v2_query_periods": [
           "daily"
         ]
       },
       "reason_code": null,
-      "row_sha256": "c30f5b02fd5057d40b18c7a425ca003b7d08b70ce56e3033661292d36cf19282",
+      "row_sha256": "f7dd3b768b93d5da24faa6dd6b4ec665aa4f9e1a27ad09db7c88aa4885ababf2",
       "source_policy_id": "market-default-v1",
       "strategy_page_production_status": "not_enabled_by_scope_manifest"
     },
@@ -905,12 +967,16 @@
         ],
         "market_page_asset_supported": true,
         "market_page_family_declared": true,
+        "v2_query_available": true,
+        "v2_query_frequencies": [
+          "1d"
+        ],
         "v2_query_periods": [
           "daily"
         ]
       },
       "reason_code": null,
-      "row_sha256": "6da8e23ce7b87e86088cda03ce1b1b1a85cdb5c7b6a1e808b62d3e94919febb1",
+      "row_sha256": "559a5d38cf516ecea05974b307de15f9c21933876066cc3e76d291a867ec18a7",
       "source_policy_id": "market-default-v1",
       "strategy_page_production_status": "not_enabled_by_scope_manifest"
     },
@@ -920,7 +986,9 @@
         "declared_api_frequency_inputs": [
           "snapshot"
         ],
-        "legacy_period_aliases": []
+        "legacy_period_aliases": [
+          "snapshot"
+        ]
       },
       "asset_type": "option",
       "contract_status": "unconfigured",
@@ -961,10 +1029,12 @@
         ],
         "market_page_asset_supported": true,
         "market_page_family_declared": true,
+        "v2_query_available": false,
+        "v2_query_frequencies": [],
         "v2_query_periods": []
       },
       "reason_code": "DATASET_CONTRACT_UNCONFIGURED",
-      "row_sha256": "06214a0f40c80d9f8548db036e4e3d290a4be46bd801a2bbb4e46ef433bd6830",
+      "row_sha256": "f77b50712c0127802e195df01b4ba407ef944d0c1109d13249104309c7990d7b",
       "source_policy_id": null,
       "strategy_page_production_status": "not_enabled_by_scope_manifest"
     },
@@ -1015,12 +1085,16 @@
         ],
         "market_page_asset_supported": true,
         "market_page_family_declared": true,
+        "v2_query_available": true,
+        "v2_query_frequencies": [
+          "1d"
+        ],
         "v2_query_periods": [
           "daily"
         ]
       },
       "reason_code": null,
-      "row_sha256": "368e820ff7e6c610daa2b7d697c843dcc3435c6de20f1f710d579d2cc6c5466a",
+      "row_sha256": "3e91ae64fa1c149ae350adf8c61220130e9a43d1c4ba147ab1babfff03ec4838",
       "source_policy_id": "market-default-v1",
       "strategy_page_production_status": "not_enabled_by_scope_manifest"
     },
@@ -1030,7 +1104,9 @@
         "declared_api_frequency_inputs": [
           "snapshot"
         ],
-        "legacy_period_aliases": []
+        "legacy_period_aliases": [
+          "snapshot"
+        ]
       },
       "asset_type": "option",
       "contract_status": "unconfigured",
@@ -1069,10 +1145,12 @@
         ],
         "market_page_asset_supported": true,
         "market_page_family_declared": true,
+        "v2_query_available": false,
+        "v2_query_frequencies": [],
         "v2_query_periods": []
       },
       "reason_code": "DATASET_CONTRACT_UNCONFIGURED",
-      "row_sha256": "8fc83bd8375b1b61997f001325a88378443f7d29fae1a8989006b703dbe3d1f8",
+      "row_sha256": "440372a0b16aace2c5dada58ac9b8f42e8ea8cb3b42dc48987172e960fc15001",
       "source_policy_id": null,
       "strategy_page_production_status": "not_enabled_by_scope_manifest"
     },
@@ -1119,12 +1197,16 @@
         ],
         "market_page_asset_supported": true,
         "market_page_family_declared": true,
+        "v2_query_available": true,
+        "v2_query_frequencies": [
+          "1d"
+        ],
         "v2_query_periods": [
           "daily"
         ]
       },
       "reason_code": null,
-      "row_sha256": "40b8b5a0ca21bf90597816ce48751e711be20cec409ea7c1ad670cafa37d1996",
+      "row_sha256": "42fa3eba3ddf879afc9b78dd169952001186d921e01fe912b727d3dc99a85682",
       "source_policy_id": "market-default-v1",
       "strategy_page_production_status": "not_enabled_by_scope_manifest"
     },
@@ -1187,6 +1269,12 @@
         ],
         "market_page_asset_supported": true,
         "market_page_family_declared": true,
+        "v2_query_available": true,
+        "v2_query_frequencies": [
+          "1d",
+          "1w",
+          "1mo"
+        ],
         "v2_query_periods": [
           "daily",
           "weekly",
@@ -1194,7 +1282,7 @@
         ]
       },
       "reason_code": null,
-      "row_sha256": "5fdb24f23c38a618ae8839f4c9593252626699777cf0563386dd7f5834715cd9",
+      "row_sha256": "796116274650b2dbd33346db8787d3bc13216e29feded9b7ea042d69f30b5262",
       "source_policy_id": "market-default-v1",
       "strategy_page_production_status": "not_enabled_by_scope_manifest"
     },
@@ -1243,10 +1331,12 @@
         ],
         "market_page_asset_supported": true,
         "market_page_family_declared": true,
+        "v2_query_available": false,
+        "v2_query_frequencies": [],
         "v2_query_periods": []
       },
       "reason_code": "DATASET_CONTRACT_UNCONFIGURED",
-      "row_sha256": "ab38ee6b85fc9655007e4d25bf2f8aea29baeec534e5e976bf5c2c1c391a6371",
+      "row_sha256": "839681cb309a3986cb08abfd2800a9dee5ba0fd056bda6d772396d2ad9c69748",
       "source_policy_id": null,
       "strategy_page_production_status": "not_enabled_by_scope_manifest"
     }
@@ -1258,27 +1348,32 @@
     {
       "path": "src/backend/app/services/market_data/scope_manifest.py",
       "role": "scope_manifest_generator",
-      "sha256": "45b1d11f4f0f76cbdff224ab5e168d786d500dda93ad05a99d4f5e263857c43d"
+      "sha256": "2fb6fc3e632989864a484cf6b44e9f0887485862a72443a63600a9ac088a9022"
     },
     {
       "path": "src/backend/app/services/market_data/dataset_contracts.py",
       "role": "backend_contract_registry",
-      "sha256": "3ec191a19a91ae087da94454a4cddb527a1334c21cacf3ffb6c0b73af25dd731"
+      "sha256": "72d5672936306f86a2a893861d77bf8ec0926a2ad5afdb60c9fb4dd2d21fa1f1"
     },
     {
       "path": "src/backend/app/schemas/market_data_platform.py",
       "role": "backend_query_schema",
-      "sha256": "9dd4b89e89445483096d0a95daf385a35687e82ebc1c75c5c543646a6257b22a"
+      "sha256": "1ba72ce5b87f0aa03c4e80520ccc97ddaa3eef252bb3052f01daaddebe2e3fd5"
     },
     {
       "path": "src/backend/app/services/market_data/legacy_contract.py",
       "role": "backend_legacy_contract",
-      "sha256": "64323e911e6941e5fa46baeb2bd1a8c3eccec7a56b7375b02597240843f4ec7c"
+      "sha256": "9a51f491128ff73b4fd35594dc34a0f2d0b00c6e063ab4e208bef17b0e4fe33b"
     },
     {
       "path": "src/frontend/src/views/data/useDataPage.ts",
       "role": "frontend_market_page",
-      "sha256": "fc4d65341b25fa2c036e5529f593082702e09933c4e2ccd7c0e7a87f9f30c020"
+      "sha256": "6d6e5cf142ca08ffcff4aaa585186e0e4619d22a77accc4af141f1ce544ae0e2"
+    },
+    {
+      "path": "src/frontend/src/api/marketData.ts",
+      "role": "frontend_market_data_api",
+      "sha256": "91644c23ffe243167e2da9d87d6b239702dfe4c24b6a118f7d9b075e8dfae550"
     }
   ],
   "strategy_page_production_status": "not_enabled_by_scope_manifest"

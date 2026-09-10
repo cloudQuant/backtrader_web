@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 import os
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 from typing import Any
@@ -459,6 +460,37 @@ class TestFlatLogFilenames:
 
 class TestWorkspaceUnitRuntime:
     @staticmethod
+    def _runtime_capability_context(
+        *,
+        signing_key: str,
+        binding_id: str = "binding-1",
+        binding_hash: str = "a" * 64,
+        owner_user_id: str = "user-1",
+        workspace_id: str = "workspace-1",
+        unit_id: str = "unit-1",
+    ) -> dict[str, object]:
+        """Issue the same short-lived context that production resolution emits."""
+        from app.services.market_data.research_binding import (
+            build_market_data_runtime_capability_context_payload,
+            sign_market_data_runtime_capability_context,
+        )
+
+        issued_at = datetime.now(timezone.utc)
+        payload = build_market_data_runtime_capability_context_payload(
+            binding_id=binding_id,
+            binding_hash=binding_hash,
+            owner_user_id=owner_user_id,
+            workspace_id=workspace_id,
+            unit_id=unit_id,
+            issued_at=issued_at,
+            expires_at=issued_at + timedelta(minutes=5),
+        )
+        return {
+            **payload,
+            "signature": sign_market_data_runtime_capability_context(payload, signing_key),
+        }
+
+    @staticmethod
     def _signed_binding_data(tmp_path: Path) -> tuple[Path, bytes, str, dict[str, object]]:
         """Create a sealed binding envelope without a database or provider."""
         from app.services.market_data.research_binding import (
@@ -514,6 +546,9 @@ class TestWorkspaceUnitRuntime:
             "artifact_size_bytes": len(content),
             "manifest_hash": "b" * 64,
             "query_semantics": query_semantics,
+            "runtime_capability_context": TestWorkspaceUnitRuntime._runtime_capability_context(
+                signing_key=signing_key,
+            ),
         }
         return root, content, signing_key, metadata
 
@@ -660,6 +695,14 @@ class TestWorkspaceUnitRuntime:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ):
         """A research binding cannot be redirected by workspace or unit CSV settings."""
+        import app.config as config_module
+
+        signing_key = "test-market-data-binding-signing-key-32-bytes"
+        monkeypatch.setattr(
+            config_module,
+            "get_settings",
+            lambda: SimpleNamespace(MARKET_DATA_RESEARCH_ARTIFACT_SIGNING_KEY=signing_key),
+        )
         monkeypatch.setattr(
             workspace_unit_runtime, "_WORKSPACE_UNITS_ROOT", tmp_path / "workspace_units"
         )
@@ -708,6 +751,11 @@ class TestWorkspaceUnitRuntime:
                 "timeframe": "1d",
                 "timeframe_n": 1,
             },
+            runtime_capability_context=self._runtime_capability_context(
+                signing_key=signing_key,
+                workspace_id="bound-workspace",
+                unit_id="bound-unit",
+            ),
         )
         unit = SimpleNamespace(
             id="bound-unit",
@@ -761,6 +809,54 @@ class TestWorkspaceUnitRuntime:
         assert "market_data_binding_id" not in data
         assert config["workspace_unit"]["data_source_type"] == "market_data_binding"
         assert config["workspace_unit"]["data_root"] == str(artifact_directory.resolve())
+
+    def test_bound_sync_rejects_a_context_for_another_workspace_before_writing(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A direct sync cannot reuse a permit issued for a different unit scope."""
+        import app.config as config_module
+
+        signing_key = "test-market-data-binding-signing-key-32-bytes"
+        monkeypatch.setattr(
+            config_module,
+            "get_settings",
+            lambda: SimpleNamespace(MARKET_DATA_RESEARCH_ARTIFACT_SIGNING_KEY=signing_key),
+        )
+        monkeypatch.setattr(
+            workspace_unit_runtime,
+            "_WORKSPACE_UNITS_ROOT",
+            tmp_path / "workspace_units",
+        )
+        binding = SimpleNamespace(
+            binding_id="binding-1",
+            binding_hash="a" * 64,
+            user_id="user-1",
+            signature="server-issued-signature",
+            artifact_relative_path=f"bindings/{'a' * 64}/data.csv",
+            artifact_sha256="b" * 64,
+            artifact_size_bytes=1,
+            manifest_hash="c" * 64,
+            query_semantics={"asset_type": "stock"},
+            runtime_capability_context=self._runtime_capability_context(
+                signing_key=signing_key,
+                workspace_id="another-workspace",
+                unit_id="bound-unit",
+            ),
+        )
+        unit = SimpleNamespace(
+            id="bound-unit",
+            workspace_id="bound-workspace",
+            strategy_id="not-reached",
+            data_config={"market_data_binding_required": True},
+        )
+
+        with pytest.raises(
+            workspace_unit_runtime.MarketDataBindingRuntimeError,
+            match="MARKET_DATA_BINDING_CAPABILITY_CONTEXT_INVALID",
+        ):
+            workspace_unit_runtime.sync_unit_runtime(unit, {}, market_data_binding=binding)
+
+        assert not (tmp_path / "workspace_units" / "bound-workspace" / "bound-unit").exists()
 
     def test_bound_unit_runtime_defers_materialization_until_revalidation(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -934,6 +1030,77 @@ class TestWorkspaceUnitRuntime:
 
         assert artifact_path.read_bytes() != content
 
+    def test_bound_runtime_requires_a_server_signed_capability_context(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A direct synchronous artifact call cannot rely on a removed setting gate."""
+        import app.config as config_module
+
+        root, _content, signing_key, metadata = self._signed_binding_data(tmp_path)
+        metadata.pop("runtime_capability_context")
+        monkeypatch.setattr(
+            config_module,
+            "get_settings",
+            lambda: SimpleNamespace(MARKET_DATA_RESEARCH_ARTIFACT_SIGNING_KEY=signing_key),
+        )
+        monkeypatch.setattr(
+            workspace_unit_runtime,
+            "_market_data_binding_artifact_root",
+            lambda: root.resolve(),
+        )
+
+        with pytest.raises(
+            workspace_unit_runtime.MarketDataBindingRuntimeError,
+            match="MARKET_DATA_BINDING_CAPABILITY_CONTEXT_REQUIRED",
+        ):
+            workspace_unit_runtime.resolve_verified_market_data_binding_file(
+                {"market_data_binding_required": True, "market_data_binding": metadata}
+            )
+
+    def test_bound_runtime_rejects_an_expired_capability_context(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A historical binding HMAC cannot outlive its request-scoped permit."""
+        import app.config as config_module
+        from app.services.market_data.research_binding import (
+            build_market_data_runtime_capability_context_payload,
+            sign_market_data_runtime_capability_context,
+        )
+
+        root, _content, signing_key, metadata = self._signed_binding_data(tmp_path)
+        expired_at = datetime.now(timezone.utc) - timedelta(minutes=1)
+        payload = build_market_data_runtime_capability_context_payload(
+            binding_id="binding-1",
+            binding_hash="a" * 64,
+            owner_user_id="user-1",
+            workspace_id="workspace-1",
+            unit_id="unit-1",
+            issued_at=expired_at - timedelta(minutes=5),
+            expires_at=expired_at,
+        )
+        metadata["runtime_capability_context"] = {
+            **payload,
+            "signature": sign_market_data_runtime_capability_context(payload, signing_key),
+        }
+        monkeypatch.setattr(
+            config_module,
+            "get_settings",
+            lambda: SimpleNamespace(MARKET_DATA_RESEARCH_ARTIFACT_SIGNING_KEY=signing_key),
+        )
+        monkeypatch.setattr(
+            workspace_unit_runtime,
+            "_market_data_binding_artifact_root",
+            lambda: root.resolve(),
+        )
+
+        with pytest.raises(
+            workspace_unit_runtime.MarketDataBindingRuntimeError,
+            match="MARKET_DATA_BINDING_CAPABILITY_CONTEXT_EXPIRED",
+        ):
+            workspace_unit_runtime.resolve_verified_market_data_binding_file(
+                {"market_data_binding_required": True, "market_data_binding": metadata}
+            )
+
     @pytest.mark.parametrize(
         ("tamper", "expected_code"),
         [
@@ -1036,10 +1203,16 @@ class TestWorkspaceUnitRuntime:
 
         db = FakeDb()
         fake_service = FakeBindingService()
+
+        async def build_service(passed_db: object, *, user_id: str) -> object:
+            assert passed_db is db
+            assert user_id == "user-1"
+            return fake_service
+
         monkeypatch.setattr(
             research_binding,
             "build_market_data_research_binding_service",
-            lambda passed_db: fake_service if passed_db is db else None,
+            build_service,
         )
         unit = SimpleNamespace(
             id="unit-1",
@@ -1119,11 +1292,14 @@ class TestWorkspaceUnitRuntime:
             data_config={"directory_path": "/legacy/csv"},
         )
 
-        assert await workspace_unit_runtime.resolve_required_market_data_binding(
-            unit,
-            "user-1",
-            db=object(),
-        ) is None
+        assert (
+            await workspace_unit_runtime.resolve_required_market_data_binding(
+                unit,
+                "user-1",
+                db=object(),
+            )
+            is None
+        )
 
     @pytest.mark.asyncio
     async def test_parallel_bound_runs_use_distinct_revalidation_sessions_before_submission(
@@ -1146,9 +1322,7 @@ class TestWorkspaceUnitRuntime:
 
         class FakeSession:
             async def execute(self, _statement: object) -> object:
-                return SimpleNamespace(
-                    scalars=lambda: SimpleNamespace(all=lambda: list(units))
-                )
+                return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: list(units)))
 
             async def commit(self) -> None:
                 return None
@@ -1268,9 +1442,7 @@ class TestWorkspaceUnitRuntime:
 
         class FakeSession:
             async def execute(self, _statement: object) -> object:
-                return SimpleNamespace(
-                    scalars=lambda: SimpleNamespace(all=lambda: [unit])
-                )
+                return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: [unit]))
 
             async def commit(self) -> None:
                 return None
@@ -1419,9 +1591,7 @@ class TestWorkspaceUnitRuntime:
 
         class FakeSession:
             async def execute(self, _statement: object) -> object:
-                return SimpleNamespace(
-                    scalars=lambda: SimpleNamespace(all=lambda: [outer_unit])
-                )
+                return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: [outer_unit]))
 
             async def commit(self) -> None:
                 return None
@@ -1454,9 +1624,7 @@ class TestWorkspaceUnitRuntime:
         async def fake_load_workspace(*_args: object, **_kwargs: object) -> object:
             return SimpleNamespace(settings={}, workspace_type="research")
 
-        async def fake_get_unit(
-            session: FakeSession, _workspace_id: str, _unit_id: str
-        ) -> object:
+        async def fake_get_unit(session: FakeSession, _workspace_id: str, _unit_id: str) -> object:
             current_read_sessions.append(session)
             return current_unit
 
@@ -1780,7 +1948,9 @@ class TestWorkspaceUnitRuntime:
         assert runtime_writes == []
 
         allow_first_preflight.set()
-        assert await first_run == [{"unit_id": unit_id, "task_id": "task-first", "status": "running"}]
+        assert await first_run == [
+            {"unit_id": unit_id, "task_id": "task-first", "status": "running"}
+        ]
 
         # BacktestService replays the callback immediately before spawning
         # the child.  Once the lease is atomically promoted, that replay must
@@ -2067,7 +2237,9 @@ class TestWorkspaceUnitRuntime:
             "_poll_task_completion",
             staticmethod(timed_out),
         )
-        await service._poll_single_unit(workspace_id, user_id, unit_id, "old-task", backtest_service)
+        await service._poll_single_unit(
+            workspace_id, user_id, unit_id, "old-task", backtest_service
+        )
 
         async def observer_failed(*_args: object, **_kwargs: object) -> None:
             raise RuntimeError("temporary observer failure")
@@ -2077,7 +2249,9 @@ class TestWorkspaceUnitRuntime:
             "_poll_task_completion",
             staticmethod(observer_failed),
         )
-        await service._poll_single_unit(workspace_id, user_id, unit_id, "old-task", backtest_service)
+        await service._poll_single_unit(
+            workspace_id, user_id, unit_id, "old-task", backtest_service
+        )
 
         async with async_session_maker() as db:
             current_unit = await WorkspaceService._get_unit(db, workspace_id, unit_id)
@@ -2153,7 +2327,9 @@ class TestWorkspaceUnitRuntime:
 
         monkeypatch.setattr(backtest_service_module, "BacktestService", FakeBacktestService)
         service = WorkspaceService()
-        status_task = asyncio.create_task(service.get_units_status(workspace_id, user_id, [unit_id]))
+        status_task = asyncio.create_task(
+            service.get_units_status(workspace_id, user_id, [unit_id])
+        )
         await asyncio.wait_for(status_requested.wait(), timeout=2)
 
         async with async_session_maker() as db:

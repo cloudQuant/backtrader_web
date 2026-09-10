@@ -470,6 +470,27 @@ class DatasetContractRegistry:
             raise DatasetContractRegistryError("DATA_FAMILY_UNCONFIGURED")
         return contract
 
+    def assert_executable_family_preflight(
+        self,
+        *,
+        family_id: str,
+        family_contract_version: str,
+    ) -> None:
+        """Reject non-executable public families before catalog or identity I/O.
+
+        An unconfigured product is not a request for storage discovery.  This
+        first gate deliberately validates only the server-issued family key,
+        version, and executable lifecycle; the exact asset type is verified
+        after canonical identity resolution in ``assert_query_binding``.
+        """
+        if family_contract_version != FAMILY_CONTRACT_VERSION:
+            raise DatasetContractRegistryError("DATA_FAMILY_CONTRACT_VERSION_UNSUPPORTED")
+        contract = self._by_id.get(family_id)
+        if contract is None:
+            raise DatasetContractRegistryError("DATA_FAMILY_UNSUPPORTED")
+        if contract.status != "ready" or contract.source_policy_id is None:
+            raise DatasetContractRegistryError("DATA_FAMILY_UNCONFIGURED")
+
     def assert_query_binding(
         self,
         *,

@@ -24,7 +24,7 @@
 
 ## 迭代边界
 
-迭代 196 已按冻结收据 `3ebe7717f6f901932591f59e6f1bb8244827b493` 固化为集成基线，且其候选已通过 `fec74728ad4469ae6481b134323a6dd7d1401d32` 并入 `dev`。197 的独立数据中台链已由显式 Alembic merge revision `20260909_ai_research_market_data_merge` 接入，后续依次追加 `20260909_market_data_research_bindings`、`20260909_market_data_research_binding_consumers` 和 `20260910_market_data_shared_source_payloads`；最后一项只增加共享原始载荷和子引用表，不改写已有 `md_source_snapshots`。策略页桥接仍默认关闭；只有服务端重新解析合同、当前权限和严格本地 PIT 视图，生成并在任务创建与子进程启动前复核不可变 CSV 绑定后才可进入回测。真实 MySQL/PostgreSQL、提供方和页面灰度验收仍是单独闸门。
+迭代 196 已按冻结收据 `3ebe7717f6f901932591f59e6f1bb8244827b493` 固化为集成基线，且其候选已通过 `fec74728ad4469ae6481b134323a6dd7d1401d32` 并入 `dev`。197 的独立数据中台链已由显式 Alembic merge revision `20260909_ai_research_market_data_merge` 接入，后续依次追加 `20260909_market_data_research_bindings`、`20260909_market_data_research_binding_consumers`、`20260910_market_data_shared_source_payloads` 和 `20260910_market_data_capability_ledger`；最后一项创建不会 seed 活动记录的 append-only capability ledger，不能在升级时启用任何 route。策略页桥接仍默认关闭；只有服务端重新解析合同、当前权限和严格本地 PIT 视图，生成并在任务创建与子进程启动前复核不可变 CSV 绑定后才可进入回测。真实 MySQL/PostgreSQL、提供方和页面灰度验收仍是单独闸门。
 
 ## 核心约束
 

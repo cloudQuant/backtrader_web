@@ -303,9 +303,7 @@ class MarketDataFamilyContractResponse(_StrictMarketDataModel):
                 or self.source_policy_id is None
                 or self.reason_code is not None
             ):
-                raise ValueError(
-                    "ready contracts require a reviewed single-record coverage shape"
-                )
+                raise ValueError("ready contracts require a reviewed single-record coverage shape")
         elif self.source_policy_id is not None or self.reason_code is None:
             raise ValueError(
                 "non-ready contracts require a reason and cannot expose an execution policy"
@@ -337,6 +335,42 @@ class MarketDataCapabilitiesResponse(_StrictMarketDataModel):
     online_fetch_enabled: bool
     research_cache_fill_enabled: bool
     research_backtest_bridge_enabled: bool
+    capability_states: tuple[MarketDataCapabilityStateResponse, ...] = Field(default_factory=tuple)
+
+
+class MarketDataCapabilityStateResponse(_StrictMarketDataModel):
+    """One safe lifecycle read for a server-owned rollout control or route.
+
+    These fields are intentionally capability facts only.  They never expose
+    credentials, provider commands, endpoint URLs, evidence hashes, or a
+    caller's entitlement.  Route-level ``authorized`` means the durable
+    deployment authorization record is current; a query still receives its
+    exact user/source authorization at execution time.
+    """
+
+    capability_id: str = Field(min_length=1, max_length=192)
+    scope: Literal["rollout", "route"]
+    route_id: str | None = Field(default=None, max_length=128)
+    declared: bool
+    installed: bool
+    verified: bool
+    authorized: bool
+    effective: bool
+    reason_code: str | None = Field(default=None, max_length=128)
+
+    @model_validator(mode="after")
+    def validate_safe_lifecycle_shape(self) -> MarketDataCapabilityStateResponse:
+        """Keep disabled explanations and route references unambiguous."""
+        if self.scope == "route":
+            if self.route_id is None:
+                raise ValueError("route lifecycle state requires route_id")
+        elif self.route_id is not None:
+            raise ValueError("rollout lifecycle state cannot carry route_id")
+        if self.effective and self.reason_code is not None:
+            raise ValueError("effective capability state cannot carry a disable reason")
+        if not self.effective and self.reason_code is None:
+            raise ValueError("disabled capability state requires reason_code")
+        return self
 
 
 class MarketDataQueryRequest(_StrictMarketDataModel):

@@ -6,6 +6,7 @@ import asyncio
 import hashlib
 import json
 import os
+import shlex
 import subprocess
 import sys
 from dataclasses import replace
@@ -59,6 +60,11 @@ def _runner_script(tmp_path: Path, body: str) -> Path:
     script = tmp_path / "fake_openbb_runner.py"
     script.write_text(body, encoding="utf-8")
     return script
+
+
+def _isolated_runner_command(script: Path) -> tuple[str, str, str, str]:
+    """Build the only production-accepted Python runner invocation shape."""
+    return (str(Path(sys.executable).resolve()), "-I", "-S", str(script.resolve()))
 
 
 @pytest.fixture(autouse=True)
@@ -133,7 +139,7 @@ json.dump(
 )
 """,
     )
-    provider = OpenBBSubprocessProvider(command=(sys.executable, str(script)))
+    provider = OpenBBSubprocessProvider(command=_isolated_runner_command(script))
 
     request = _request()
     result = await provider.fetch(request)
@@ -173,7 +179,7 @@ json.dump(
     )
 
     with pytest.raises(OpenBBProviderError) as rejected:
-        await OpenBBSubprocessProvider(command=(sys.executable, str(script))).fetch(_request())
+        await OpenBBSubprocessProvider(command=_isolated_runner_command(script)).fetch(_request())
 
     assert rejected.value.code == "OPENBB_RUNNER_PROTOCOL_MISMATCH"
 
@@ -222,7 +228,7 @@ json.dump(
     )
 
     with pytest.raises(OpenBBProviderError) as rejected:
-        await OpenBBSubprocessProvider(command=(sys.executable, str(script))).fetch(_request())
+        await OpenBBSubprocessProvider(command=_isolated_runner_command(script)).fetch(_request())
 
     assert rejected.value.code == "OPENBB_RUNNER_INVALID_RESPONSE"
 
@@ -271,7 +277,7 @@ json.dump(
     )
 
     with pytest.raises(OpenBBProviderError) as rejected:
-        await OpenBBSubprocessProvider(command=(sys.executable, str(script))).fetch(_request())
+        await OpenBBSubprocessProvider(command=_isolated_runner_command(script)).fetch(_request())
 
     assert rejected.value.code == "OPENBB_RUNNER_INVALID_RESPONSE"
 
@@ -321,11 +327,11 @@ json.dump(
 """,
     )
     first_provider = OpenBBSubprocessProvider(
-        command=(sys.executable, str(script)),
+        command=_isolated_runner_command(script),
         max_concurrent_runs=1,
     )
     second_provider = OpenBBSubprocessProvider(
-        command=(sys.executable, str(script)),
+        command=_isolated_runner_command(script),
         max_concurrent_runs=1,
     )
     first = asyncio.create_task(first_provider.fetch(_request()))
@@ -386,11 +392,11 @@ json.dump(
 """,
     )
     first_provider = OpenBBSubprocessProvider(
-        command=(sys.executable, str(script)),
+        command=_isolated_runner_command(script),
         max_concurrent_runs=1,
     )
     changed_cap_provider = OpenBBSubprocessProvider(
-        command=(sys.executable, str(script)),
+        command=_isolated_runner_command(script),
         max_concurrent_runs=2,
     )
 
@@ -430,7 +436,7 @@ json.dump(
     )
 
     with pytest.raises(OpenBBProviderError) as mismatch:
-        await OpenBBSubprocessProvider(command=(sys.executable, str(script))).fetch(_request())
+        await OpenBBSubprocessProvider(command=_isolated_runner_command(script)).fetch(_request())
 
     assert mismatch.value.code == "OPENBB_RUNNER_PROTOCOL_MISMATCH"
 
@@ -480,9 +486,38 @@ async def test_openbb_subprocess_provider_requires_a_small_absolute_runner_comma
 
 
 def test_openbb_subprocess_provider_rejects_an_unsafe_direct_runner_command() -> None:
-    """Internal construction keeps the same absolute command boundary as settings."""
-    with pytest.raises(ValueError, match="explicit absolute executable"):
+    """Internal construction keeps the same isolated command boundary as settings."""
+    with pytest.raises(ValueError, match="absolute python"):
         OpenBBSubprocessProvider(command=("relative-openbb-runner",))
+
+
+def test_openbb_subprocess_provider_accepts_only_the_exact_isolated_python_runner_syntax(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Settings cannot reorder, omit, or extend the interpreter isolation flags."""
+    script = _runner_script(tmp_path, "raise SystemExit(0)\n")
+    command = _isolated_runner_command(script)
+    monkeypatch.setenv("OPENBB_MARKET_DATA_RUNNER", shlex.join(command))
+
+    provider = OpenBBSubprocessProvider.from_environment()
+
+    assert provider._command == command
+    invalid_commands = (
+        (command[0], "-S", "-I", command[3]),
+        (command[0], "-I", command[3]),
+        (command[0], "-I", "-S", command[3], "--unexpected"),
+        (command[0], "-I", "-S", "relative-runner.py"),
+    )
+    for invalid_command in invalid_commands:
+        with pytest.raises(ValueError, match="absolute python"):
+            OpenBBSubprocessProvider(command=invalid_command)
+
+    non_python = tmp_path / "runner-wrapper"
+    non_python.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    non_python.chmod(0o755)
+    with pytest.raises(ValueError, match="absolute python"):
+        OpenBBSubprocessProvider(command=(str(non_python), "-I", "-S", command[3]))
 
 
 @pytest.mark.asyncio
@@ -504,7 +539,7 @@ async def test_openbb_subprocess_provider_requires_explicit_runner_directories(
     script = _runner_script(tmp_path, "import sys\nsys.stdin.read()\n")
 
     with pytest.raises(OpenBBProviderError) as invalid:
-        await OpenBBSubprocessProvider(command=(sys.executable, str(script))).fetch(_request())
+        await OpenBBSubprocessProvider(command=_isolated_runner_command(script)).fetch(_request())
 
     assert invalid.value.code == expected_code
 
@@ -556,8 +591,8 @@ def test_openbb_subprocess_provider_rejects_a_runner_script_inside_the_checkout(
     )
     runner_script = checkout_root / "src" / "backend" / "scripts" / "openbb_market_data_runner.py"
 
-    with pytest.raises(ValueError, match="explicit absolute executable"):
-        OpenBBSubprocessProvider(command=(sys.executable, str(runner_script)))
+    with pytest.raises(ValueError, match="absolute python"):
+        OpenBBSubprocessProvider(command=_isolated_runner_command(runner_script))
 
 
 def test_openbb_runner_directory_rejects_a_no_git_parent_of_the_application_cwd(
@@ -621,7 +656,7 @@ sys.{stream_name}.write("x" * 2048)
     )
 
     with pytest.raises(OpenBBProviderError) as rejected:
-        await OpenBBSubprocessProvider(command=(sys.executable, str(script))).fetch(_request())
+        await OpenBBSubprocessProvider(command=_isolated_runner_command(script)).fetch(_request())
 
     assert rejected.value.code == "OPENBB_RUNNER_OUTPUT_TOO_LARGE"
 
@@ -658,7 +693,7 @@ time.sleep(10)
 
     with pytest.raises(OpenBBProviderError) as timed_out:
         await OpenBBSubprocessProvider(
-            command=(sys.executable, str(script)),
+            command=_isolated_runner_command(script),
             timeout_seconds=0.2,
         ).fetch(_request())
 
@@ -698,7 +733,7 @@ os._exit(0)
 
     with pytest.raises(OpenBBProviderError) as timed_out:
         await OpenBBSubprocessProvider(
-            command=(sys.executable, str(script)),
+            command=_isolated_runner_command(script),
             timeout_seconds=0.2,
         ).fetch(_request())
 
@@ -768,7 +803,9 @@ else:
 """,
     )
 
-    result = await OpenBBSubprocessProvider(command=(sys.executable, str(script))).fetch(_request())
+    result = await OpenBBSubprocessProvider(command=_isolated_runner_command(script)).fetch(
+        _request()
+    )
 
     assert result.source_revision == "isolated-env-v1"
     assert _openbb_runner_environment()["OPENBB_ALLOWED_PROVIDERS"] == "yfinance"
@@ -828,7 +865,9 @@ else:
 """,
     )
 
-    result = await OpenBBSubprocessProvider(command=(sys.executable, str(script))).fetch(_request())
+    result = await OpenBBSubprocessProvider(command=_isolated_runner_command(script)).fetch(
+        _request()
+    )
 
     assert result.source_revision == "isolated-workdir-v1"
     assert _openbb_runner_workdir() == str(runner_workdir)
@@ -875,7 +914,7 @@ json.dump(
     )
 
     with pytest.raises(OpenBBProviderError) as rejected:
-        await OpenBBSubprocessProvider(command=(sys.executable, str(script))).fetch(_request())
+        await OpenBBSubprocessProvider(command=_isolated_runner_command(script)).fetch(_request())
 
     assert rejected.value.code == "OPENBB_RUNNER_INVALID_RESPONSE"
 
@@ -1015,9 +1054,9 @@ def test_openbb_runner_classifies_provider_failures_without_exposing_them(
 def test_openbb_runner_rejects_declared_semantics_before_importing_openbb() -> None:
     """The isolated runner cannot relabel provider-native prices as adjusted data."""
     request = replace(_request(), adjustment="qfq")
-    runner = Path(__file__).parents[2] / "scripts" / "openbb_market_data_runner.py"
+    runner = _actual_openbb_runner()
     completed = subprocess.run(
-        [sys.executable, str(runner)],
+        [*_isolated_runner_command(runner)],
         input=json.dumps(
             {
                 "protocol_version": "openbb-market-data-v1",
@@ -1045,10 +1084,16 @@ def _run_actual_openbb_runner(
     arguments: list[str] | None = None,
     payload: dict[str, object] | None = None,
     environment: dict[str, str] | None = None,
+    isolated: bool = True,
 ) -> subprocess.CompletedProcess[str]:
-    """Execute the real runner in a controlled process without network access."""
+    """Execute the real runner with the production isolation syntax by default."""
+    command = (
+        [*_isolated_runner_command(_actual_openbb_runner())]
+        if isolated
+        else [str(Path(sys.executable).resolve()), str(_actual_openbb_runner())]
+    )
     return subprocess.run(
-        [sys.executable, str(_actual_openbb_runner()), *(arguments or [])],
+        [*command, *(arguments or [])],
         input=None if payload is None else json.dumps(payload),
         capture_output=True,
         check=False,
@@ -1114,6 +1159,7 @@ def _candidate_runtime_artifact_fixture(
                 "manifest_version": "openbb-yfinance-runtime-artifact-manifest-v1",
                 "artifact_set_version": "openbb-yfinance-runtime-test-v1",
                 "attestation_state": "candidate",
+                "source_revision": "24d06a7657ab9e19d07b5ba4f801394a440287a1",
                 "outbound_end_bound_contract": (
                     "openbb-yfinance-daily-inclusive-to-yfinance-exclusive-v1"
                 ),
@@ -1139,6 +1185,22 @@ def _load_fake_runtime_artifact_manifest(
     return manifest, distributions
 
 
+def _candidate_runtime_artifact_attestation() -> object:
+    """Return a stable candidate identity for runtime-attestation unit contracts."""
+    return openbb_market_data_runner._RuntimeArtifactAttestation(
+        status="candidate",
+        code="OPENBB_YFINANCE_RUNTIME_ARTIFACT_UNATTESTED",
+        manifest_status="valid",
+        manifest_version="openbb-yfinance-runtime-artifact-manifest-v1",
+        artifact_set_version="openbb-yfinance-runtime-test-v1",
+        attestation_state="candidate",
+        source_revision="24d06a7657ab9e19d07b5ba4f801394a440287a1",
+        distribution_names=("openbb", "openbb-core", "openbb-yfinance", "yfinance"),
+        verified_file_count=4,
+        artifact_fingerprint="a" * 64,
+    )
+
+
 def test_openbb_runner_verifies_exact_candidate_distribution_versions_and_owned_file_hashes(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1162,6 +1224,110 @@ def test_openbb_runner_verifies_exact_candidate_distribution_versions_and_owned_
         "yfinance",
     )
     assert attestation.verified_file_count == 4
+
+
+def test_openbb_runner_candidate_manifest_requires_immutable_source_revision(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A package hash set without its audited OpenBB source revision is not a candidate."""
+    manifest_path, _distributions = _candidate_runtime_artifact_fixture(tmp_path)
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest.pop("source_revision")
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    monkeypatch.setattr(openbb_market_data_runner, "_RUNTIME_ARTIFACT_MANIFEST_PATH", manifest_path)
+
+    loaded, error = openbb_market_data_runner._load_static_runtime_artifact_manifest()
+
+    assert loaded is None
+    assert error == "invalid"
+
+
+def test_openbb_yfinance_daily_end_bound_probe_fails_closed_without_pre_import_isolation() -> None:
+    """A matching candidate alone cannot authorize any dynamic package import."""
+    candidate = _candidate_runtime_artifact_attestation()
+
+    probe = openbb_market_data_runner._yfinance_daily_end_bound_probe(
+        artifact_attestation=candidate
+    )
+
+    assert probe.status == "not_run"
+    assert probe.code == "OPENBB_RUNTIME_ISOLATION_UNATTESTED"
+    assert probe.observed_start is None
+    assert probe.observed_end is None
+    assert probe.observed_period is None
+    assert probe.observed_interval is None
+    assert probe.call_count == 0
+
+
+def test_openbb_yfinance_daily_end_bound_probe_rejects_an_unmatched_candidate() -> None:
+    """A local package mismatch must stop before any dynamic OpenBB extension import."""
+    unmatched = openbb_market_data_runner._RuntimeArtifactAttestation(
+        status="unattested",
+        code="OPENBB_YFINANCE_RUNTIME_ARTIFACT_UNATTESTED",
+        manifest_status="valid",
+        manifest_version="openbb-yfinance-runtime-artifact-manifest-v1",
+        artifact_set_version="openbb-yfinance-runtime-test-v1",
+        attestation_state="candidate",
+        source_revision="24d06a7657ab9e19d07b5ba4f801394a440287a1",
+        distribution_names=("openbb", "openbb-core", "openbb-yfinance", "yfinance"),
+        verified_file_count=0,
+        artifact_fingerprint=None,
+    )
+
+    probe = openbb_market_data_runner._yfinance_daily_end_bound_probe(
+        artifact_attestation=unmatched
+    )
+
+    assert probe.status == "not_run"
+    assert probe.code == "OPENBB_YFINANCE_RUNTIME_ARTIFACT_UNATTESTED"
+
+
+def test_openbb_yfinance_daily_end_bound_probe_blocks_dangerous_environment_before_import(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A mutable-extension switch remains visible in the non-execution result."""
+    candidate = _candidate_runtime_artifact_attestation()
+    openbb_market_data_runner._ensure_static_runtime_permit_manifest()
+    monkeypatch.setenv(openbb_market_data_runner._DANGEROUS_OPENBB_ENVIRONMENT_KEYS[0], "true")
+
+    probe = openbb_market_data_runner._yfinance_daily_end_bound_probe(
+        artifact_attestation=candidate
+    )
+
+    assert probe.status == "not_run"
+    assert probe.code == "OPENBB_RUNNER_DANGEROUS_ENVIRONMENT"
+
+
+def test_openbb_runtime_attestation_cli_keeps_route_authorization_blocked(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Static candidate evidence cannot turn JSON or env into a route grant."""
+    candidate = _candidate_runtime_artifact_attestation()
+    monkeypatch.setattr(
+        openbb_market_data_runner,
+        "_runtime_artifact_attestation",
+        lambda: candidate,
+    )
+    monkeypatch.setattr(
+        openbb_market_data_runner,
+        "_has_pre_import_isolation_boundary",
+        lambda: True,
+    )
+    monkeypatch.setenv("OPENBB_ALLOWED_PROVIDERS", "yfinance")
+
+    payload = openbb_market_data_runner._runtime_attestation_payload()
+
+    assert payload["status"] == "blocked"
+    assert payload["attestation"]["runtime_artifact"]["status"] == "candidate"
+    assert payload["attestation"]["yfinance_daily_end_bound"]["status"] == "not_run"
+    assert payload["attestation"]["yfinance_daily_end_bound"]["code"] == (
+        "OPENBB_RUNTIME_ISOLATION_UNATTESTED"
+    )
+    assert payload["attestation"]["route_authorization"] == {
+        "status": "blocked",
+        "code": "OPENBB_RUNTIME_ROUTE_UNATTESTED",
+    }
 
 
 @pytest.mark.parametrize("mismatch", ("version", "file_hash", "missing"))
@@ -1359,8 +1525,181 @@ def test_openbb_runner_self_check_reports_a_safe_blocked_attestation(
     assert "sha256" not in completed.stdout
 
 
+def test_openbb_ordinary_python_entrypoints_fail_closed_before_manifest_metadata_or_network(
+    tmp_path: Path,
+) -> None:
+    """Unsafe startup cannot inspect runtime identity or send a provider request.
+
+    ``sitecustomize`` runs before the runner module.  Its markers prove that
+    ordinary Python honored ``PYTHONPATH`` while the runner still avoided both
+    JSON manifests, distribution metadata, and Python socket connections for
+    self-check, runtime attestation, and normal request entrypoints.
+    """
+    startup_root = tmp_path / "ordinary-pythonpath"
+    startup_root.mkdir()
+    startup_marker = tmp_path / "sitecustomize-executed"
+    manifest_marker = tmp_path / "manifest-read"
+    metadata_marker = tmp_path / "metadata-read"
+    network_marker = tmp_path / "network-attempted"
+    (startup_root / "sitecustomize.py").write_text(
+        "from pathlib import Path\n"
+        "import importlib.metadata as _metadata\n"
+        "import socket as _socket\n"
+        f"Path({str(startup_marker)!r}).write_text('executed', encoding='utf-8')\n"
+        f"_manifest_marker = Path({str(manifest_marker)!r})\n"
+        f"_metadata_marker = Path({str(metadata_marker)!r})\n"
+        f"_network_marker = Path({str(network_marker)!r})\n"
+        "_read_text = Path.read_text\n"
+        "def _guarded_read_text(self, *args, **kwargs):\n"
+        "    if self.name in {\n"
+        "        'openbb_runtime_permit_manifest.json',\n"
+        "        'openbb_yfinance_runtime_artifact_manifest.json',\n"
+        "    }:\n"
+        "        _manifest_marker.write_text('read', encoding='utf-8')\n"
+        "    return _read_text(self, *args, **kwargs)\n"
+        "Path.read_text = _guarded_read_text\n"
+        "_distribution = _metadata.distribution\n"
+        "def _guarded_distribution(*args, **kwargs):\n"
+        "    _metadata_marker.write_text('distribution', encoding='utf-8')\n"
+        "    return _distribution(*args, **kwargs)\n"
+        "_metadata.distribution = _guarded_distribution\n"
+        "_version = _metadata.version\n"
+        "def _guarded_version(*args, **kwargs):\n"
+        "    _metadata_marker.write_text('version', encoding='utf-8')\n"
+        "    return _version(*args, **kwargs)\n"
+        "_metadata.version = _guarded_version\n"
+        "_connect = _socket.socket.connect\n"
+        "def _guarded_connect(self, *args, **kwargs):\n"
+        "    _network_marker.write_text('connect', encoding='utf-8')\n"
+        "    raise RuntimeError('network attempted')\n"
+        "_socket.socket.connect = _guarded_connect\n",
+        encoding="utf-8",
+    )
+    environment = os.environ.copy()
+    environment["PYTHONPATH"] = str(startup_root)
+
+    self_check = _run_actual_openbb_runner(
+        arguments=["--self-check"],
+        environment=environment,
+        isolated=False,
+    )
+    attestation = _run_actual_openbb_runner(
+        arguments=["--attest-runtime"],
+        environment=environment,
+        isolated=False,
+    )
+
+    assert self_check.returncode == 0
+    assert attestation.returncode == 0
+    assert startup_marker.exists()
+    assert json.loads(self_check.stdout) == {
+        "protocol_version": "openbb-market-data-v1",
+        "self_check_version": "openbb-market-data-self-check-v1",
+        "status": "blocked",
+        "error": {
+            "code": "OPENBB_RUNTIME_ISOLATION_UNATTESTED",
+            "detail": "runner requires an isolated no-site Python startup boundary",
+        },
+    }
+    assert json.loads(attestation.stdout) == {
+        "protocol_version": "openbb-market-data-v1",
+        "runtime_attestation_version": "openbb-yfinance-runtime-attestation-v1",
+        "status": "blocked",
+        "error": {
+            "code": "OPENBB_RUNTIME_ISOLATION_UNATTESTED",
+            "detail": "runner requires an isolated no-site Python startup boundary",
+        },
+    }
+    for output in (self_check.stdout, attestation.stdout):
+        assert "candidate" not in output
+        assert "distribution" not in output
+        assert "manifest" not in output
+        assert "source_revision" not in output
+
+    request = _request()
+    blocked_request = _run_actual_openbb_runner(
+        payload={
+            "protocol_version": "openbb-market-data-v1",
+            "request_id": request.request_id,
+            "request": request.dto_payload,
+        },
+        environment=environment,
+        isolated=False,
+    )
+
+    assert blocked_request.returncode == 0
+    assert json.loads(blocked_request.stdout) == {
+        "protocol_version": "openbb-market-data-v1",
+        "request_id": request.request_id,
+        "error": {
+            "code": "OPENBB_RUNTIME_ISOLATION_UNATTESTED",
+            "detail": "runner requires an isolated no-site Python startup boundary",
+        },
+    }
+    assert not manifest_marker.exists()
+    assert not metadata_marker.exists()
+    assert not network_marker.exists()
+
+
+def test_openbb_isolated_runner_ignores_pythonpath_startup_and_openbb_import_sentinels(
+    tmp_path: Path,
+) -> None:
+    """The required ``-I -S`` launch skips hooks and all OpenBB package imports."""
+    sentinel_root = tmp_path / "pythonpath-sentinels"
+    sentinel_root.mkdir()
+    markers: dict[str, Path] = {}
+    for module_name in (
+        "sitecustomize",
+        "openbb",
+        "openbb_core",
+        "openbb_yfinance",
+        "yfinance",
+        "pandas",
+    ):
+        marker = tmp_path / f"{module_name}-executed"
+        markers[module_name] = marker
+        module_path = (
+            sentinel_root / "sitecustomize.py"
+            if module_name == "sitecustomize"
+            else sentinel_root / "pandas.py"
+            if module_name == "pandas"
+            else sentinel_root / module_name / "__init__.py"
+        )
+        module_path.parent.mkdir(parents=True, exist_ok=True)
+        module_path.write_text(
+            "from pathlib import Path\n"
+            f"Path({str(marker)!r}).write_text('executed', encoding='utf-8')\n",
+            encoding="utf-8",
+        )
+    environment = os.environ.copy()
+    environment["PYTHONPATH"] = str(sentinel_root)
+
+    attestation = _run_actual_openbb_runner(
+        arguments=["--attest-runtime"],
+        environment=environment,
+    )
+    request = _request()
+    blocked_request = _run_actual_openbb_runner(
+        payload={
+            "protocol_version": "openbb-market-data-v1",
+            "request_id": request.request_id,
+            "request": request.dto_payload,
+        },
+        environment=environment,
+    )
+
+    assert attestation.returncode == 0
+    assert json.loads(attestation.stdout)["status"] == "blocked"
+    assert blocked_request.returncode == 0
+    assert json.loads(blocked_request.stdout)["error"]["code"] == (
+        "OPENBB_YFINANCE_RUNTIME_ARTIFACT_UNATTESTED"
+    )
+    assert all(not marker.exists() for marker in markers.values())
+
+
 def test_openbb_runtime_and_runner_read_the_same_canonical_zero_permit_manifest() -> None:
     """The runner mirrors reviewed data without importing the web application."""
+    openbb_market_data_runner._ensure_static_runtime_permit_manifest()
     manifest_path = Path(openbb_runtime.__file__).with_name("openbb_runtime_permit_manifest.json")
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
 
@@ -1422,8 +1761,10 @@ def test_openbb_runner_keeps_yfinance_outbound_end_bound_fail_closed_for_candida
         manifest_version="openbb-yfinance-runtime-artifact-manifest-v1",
         artifact_set_version="openbb-yfinance-runtime-test-v1",
         attestation_state="candidate",
+        source_revision="24d06a7657ab9e19d07b5ba4f801394a440287a1",
         distribution_names=("openbb", "openbb-core", "openbb-yfinance", "yfinance"),
         verified_file_count=4,
+        artifact_fingerprint="a" * 64,
     )
 
     assert not openbb_market_data_runner._yfinance_outbound_end_bound_is_attested(
@@ -1491,9 +1832,7 @@ def test_openbb_runner_rejects_dangerous_extension_environment_before_import(
     )
 
     assert completed.returncode == 0
-    assert json.loads(completed.stdout)["error"]["code"] == (
-        "OPENBB_RUNNER_DANGEROUS_ENVIRONMENT"
-    )
+    assert json.loads(completed.stdout)["error"]["code"] == ("OPENBB_RUNNER_DANGEROUS_ENVIRONMENT")
 
 
 def test_openbb_runner_future_permit_requires_family_and_endpoint_identity(
@@ -1525,13 +1864,12 @@ def test_openbb_runner_future_permit_requires_family_and_endpoint_identity(
 
     assert _has_active_runtime_route_permit(request)
     assert not _has_active_runtime_route_permit({**request, "family_id": "stock.valuation"})
-    assert not _has_active_runtime_route_permit(
-        {**request, "provider_endpoint": "etf.historical"}
-    )
+    assert not _has_active_runtime_route_permit({**request, "provider_endpoint": "etf.historical"})
 
 
 def test_openbb_runner_dispatches_only_the_endpoint_bound_by_a_permit() -> None:
     """Endpoint selection cannot be widened by an otherwise valid stock asset type."""
+
     def historical(**_kwargs: object) -> None:
         return None
 

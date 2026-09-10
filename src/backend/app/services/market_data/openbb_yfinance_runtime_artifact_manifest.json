@@ -2,6 +2,7 @@
   "manifest_version": "openbb-yfinance-runtime-artifact-manifest-v1",
   "artifact_set_version": "openbb-yfinance-us-nyse-1d-fork-candidate-v1",
   "attestation_state": "candidate",
+  "source_revision": "24d06a7657ab9e19d07b5ba4f801394a440287a1",
   "outbound_end_bound_contract": "openbb-yfinance-daily-inclusive-to-yfinance-exclusive-v1",
   "artifacts": [
     {
@@ -9,8 +10,8 @@
       "version": "4.7.3",
       "files": [
         {
-          "relative_path": "openbb/__init__.py",
-          "sha256": "8544b1b5c1e5ad6ce542a90ef11578f46c60eb1519e8c361d4de92e098447ac1"
+          "relative_path": "openbb-4.7.3.dist-info/METADATA",
+          "sha256": "2d77ce4e939648fe89fd610c52a011ef25baf9ab9f8aa54d9876a793f371bce1"
         }
       ]
     },

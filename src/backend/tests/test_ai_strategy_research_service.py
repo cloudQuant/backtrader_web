@@ -436,7 +436,9 @@ def _persist_trusted_fake_paper_runtime(
         encoding="utf-8",
     )
     monkeypatch.setattr(workspace_unit_runtime, "_WORKSPACE_UNITS_ROOT", tmp_path / "units")
-    monkeypatch.setattr(workspace_unit_runtime, "get_strategy_dir", lambda _strategy_id: template_dir)
+    monkeypatch.setattr(
+        workspace_unit_runtime, "get_strategy_dir", lambda _strategy_id: template_dir
+    )
 
     paper_workspace = workspace_service.workspaces[paper_workspace_id]
     workspace_settings = dict(paper_workspace.settings or {})
@@ -801,9 +803,24 @@ def _ready_live_handoff_record(run_id: str) -> dict[str, Any]:
         "paper_review_ready_for_live": True,
         "paper_reviewed_at": "2026-01-02T00:00:00+00:00",
         "paper_monitoring_plan": [
-            {"key": "rolling_sharpe", "metric": "rolling_sharpe", "direction": "min", "threshold": 0.6},
-            {"key": "drawdown_guard", "metric": "max_drawdown", "direction": "max", "threshold": 15.0},
-            {"key": "trade_sample", "metric": "closed_trades", "direction": "min", "threshold": 20.0},
+            {
+                "key": "rolling_sharpe",
+                "metric": "rolling_sharpe",
+                "direction": "min",
+                "threshold": 0.6,
+            },
+            {
+                "key": "drawdown_guard",
+                "metric": "max_drawdown",
+                "direction": "max",
+                "threshold": 15.0,
+            },
+            {
+                "key": "trade_sample",
+                "metric": "closed_trades",
+                "direction": "min",
+                "threshold": 20.0,
+            },
             {
                 "key": "execution_cost",
                 "metric": "slippage_and_commission_delta",
@@ -1021,9 +1038,7 @@ class FakeAttestedLiveReadyPaperWorkspaceService(FakeLiveReadyPaperWorkspaceServ
             SERVER_RUNTIME_LAUNCH_STARTED_AT_FIELD,
         )
 
-        self._runtime_started_at = (
-            runtime_started_at or (_now() - timedelta(days=14))
-        ).isoformat()
+        self._runtime_started_at = (runtime_started_at or (_now() - timedelta(days=14))).isoformat()
         self._runtime_launch_id = uuid.uuid4().hex
         self._runtime_instance_id = "trusted-paper-runtime"
         self._owner_user_id = owner_user_id
@@ -1054,7 +1069,9 @@ class FakeAttestedLiveReadyPaperWorkspaceService(FakeLiveReadyPaperWorkspaceServ
                     self._runtime_started_at_field: self._runtime_started_at,
                 }
 
-        monkeypatch.setattr(research_module, "get_live_trading_manager", lambda: ActivePaperManager())
+        monkeypatch.setattr(
+            research_module, "get_live_trading_manager", lambda: ActivePaperManager()
+        )
 
     async def run_units(
         self,
@@ -2642,9 +2659,7 @@ async def test_research_loop_requires_minimum_paper_observation_before_live_hand
     assert review.ready_for_live is False
     assert review.live_handoff is None
     observation = next(
-        item
-        for item in review.evaluations
-        if item.key == "paper_observation_period"
+        item for item in review.evaluations if item.key == "paper_observation_period"
     )
     assert observation.status == "pending"
     assert observation.passed is False
@@ -5165,7 +5180,12 @@ async def test_record_live_handoff_approval_persists_manual_decision(monkeypatch
         ],
         "paper_monitoring_plan": [
             {"key": "rolling_sharpe", "metric": "rolling_sharpe", "threshold": 0.6},
-            {"key": "drawdown_guard", "metric": "max_drawdown", "direction": "max", "threshold": 15.0},
+            {
+                "key": "drawdown_guard",
+                "metric": "max_drawdown",
+                "direction": "max",
+                "threshold": 15.0,
+            },
             {"key": "trade_sample", "metric": "closed_trades", "threshold": 20.0},
             {
                 "key": "execution_cost",
@@ -5240,7 +5260,9 @@ async def test_record_live_handoff_approval_persists_manual_decision(monkeypatch
 
 
 @pytest.mark.asyncio
-async def test_requested_changes_keeps_live_handoff_locked_for_further_research(monkeypatch, tmp_path):
+async def test_requested_changes_keeps_live_handoff_locked_for_further_research(
+    monkeypatch, tmp_path
+):
     workspace_service = FakeWorkspaceService()
     run = _run_record(
         "live-requested-changes-run",
@@ -5283,7 +5305,9 @@ async def test_requested_changes_keeps_live_handoff_locked_for_further_research(
 
 
 @pytest.mark.asyncio
-async def test_prepare_live_trading_from_approved_handoff_creates_locked_live_unit(monkeypatch, tmp_path):
+async def test_prepare_live_trading_from_approved_handoff_creates_locked_live_unit(
+    monkeypatch, tmp_path
+):
     workspace_service = FakeWorkspaceService()
     workspace_service.workspaces["live-ws"] = _workspace("live-ws", "trading")
     live_readiness_checklist = [
@@ -5464,9 +5488,10 @@ async def test_prepare_live_trading_from_approved_handoff_creates_locked_live_un
     assert activated.unit.lock_trading is True
     assert activated.unit.lock_running is True
     assert workspace_service.started_units[-1] == ("live-ws", ["live-unit"])
-    assert workspace_service.run_unit_kwargs[-1][
-        "allow_server_owned_ai_research_live_handoff_start"
-    ] is True
+    assert (
+        workspace_service.run_unit_kwargs[-1]["allow_server_owned_ai_research_live_handoff_start"]
+        is True
+    )
     assert callable(workspace_service.run_unit_kwargs[-1]["live_handoff_pre_start_validator"])
 
     # A manager/open-order failure must not report a false deactivation or
@@ -5535,7 +5560,9 @@ async def test_prepare_live_trading_from_approved_handoff_creates_locked_live_un
     assert still_pending_run["live_handoff_approval"] is None
     assert still_pending_run["pipeline"]["live_handoff_stop_failed"] is True
     # The simulated process is gone only for the succeeding controlled retry.
-    workspace_service.units[live_unit.id] = live_unit.model_copy(update={"trading_instance_id": None})
+    workspace_service.units[live_unit.id] = live_unit.model_copy(
+        update={"trading_instance_id": None}
+    )
 
     # A later ordinary research run replaces the canonical ``last_run``.
     # Separately emulate paper-target-missing invalidation on the historical
@@ -5600,8 +5627,9 @@ async def test_prepare_live_trading_from_approved_handoff_creates_locked_live_un
         workspace_id="research-ws",
     )
     assert (
-        AIStrategyResearchRunRecord.model_validate(settings["ai_research"]["runs"][1])
-        .research_workspace_id
+        AIStrategyResearchRunRecord.model_validate(
+            settings["ai_research"]["runs"][1]
+        ).research_workspace_id
         == "research-ws"
     )
     deactivated = await service.deactivate_prepared_live_trading_from_run(
@@ -5956,7 +5984,9 @@ async def test_prepare_live_trading_blocks_blacklisted_symbol_risk_gate(monkeypa
 
 
 @pytest.mark.asyncio
-async def test_prepare_live_trading_materializes_snapshot_strategy_when_template_missing(monkeypatch, tmp_path):
+async def test_prepare_live_trading_materializes_snapshot_strategy_when_template_missing(
+    monkeypatch, tmp_path
+):
     workspace_service = FakeWorkspaceService()
     workspace_service.workspaces["live-ws"] = _workspace("live-ws", "trading")
     seed_draft = build_ai_strategy_draft("生成一个历史快照策略").model_copy(
@@ -6448,7 +6478,9 @@ async def test_review_paper_trading_waits_for_minimum_paper_trade_sample(monkeyp
 
 
 @pytest.mark.asyncio
-async def test_review_paper_trading_normalizes_negative_drawdown_before_live_candidate(monkeypatch, tmp_path):
+async def test_review_paper_trading_normalizes_negative_drawdown_before_live_candidate(
+    monkeypatch, tmp_path
+):
     workspace_service = FakeWorkspaceService()
     strategy_service = FakeStrategyService(
         workspace_service,
@@ -6545,7 +6577,9 @@ async def test_review_paper_trading_normalizes_negative_drawdown_before_live_can
 
 
 @pytest.mark.asyncio
-async def test_review_paper_trading_blocks_live_candidate_when_valuation_is_unconfirmed(monkeypatch, tmp_path):
+async def test_review_paper_trading_blocks_live_candidate_when_valuation_is_unconfirmed(
+    monkeypatch, tmp_path
+):
     workspace_service = FakeWorkspaceService()
     strategy_service = FakeStrategyService(
         workspace_service,
@@ -6706,7 +6740,9 @@ async def test_review_paper_trading_confirms_valuation_from_unit_asset_specs(mon
 
 
 @pytest.mark.asyncio
-async def test_review_paper_trading_confirms_valuation_from_run_record_asset_specs(monkeypatch, tmp_path):
+async def test_review_paper_trading_confirms_valuation_from_run_record_asset_specs(
+    monkeypatch, tmp_path
+):
     def fake_resolve_asset_specs(instance, strategy_dir, gateway=None, symbols=None):
         assert "IF2609" in symbols
         return {
@@ -9980,14 +10016,10 @@ async def test_history_refresh_never_re_signs_unsigned_high_rank_duplicate_run_i
     persisted = workspace_service.workspaces["research-history"].settings["ai_research"]
     persisted_runs = persisted["runs"]
     persisted_valid = next(
-        item
-        for item in persisted_runs
-        if item.get("server_provenance_signature")
+        item for item in persisted_runs if item.get("server_provenance_signature")
     )
     persisted_forged = next(
-        item
-        for item in persisted_runs
-        if not item.get("server_provenance_signature")
+        item for item in persisted_runs if not item.get("server_provenance_signature")
     )
     assert persisted_valid["next_actions"] == ["服务器可信刷新"]
     assert verify_ai_research_run_record(
@@ -12733,15 +12765,7 @@ async def test_ai_strategy_research_task_manager_restarts_interrupted_task_witho
     workspace_service.workspaces["research-draft-task"] = _workspace(
         "research-draft-task",
         "research",
-    ).model_copy(
-        update={
-            "settings": {
-                "ai_research": {
-                    "tasks": [source_task]
-                }
-            }
-        }
-    )
+    ).model_copy(update={"settings": {"ai_research": {"tasks": [source_task]}}})
     snapshot_store = AIStrategyResearchWorkspaceTaskSnapshotStore(
         workspace_service=workspace_service
     )
@@ -12812,15 +12836,7 @@ async def test_ai_strategy_research_task_manager_continues_from_task_snapshot():
     )
     workspace_service.workspaces["research-api-ws"] = _workspace(
         "research-api-ws", "research"
-    ).model_copy(
-        update={
-            "settings": {
-                "ai_research": {
-                    "tasks": [source_task]
-                }
-            }
-        }
-    )
+    ).model_copy(update={"settings": {"ai_research": {"tasks": [source_task]}}})
     snapshot_store = AIStrategyResearchWorkspaceTaskSnapshotStore(
         workspace_service=workspace_service
     )
@@ -12890,15 +12906,7 @@ async def test_get_research_run_record_recovers_interrupted_task_before_first_it
     workspace_service.workspaces["research-draft-interrupted"] = _workspace(
         "research-draft-interrupted",
         "research",
-    ).model_copy(
-        update={
-            "settings": {
-                "ai_research": {
-                    "tasks": [source_task]
-                }
-            }
-        }
-    )
+    ).model_copy(update={"settings": {"ai_research": {"tasks": [source_task]}}})
     service = AIStrategyResearchService(
         strategy_service=FakeStrategyService(workspace_service, []),
         workspace_service=workspace_service,
@@ -14742,12 +14750,10 @@ async def test_task_manager_prepares_market_data_binding_before_snapshot_and_dis
         {"market_data_binding": {"binding_id": "server-issued-only"}},
     ],
 )
-async def test_task_manager_rejects_disabled_market_data_bridge_before_snapshot_or_dispatch(
-    monkeypatch,
+async def test_task_manager_rejects_unbound_market_data_intent_before_snapshot_or_dispatch(
     data_config: dict[str, Any],
 ):
-    """A disabled bridge cannot leave an async task behind to fail later."""
-    import app.services.ai_strategy_research_service as research_service_module
+    """A direct task caller cannot turn an intent marker into an unbound task."""
 
     class RecordingSnapshotStore:
         def __init__(self) -> None:
@@ -14762,21 +14768,13 @@ async def test_task_manager_rejects_disabled_market_data_bridge_before_snapshot_
 
         async def run(self, _user_id: str, request: AIStrategyResearchRunRequest):
             self.requests.append(request)
-            raise AssertionError("disabled bridge request must not reach the background runner")
+            raise AssertionError("unbound market-data request must not reach the background runner")
 
-    monkeypatch.setattr(
-        research_service_module,
-        "get_settings",
-        lambda: SimpleNamespace(
-            MARKET_DATA_QUERY_V2_ENABLED=False,
-            MARKET_DATA_RESEARCH_BACKTEST_BRIDGE_ENABLED=False,
-        ),
-    )
     snapshot_store = RecordingSnapshotStore()
     runner = RecordingResearchService()
     manager = AIStrategyResearchTaskManager(task_snapshot_store=snapshot_store)
 
-    with pytest.raises(ValueError, match="MARKET_DATA_BRIDGE_DISABLED"):
+    with pytest.raises(ValueError, match="MARKET_DATA_BINDING_REQUIRED"):
         await manager.submit(
             "user-1",
             AIStrategyResearchRunRequest(
@@ -14843,9 +14841,7 @@ async def test_task_manager_continuation_strips_old_binding_then_rebinds(monkeyp
     async def continuation_prepare(task_id: str, request: AIStrategyResearchRunRequest):
         prepared_continuations.append(request)
         assert request.data_config == {"market_data_asset_type": "stock"}
-        assert not any(
-            key.startswith("market_data_binding_") for key in request.data_config
-        )
+        assert not any(key.startswith("market_data_binding_") for key in request.data_config)
         assert "market_data_binding" not in request.data_config
         return request.model_copy(
             update={
@@ -14921,14 +14917,12 @@ def test_task_snapshot_continuation_only_accepts_exact_market_data_intent_overri
 
 
 @pytest.mark.asyncio
-async def test_task_snapshot_continuation_rejects_legacy_data_override_when_bridge_disabled(
+async def test_task_snapshot_continuation_fails_closed_when_durable_binding_is_unavailable(
     client: AsyncClient,
     auth_headers: dict,
     monkeypatch,
 ):
     """A recovered binding cannot be erased into a legacy continuation request."""
-    import app.services.ai_strategy_research_service as research_service_module
-
     old_binding_id = str(uuid.uuid4())
     source_task = AIStrategyResearchTaskResponse(
         task_id="bound-source-task",
@@ -14987,19 +14981,19 @@ async def test_task_snapshot_continuation_rejects_legacy_data_override_when_brid
         ) -> None:
             self.saved.append(response)
 
-    monkeypatch.setattr(
-        research_service_module,
-        "get_settings",
-        lambda: SimpleNamespace(
-            MARKET_DATA_QUERY_V2_ENABLED=False,
-            MARKET_DATA_RESEARCH_BACKTEST_BRIDGE_ENABLED=False,
-        ),
-    )
+    class DisabledBindingService:
+        async def bind_request(self, **_kwargs: Any) -> AIStrategyResearchRunRequest:
+            error = RuntimeError("durable ledger unavailable")
+            error.code = "MARKET_DATA_BRIDGE_DISABLED"  # type: ignore[attr-defined]
+            raise error
+
     snapshot_store = RecordingSnapshotStore()
     task_manager = AIStrategyResearchTaskManager(task_snapshot_store=snapshot_store)
     app.dependency_overrides[get_ai_strategy_research_service] = FakeResearchAPIService
     app.dependency_overrides[get_ai_strategy_research_tasks] = lambda: task_manager
-    app.dependency_overrides[get_ai_strategy_research_market_data_binding_service] = lambda: None
+    app.dependency_overrides[get_ai_strategy_research_market_data_binding_service] = (
+        DisabledBindingService
+    )
     try:
         response = await client.post(
             "/api/v1/strategy/ai-research/tasks/bound-source-task/continue",
@@ -15021,17 +15015,7 @@ async def test_task_snapshot_continuation_rejects_legacy_data_override_when_brid
 async def test_direct_research_service_fails_closed_without_structural_market_data_binding(
     monkeypatch,
 ):
-    """Service callers cannot bypass the enabled bridge by omitting a binding."""
-    import app.services.ai_strategy_research_service as research_service_module
-
-    monkeypatch.setattr(
-        research_service_module,
-        "get_settings",
-        lambda: SimpleNamespace(
-            MARKET_DATA_QUERY_V2_ENABLED=True,
-            MARKET_DATA_RESEARCH_BACKTEST_BRIDGE_ENABLED=True,
-        ),
-    )
+    """Service callers cannot use a marker as proof of durable approval."""
     service = AIStrategyResearchService()
     pipeline_called = False
 
@@ -15053,11 +15037,11 @@ async def test_direct_research_service_fails_closed_without_structural_market_da
     malformed = request.model_copy(
         update={
             "data_config": {
-                    "market_data_binding_id": str(uuid.uuid4()),
-                    "market_data_binding_hash": "f" * 64,
-                    "market_data_binding_signature": "not-a-server-token",
-                    "market_data_binding_intent_id": "test-malformed-intent",
-                    "market_data_binding_required": True,
+                "market_data_binding_id": str(uuid.uuid4()),
+                "market_data_binding_hash": "f" * 64,
+                "market_data_binding_signature": "not-a-server-token",
+                "market_data_binding_intent_id": "test-malformed-intent",
+                "market_data_binding_required": True,
             }
         }
     )
@@ -15068,26 +15052,22 @@ async def test_direct_research_service_fails_closed_without_structural_market_da
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "data_config",
+    ("data_config", "expected_code"),
     [
-        {"market_data_asset_type": "stock"},
-        {"market_data_binding_custom_marker": "unexpected"},
-        {"market_data_binding": {"binding_id": "server-issued-only"}},
+        ({"market_data_asset_type": "stock"}, "MARKET_DATA_BINDING_REQUIRED"),
+        ({"market_data_binding_custom_marker": "unexpected"}, "MARKET_DATA_BINDING_INVALID"),
+        (
+            {"market_data_binding": {"binding_id": "server-issued-only"}},
+            "MARKET_DATA_BINDING_REQUIRED",
+        ),
     ],
 )
-async def test_direct_research_service_rejects_market_data_markers_when_bridge_disabled(
+async def test_direct_research_service_rejects_unproved_market_data_markers(
     monkeypatch,
     data_config: dict[str, Any],
+    expected_code: str,
 ):
-    """A disabled v2 bridge must not silently fall back to legacy CSV input."""
-    import app.services.ai_strategy_research_service as research_service_module
-
-    monkeypatch.setattr(
-        research_service_module,
-        "get_settings",
-        lambda: SimpleNamespace(MARKET_DATA_RESEARCH_BACKTEST_BRIDGE_ENABLED=False),
-    )
-    monkeypatch.setattr(research_service_module, "production_security_mode", lambda settings: False)
+    """A direct caller cannot skip the durable API-side binding operation."""
     service = AIStrategyResearchService()
     pipeline_called = False
 
@@ -15104,27 +15084,16 @@ async def test_direct_research_service_rejects_market_data_markers_when_bridge_d
         data_config=data_config,
     )
 
-    with pytest.raises(ValueError, match="MARKET_DATA_BRIDGE_DISABLED"):
+    with pytest.raises(ValueError, match=expected_code):
         await service.run("user-1", request)
     assert pipeline_called is False
 
 
 @pytest.mark.asyncio
-async def test_direct_research_service_treats_bridge_as_disabled_when_v2_is_off(
+async def test_direct_research_service_does_not_infer_bridge_approval_from_settings(
     monkeypatch,
 ):
-    """An inconsistent injected setting cannot activate a binding without v2."""
-    import app.services.ai_strategy_research_service as research_service_module
-
-    monkeypatch.setattr(
-        research_service_module,
-        "get_settings",
-        lambda: SimpleNamespace(
-            MARKET_DATA_QUERY_V2_ENABLED=False,
-            MARKET_DATA_RESEARCH_BACKTEST_BRIDGE_ENABLED=True,
-        ),
-    )
-    monkeypatch.setattr(research_service_module, "production_security_mode", lambda settings: False)
+    """A direct call fails closed even if a caller supplies permissive settings."""
     service = AIStrategyResearchService()
     pipeline_called = False
 
@@ -15141,22 +15110,14 @@ async def test_direct_research_service_treats_bridge_as_disabled_when_v2_is_off(
         data_config={"market_data_asset_type": "stock"},
     )
 
-    with pytest.raises(ValueError, match="MARKET_DATA_BRIDGE_DISABLED"):
+    with pytest.raises(ValueError, match="MARKET_DATA_BINDING_REQUIRED"):
         await service.run("user-1", request)
     assert pipeline_called is False
 
 
 @pytest.mark.asyncio
-async def test_direct_research_service_keeps_legacy_data_config_when_bridge_disabled(monkeypatch):
+async def test_direct_research_service_keeps_legacy_data_config_without_binding_intent(monkeypatch):
     """Legacy callers without v2 markers retain their existing execution path."""
-    import app.services.ai_strategy_research_service as research_service_module
-
-    monkeypatch.setattr(
-        research_service_module,
-        "get_settings",
-        lambda: SimpleNamespace(MARKET_DATA_RESEARCH_BACKTEST_BRIDGE_ENABLED=False),
-    )
-    monkeypatch.setattr(research_service_module, "production_security_mode", lambda settings: False)
     service = AIStrategyResearchService()
     received_request: AIStrategyResearchRunRequest | None = None
     expected_response = object()
@@ -15181,31 +15142,20 @@ async def test_direct_research_service_keeps_legacy_data_config_when_bridge_disa
     assert received_request.data_config == {"csv_path": "/legacy/000001.csv"}
 
 
-def test_market_data_binding_factory_is_inert_when_bridge_disabled(monkeypatch):
-    """Default legacy routes must not open a v2 database session just to check the gate."""
-    import app.api.strategy.base as strategy_api_module
-
-    monkeypatch.setattr(
-        strategy_api_module,
-        "get_settings",
-        lambda: SimpleNamespace(MARKET_DATA_RESEARCH_BACKTEST_BRIDGE_ENABLED=False),
-    )
-
-    def should_not_open_database():
-        raise AssertionError("disabled bridge must not open a market-data database session")
-
-    monkeypatch.setattr(strategy_api_module, "get_db", should_not_open_database)
-    assert get_ai_strategy_research_market_data_binding_service() is None
+def test_market_data_binding_factory_is_inert_until_a_request_has_binding_intent() -> None:
+    """Factory construction itself cannot enable a bridge or open a session."""
+    factory = get_ai_strategy_research_market_data_binding_service()
+    assert factory is not None
+    assert hasattr(factory, "bind_request")
 
 
 @pytest.mark.asyncio
-async def test_ai_research_apis_report_disabled_bridge_before_sync_or_async_work(
+async def test_ai_research_apis_report_durable_bridge_failure_before_sync_or_async_work(
     client: AsyncClient,
     auth_headers: dict,
     monkeypatch,
 ):
     """A disabled bridge has one structured HTTP outcome and creates no async task."""
-    import app.services.ai_strategy_research_service as research_service_module
 
     class RecordingSnapshotStore:
         def __init__(self) -> None:
@@ -15214,19 +15164,17 @@ async def test_ai_research_apis_report_disabled_bridge_before_sync_or_async_work
         async def save_task(self, _user_id: str, response: Any) -> None:
             self.saved.append(response)
 
-    monkeypatch.setattr(
-        research_service_module,
-        "get_settings",
-        lambda: SimpleNamespace(
-            MARKET_DATA_QUERY_V2_ENABLED=False,
-            MARKET_DATA_RESEARCH_BACKTEST_BRIDGE_ENABLED=False,
-        ),
-    )
-    task_manager = AIStrategyResearchTaskManager(
-        task_snapshot_store=RecordingSnapshotStore()
-    )
+    class DisabledBindingService:
+        async def bind_request(self, **_kwargs: Any) -> AIStrategyResearchRunRequest:
+            error = RuntimeError("durable ledger unavailable")
+            error.code = "MARKET_DATA_BRIDGE_DISABLED"  # type: ignore[attr-defined]
+            raise error
+
+    task_manager = AIStrategyResearchTaskManager(task_snapshot_store=RecordingSnapshotStore())
     app.dependency_overrides[get_ai_strategy_research_tasks] = lambda: task_manager
-    app.dependency_overrides[get_ai_strategy_research_market_data_binding_service] = lambda: None
+    app.dependency_overrides[get_ai_strategy_research_market_data_binding_service] = (
+        DisabledBindingService
+    )
     try:
         payload = {
             "prompt": "桥接关闭时不得降级为旧 CSV",
@@ -15288,8 +15236,8 @@ async def test_ai_research_run_api_binds_server_request_and_rejects_client_data_
     binding_service = BindingService()
     research_service = FakeResearchAPIService()
     app.dependency_overrides[get_ai_strategy_research_service] = lambda: research_service
-    app.dependency_overrides[get_ai_strategy_research_market_data_binding_service] = (
-        lambda: binding_service
+    app.dependency_overrides[get_ai_strategy_research_market_data_binding_service] = lambda: (
+        binding_service
     )
     try:
         response = await client.post(
@@ -15371,8 +15319,8 @@ async def test_ai_research_mandate_rejection_precedes_binding_and_task_persisten
     app.dependency_overrides[get_ai_strategy_research_service] = lambda: research_service
     app.dependency_overrides[get_ai_strategy_research_tasks] = lambda: task_manager
     app.dependency_overrides[get_investment_mandate_service] = lambda: mandate_service
-    app.dependency_overrides[get_ai_strategy_research_market_data_binding_service] = (
-        lambda: binding_service
+    app.dependency_overrides[get_ai_strategy_research_market_data_binding_service] = lambda: (
+        binding_service
     )
     payload = {
         "prompt": "篡改的 mandate 不得绑定市场数据",
@@ -15407,7 +15355,9 @@ async def test_ai_research_mandate_rejection_precedes_binding_and_task_persisten
     assert snapshot_store.saved == []
     assert not artifact_root.exists()
     async with async_session_maker() as session:
-        binding_count = await session.scalar(select(func.count()).select_from(MdResearchDataBinding))
+        binding_count = await session.scalar(
+            select(func.count()).select_from(MdResearchDataBinding)
+        )
     assert binding_count == 0
 
 
@@ -15455,8 +15405,8 @@ async def test_direct_ai_research_routes_reject_client_continuation_context_and_
     app.dependency_overrides[get_ai_strategy_research_service] = lambda: research_service
     app.dependency_overrides[get_ai_strategy_research_tasks] = lambda: task_manager
     app.dependency_overrides[get_investment_mandate_service] = lambda: mandate_service
-    app.dependency_overrides[get_ai_strategy_research_market_data_binding_service] = (
-        lambda: binding_service
+    app.dependency_overrides[get_ai_strategy_research_market_data_binding_service] = lambda: (
+        binding_service
     )
     context_and_lineage = {
         # Omit prompt deliberately: this is a blank-auto request, not an
@@ -15563,8 +15513,8 @@ async def test_ai_research_task_api_binds_after_task_id_before_snapshot(
     research_service = FakeResearchAPIService()
     app.dependency_overrides[get_ai_strategy_research_service] = lambda: research_service
     app.dependency_overrides[get_ai_strategy_research_tasks] = lambda: task_manager
-    app.dependency_overrides[get_ai_strategy_research_market_data_binding_service] = (
-        lambda: binding_service
+    app.dependency_overrides[get_ai_strategy_research_market_data_binding_service] = lambda: (
+        binding_service
     )
     try:
         response = await client.post(
@@ -15608,9 +15558,9 @@ async def test_ai_research_run_continuation_rebinds_old_record_binding_before_sn
         "market_data_binding": {"binding_id": old_binding_id},
     }
     authenticated_user_id = str(
-        (decode_access_token(auth_headers["Authorization"].removeprefix("Bearer ").strip()) or {}).get(
-            "sub"
-        )
+        (
+            decode_access_token(auth_headers["Authorization"].removeprefix("Bearer ").strip()) or {}
+        ).get("sub")
         or ""
     )
     assert authenticated_user_id
@@ -15636,9 +15586,7 @@ async def test_ai_research_run_continuation_rebinds_old_record_binding_before_sn
     workspace_service = FakeWorkspaceService()
     workspace_service.workspaces["research-continue-ws"] = _workspace(
         "research-continue-ws", "research"
-    ).model_copy(
-        update={"settings": {"ai_research": {}}}
-    )
+    ).model_copy(update={"settings": {"ai_research": {}}})
     _persist_trusted_fake_run(
         workspace_service,
         source_record,
@@ -15699,8 +15647,8 @@ async def test_ai_research_run_continuation_rebinds_old_record_binding_before_sn
     task_manager = AIStrategyResearchTaskManager()
     app.dependency_overrides[get_ai_strategy_research_service] = lambda: service
     app.dependency_overrides[get_ai_strategy_research_tasks] = lambda: task_manager
-    app.dependency_overrides[get_ai_strategy_research_market_data_binding_service] = (
-        lambda: binding_service
+    app.dependency_overrides[get_ai_strategy_research_market_data_binding_service] = lambda: (
+        binding_service
     )
     try:
         response = await client.post(
@@ -15733,14 +15681,12 @@ async def test_ai_research_run_continuation_rebinds_old_record_binding_before_sn
 
 
 @pytest.mark.asyncio
-async def test_ai_research_run_continuation_rejects_old_record_binding_when_bridge_disabled(
+async def test_ai_research_run_continuation_rejects_old_record_when_durable_bridge_is_unavailable(
     client: AsyncClient,
     auth_headers: dict,
     monkeypatch,
 ):
     """Disabled bridge rejects persisted binding intent before task state or snapshots exist."""
-    import app.services.ai_strategy_research_service as research_service_module
-
     old_binding_id = str(uuid.uuid4())
     workspace_service = FakeWorkspaceService()
     workspace_service.workspaces["research-continue-disabled-ws"] = _workspace(
@@ -15825,14 +15771,12 @@ async def test_ai_research_run_continuation_rejects_old_record_binding_when_brid
         async def save_task(self, _user_id: str, response: Any) -> None:
             self.saved.append(response)
 
-    monkeypatch.setattr(
-        research_service_module,
-        "get_settings",
-        lambda: SimpleNamespace(
-            MARKET_DATA_QUERY_V2_ENABLED=False,
-            MARKET_DATA_RESEARCH_BACKTEST_BRIDGE_ENABLED=False,
-        ),
-    )
+    class DisabledBindingService:
+        async def bind_request(self, **_kwargs: Any) -> AIStrategyResearchRunRequest:
+            error = RuntimeError("durable ledger unavailable")
+            error.code = "MARKET_DATA_BRIDGE_DISABLED"  # type: ignore[attr-defined]
+            raise error
+
     service = PersistedRunService(
         strategy_service=FakeStrategyService(workspace_service, []),
         workspace_service=workspace_service,
@@ -15843,7 +15787,9 @@ async def test_ai_research_run_continuation_rejects_old_record_binding_when_brid
     task_manager = AIStrategyResearchTaskManager(task_snapshot_store=snapshot_store)
     app.dependency_overrides[get_ai_strategy_research_service] = lambda: service
     app.dependency_overrides[get_ai_strategy_research_tasks] = lambda: task_manager
-    app.dependency_overrides[get_ai_strategy_research_market_data_binding_service] = lambda: None
+    app.dependency_overrides[get_ai_strategy_research_market_data_binding_service] = (
+        DisabledBindingService
+    )
     try:
         response = await client.post(
             "/api/v1/strategy/ai-research/runs/bound-disabled-source-run/continue",
@@ -16082,8 +16028,8 @@ async def test_auto_mandate_continuation_routes_restore_only_trusted_prompt_and_
     app.dependency_overrides[get_ai_strategy_research_service] = lambda: source_service
     app.dependency_overrides[get_ai_strategy_research_tasks] = lambda: task_manager
     app.dependency_overrides[get_investment_mandate_service] = lambda: mandate_service
-    app.dependency_overrides[get_ai_strategy_research_market_data_binding_service] = (
-        lambda: binding_service
+    app.dependency_overrides[get_ai_strategy_research_market_data_binding_service] = lambda: (
+        binding_service
     )
     try:
         task_response = await client.post(
@@ -16290,8 +16236,8 @@ async def test_workspace_settings_cannot_forge_ai_research_continuation_provenan
     service = AIStrategyResearchService()
     app.dependency_overrides[get_ai_strategy_research_service] = lambda: service
     app.dependency_overrides[get_ai_strategy_research_tasks] = lambda: task_manager
-    app.dependency_overrides[get_ai_strategy_research_market_data_binding_service] = (
-        lambda: binding_service
+    app.dependency_overrides[get_ai_strategy_research_market_data_binding_service] = lambda: (
+        binding_service
     )
     try:
         forged_run_response = await client.post(
@@ -16440,8 +16386,8 @@ async def test_workspace_settings_cannot_forge_ai_research_continuation_provenan
 
     app.dependency_overrides[get_ai_strategy_research_service] = lambda: service
     app.dependency_overrides[get_ai_strategy_research_tasks] = lambda: task_manager
-    app.dependency_overrides[get_ai_strategy_research_market_data_binding_service] = (
-        lambda: binding_service
+    app.dependency_overrides[get_ai_strategy_research_market_data_binding_service] = lambda: (
+        binding_service
     )
     try:
         copied_run_response = await client.post(
@@ -16541,9 +16487,9 @@ async def test_expired_signed_run_record_is_refreshed_and_resigned(monkeypatch):
 
     assert refreshed is not None
     assert refreshed.paper_review_status == "live_readiness_expired"
-    persisted = workspace_service.workspaces["research-expiry-signature"].settings[
-        "ai_research"
-    ]["runs"][0]
+    persisted = workspace_service.workspaces["research-expiry-signature"].settings["ai_research"][
+        "runs"
+    ][0]
     persisted_record = AIStrategyResearchRunRecord.model_validate(persisted)
     assert persisted_record.paper_review_status == "live_readiness_expired"
     assert verify_ai_research_run_record(
@@ -17261,11 +17207,15 @@ async def test_valid_ai_paper_unit_materializes_and_starts_with_signed_snapshot(
             self.instances[str(instance["id"])] = instance
             return instance
 
-        def get_instance(self, instance_id: str, user_id: str | None = None) -> dict[str, object] | None:
+        def get_instance(
+            self, instance_id: str, user_id: str | None = None
+        ) -> dict[str, object] | None:
             del user_id
             return self.instances.get(instance_id)
 
-        def attest_paper_runtime_start(self, instance_id: str, runtime_snapshot_digest: str) -> None:
+        def attest_paper_runtime_start(
+            self, instance_id: str, runtime_snapshot_digest: str
+        ) -> None:
             assert instance_id == "signed-first-instance"
             self.attested_digests.append(runtime_snapshot_digest)
 
@@ -17305,9 +17255,12 @@ async def test_valid_ai_paper_unit_materializes_and_starts_with_signed_snapshot(
     assert manager.add_digests == [snapshot_digest]
     assert manager.attested_digests == [snapshot_digest]
     assert manager.started_ids == ["signed-first-instance"]
-    assert ai_research_paper_materialized_runtime_digest(
-        workspace_unit_runtime.unit_dir(paper_workspace_id, unit.id)
-    ) == snapshot_digest
+    assert (
+        ai_research_paper_materialized_runtime_digest(
+            workspace_unit_runtime.unit_dir(paper_workspace_id, unit.id)
+        )
+        == snapshot_digest
+    )
 
     # The paper-start flow records task/status metadata after runtime launch.
     # It must preserve the signed snapshot through the server writer's normal
@@ -17335,9 +17288,7 @@ async def test_valid_ai_paper_unit_materializes_and_starts_with_signed_snapshot(
     )
     assert post_start is not None
     final_unit = StrategyUnitResponse.model_validate(post_start)
-    final_anchor = dict(final_unit.unit_settings or {}).get(
-        "ai_research_paper_runtime_anchor"
-    )
+    final_anchor = dict(final_unit.unit_settings or {}).get("ai_research_paper_runtime_anchor")
     assert isinstance(final_anchor, dict)
     assert verify_ai_research_paper_runtime_anchor(
         final_anchor,
@@ -17349,9 +17300,12 @@ async def test_valid_ai_paper_unit_materializes_and_starts_with_signed_snapshot(
         unit=final_unit,
         workspace_settings=paper_workspace_settings,
     )
-    assert ai_research_paper_materialized_runtime_digest(
-        workspace_unit_runtime.unit_dir(paper_workspace_id, unit.id)
-    ) == final_anchor["runtime_snapshot_digest"]
+    assert (
+        ai_research_paper_materialized_runtime_digest(
+            workspace_unit_runtime.unit_dir(paper_workspace_id, unit.id)
+        )
+        == final_anchor["runtime_snapshot_digest"]
+    )
 
 
 def test_paper_runtime_start_capability_is_immediate_and_digest_bound(
@@ -17404,6 +17358,7 @@ def test_paper_runtime_start_capability_is_immediate_and_digest_bound(
         "refresh_instance_asset_specs",
         lambda instance, *_args: refresh_calls.append(instance) or {},
     )
+
     def acquire_none(*_args: object) -> None:
         return None
 
@@ -17603,9 +17558,7 @@ async def test_start_all_waits_for_new_paper_capability_before_preflight(monkeyp
     assert result == {
         "success": 1,
         "failed": 0,
-        "details": [
-            {"id": instance_id, "strategy_id": "paper-source", "result": "started"}
-        ],
+        "details": [{"id": instance_id, "strategy_id": "paper-source", "result": "started"}],
     }
     assert execution_ids == [instance_id]
 
@@ -17766,6 +17719,7 @@ async def test_mandate_rejects_missing_null_constraint_and_quality_gate_keys(mon
             "mandate-owner",
             request.model_copy(update={"mandate_id": mandate.id}),
         )
+
 
 @pytest.mark.asyncio
 async def test_same_second_paper_restart_revokes_old_ready_epoch_before_approval_or_prepare(
@@ -17945,7 +17899,10 @@ async def test_same_second_paper_restart_revokes_old_ready_epoch_before_approval
     persisted_after_epoch_change = workspace_service.workspaces["research-ws"].settings[
         "ai_research"
     ]["runs"][0]
-    assert persisted_after_epoch_change["paper_review_status"] == "paper_runtime_metrics_observation_missing"
+    assert (
+        persisted_after_epoch_change["paper_review_status"]
+        == "paper_runtime_metrics_observation_missing"
+    )
     assert persisted_after_epoch_change.get("live_handoff") is None
     assert persisted_after_epoch_change.get("live_handoff_approval") is None
     with pytest.raises(ValueError, match="has not been approved"):
@@ -18102,6 +18059,7 @@ def test_paper_elapsed_days_rejects_invalid_server_epoch_without_handoff_fallbac
     assert elapsed_days is None
     assert source == "server_runtime.started_at_invalid"
 
+
 @pytest.mark.asyncio
 async def test_restart_spawn_window_clears_old_paper_epoch_before_manager_observation(
     monkeypatch,
@@ -18225,6 +18183,7 @@ async def test_restart_spawn_window_clears_old_paper_epoch_before_manager_observ
     assert started[SERVER_RUNTIME_LAUNCH_ID_FIELD] != old_launch_id
     assert started[SERVER_RUNTIME_LAUNCH_STARTED_AT_FIELD] != old_launch_started_at
 
+
 @pytest.mark.asyncio
 async def test_scheduler_stop_all_skips_attested_paper_runtime_and_stops_ordinary(monkeypatch):
     """Market-close automation must not leave ordinary instances running."""
@@ -18271,7 +18230,9 @@ async def test_scheduler_stop_all_skips_attested_paper_runtime_and_stops_ordinar
         return {"id": instance_id, "status": "stopped"}
 
     monkeypatch.setattr(manager_module, "_load_instances", load_instances)
-    monkeypatch.setattr(manager_module.live_execution_service, "stop_instance", execution_stop_instance)
+    monkeypatch.setattr(
+        manager_module.live_execution_service, "stop_instance", execution_stop_instance
+    )
     monkeypatch.setattr(
         workspace_units_module,
         "assert_ai_research_paper_runtime_stop_allowed",

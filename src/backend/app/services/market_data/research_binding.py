@@ -9,6 +9,7 @@ one controlled root, and records the evidence needed to replay that input.
 from __future__ import annotations
 
 import base64
+import binascii
 import csv
 import hashlib
 import hmac
@@ -20,7 +21,7 @@ import re
 import stat
 import uuid
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
@@ -46,6 +47,7 @@ from app.services.market_data.access import (
     MarketDataPrincipal,
     MarketDataQueryAccess,
 )
+from app.services.market_data.capability_ledger import MarketDataCapabilityEvaluation
 from app.services.market_data.coverage import CoverageStatus
 from app.services.market_data.identity import MarketDataIdentityResolutionError
 from app.services.market_data.query_resolution import MarketDataQueryResolutionError
@@ -59,10 +61,13 @@ from app.services.market_data.store import MarketDataStoreError
 UTC = timezone.utc
 _BINDING_SCHEMA_VERSION = "market-data-research-binding-v1"
 _SIGNATURE_SCHEMA_VERSION = "market-data-research-binding-signature-v1"
+_RUNTIME_CAPABILITY_CONTEXT_SCHEMA_VERSION = "market-data-research-runtime-capability-v1"
+_RUNTIME_CAPABILITY_CONTEXT_TTL = timedelta(minutes=15)
 _CSV_COLUMNS = ("datetime", "open", "high", "low", "close", "volume", "openinterest")
 _ASSET_TYPE_PATTERN = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
 _SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 _INTENT_ID_PATTERN = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
+_CAPABILITY_CONTEXT_SEAL = object()
 
 
 class MarketDataResearchBindingError(ValueError):
@@ -110,6 +115,17 @@ class MarketDataResearchRuntimeBinding:
     manifest_hash: str
     query_semantics: Mapping[str, object]
     signature_payload: Mapping[str, object]
+    runtime_capability_context: Mapping[str, object] | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class _MarketDataResearchCapabilityContext:
+    """One authorized durable capability read for an in-process binding operation."""
+
+    user_id: str
+    capabilities: MarketDataCapabilityEvaluation
+    access: MarketDataQueryAccess
+    seal: object
 
 
 @dataclass(frozen=True, slots=True)
@@ -136,6 +152,7 @@ class MarketDataResearchBindingService:
         *,
         binding_signing_key: str | bytes | None = None,
         clock: Callable[[], datetime] | None = None,
+        capability_context: _MarketDataResearchCapabilityContext | None = None,
     ) -> None:
         if not isinstance(db, AsyncSession):
             raise TypeError("db must be an AsyncSession")
@@ -152,6 +169,7 @@ class MarketDataResearchBindingService:
         self._artifact_root = _controlled_artifact_root(artifact_root)
         self._binding_signing_key = _optional_signing_key(binding_signing_key)
         self._clock = clock or _utc_now
+        self._capability_context = capability_context
 
     async def bind_request(
         self,
@@ -168,7 +186,9 @@ class MarketDataResearchBindingService:
         symbol = _required_text(request.symbol, field_name="symbol", maximum=50)
         timeframe = _normalized_timeframe(request.timeframe)
         if request.timeframe_n != 1:
-            raise MarketDataResearchBindingError("MARKET_DATA_BINDING_TIMEFRAME_MULTIPLIER_UNSUPPORTED")
+            raise MarketDataResearchBindingError(
+                "MARKET_DATA_BINDING_TIMEFRAME_MULTIPLIER_UNSUPPORTED"
+            )
         start_at, end_at = _research_window(request.start_date, request.end_date)
         cutoff = min(_trusted_now(self._clock), end_at)
 
@@ -178,6 +198,7 @@ class MarketDataResearchBindingService:
             self._access_authorizer.require_read_data(principal=principal)
         except MarketDataAuthorizationError as exc:
             raise MarketDataResearchBindingError("MARKET_DATA_BINDING_ACCESS_DENIED") from exc
+        self._require_capability_context(owner_id)
         access = MarketDataQueryAccess(principal=principal, authorizer=self._access_authorizer)
 
         contract = await self._resolve_contract(
@@ -448,6 +469,7 @@ class MarketDataResearchBindingService:
             raise MarketDataResearchBindingError(
                 "MARKET_DATA_BINDING_RUNTIME_SOURCE_POLICY_ACCESS_DENIED"
             ) from exc
+        capability_context = self._require_capability_context(owner_id)
         runtime = await self._runtime_from_model(
             binding,
             user_id=owner_id,
@@ -457,7 +479,9 @@ class MarketDataResearchBindingService:
         supplied = (symbol, timeframe, timeframe_n, start, end)
         if any(value is not None for value in supplied):
             if any(value is None for value in supplied):
-                raise MarketDataResearchBindingError("MARKET_DATA_BINDING_RUNTIME_SEMANTICS_REQUIRED")
+                raise MarketDataResearchBindingError(
+                    "MARKET_DATA_BINDING_RUNTIME_SEMANTICS_REQUIRED"
+                )
             validate_market_data_binding_runtime_semantics(
                 query_semantics=runtime.query_semantics,
                 symbol=str(symbol),
@@ -466,7 +490,13 @@ class MarketDataResearchBindingService:
                 start=start,
                 end=end,
             )
-        return runtime
+        return self._with_runtime_capability_context(
+            runtime,
+            capability_context=capability_context,
+            workspace_id=normalized_workspace_id,
+            unit_id=normalized_unit_id,
+            signing_key=signing_key,
+        )
 
     async def attach_runtime_binding_consumer(
         self,
@@ -498,6 +528,14 @@ class MarketDataResearchBindingService:
             maximum=36,
         )
         normalized_unit_id = _required_text(unit_id, field_name="unit_id", maximum=36)
+
+        owner = await self._load_owner(owner_id)
+        try:
+            principal = await self._access_authorizer.principal_for_user(owner)
+            self._access_authorizer.require_read_data(principal=principal)
+        except MarketDataAuthorizationError as exc:
+            raise MarketDataResearchBindingError("MARKET_DATA_BINDING_ACCESS_DENIED") from exc
+        self._require_capability_context(owner_id)
 
         binding = await self._db.scalar(
             select(MdResearchDataBinding)
@@ -582,10 +620,14 @@ class MarketDataResearchBindingService:
             await self._db.commit()
         except IntegrityError as exc:
             await self._db.rollback()
-            raise MarketDataResearchBindingError("MARKET_DATA_BINDING_CONSUMER_WRITE_CONFLICT") from exc
+            raise MarketDataResearchBindingError(
+                "MARKET_DATA_BINDING_CONSUMER_WRITE_CONFLICT"
+            ) from exc
         except SQLAlchemyError as exc:
             await self._db.rollback()
-            raise MarketDataResearchBindingError("MARKET_DATA_BINDING_CONSUMER_WRITE_FAILED") from exc
+            raise MarketDataResearchBindingError(
+                "MARKET_DATA_BINDING_CONSUMER_WRITE_FAILED"
+            ) from exc
 
     async def revoke_runtime_binding(
         self,
@@ -643,7 +685,9 @@ class MarketDataResearchBindingService:
             raise MarketDataResearchBindingError("MARKET_DATA_BINDING_ALREADY_REVOKED") from exc
         except SQLAlchemyError as exc:
             await self._db.rollback()
-            raise MarketDataResearchBindingError("MARKET_DATA_BINDING_REVOCATION_WRITE_FAILED") from exc
+            raise MarketDataResearchBindingError(
+                "MARKET_DATA_BINDING_REVOCATION_WRITE_FAILED"
+            ) from exc
 
     async def _require_active_runtime_consumer(
         self,
@@ -893,9 +937,7 @@ class MarketDataResearchBindingService:
     async def _load_owner(self, user_id: str) -> User:
         user = (
             await self._db.execute(
-                select(User)
-                .where(User.id == user_id)
-                .execution_options(populate_existing=True)
+                select(User).where(User.id == user_id).execution_options(populate_existing=True)
             )
         ).scalar_one_or_none()
         if user is None:
@@ -917,7 +959,9 @@ class MarketDataResearchBindingService:
                 family_id=f"{asset_type}.realtime",
             )
         except Exception as exc:
-            raise MarketDataResearchBindingError("MARKET_DATA_BINDING_CONTRACT_UNAVAILABLE") from exc
+            raise MarketDataResearchBindingError(
+                "MARKET_DATA_BINDING_CONTRACT_UNAVAILABLE"
+            ) from exc
         if not isinstance(contract, Mapping):
             raise MarketDataResearchBindingError("MARKET_DATA_BINDING_CONTRACT_UNAVAILABLE")
         raw_request = contract.get("request")
@@ -999,7 +1043,9 @@ class MarketDataResearchBindingService:
         except MarketDataResearchBindingError:
             raise
         except OSError as exc:
-            raise MarketDataResearchBindingError("MARKET_DATA_BINDING_ARTIFACT_WRITE_FAILED") from exc
+            raise MarketDataResearchBindingError(
+                "MARKET_DATA_BINDING_ARTIFACT_WRITE_FAILED"
+            ) from exc
 
     async def _runtime_from_model(
         self,
@@ -1059,29 +1105,127 @@ class MarketDataResearchBindingService:
             raise MarketDataResearchBindingError("MARKET_DATA_BINDING_SIGNING_KEY_REQUIRED")
         return self._binding_signing_key
 
+    def _require_capability_context(
+        self,
+        user_id: str,
+    ) -> _MarketDataResearchCapabilityContext | None:
+        """Require the production builder's current durable bridge decision.
 
-def build_market_data_research_binding_service(
+        Explicitly injected query-service doubles remain supported for isolated
+        unit tests.  Every production composition goes through the public
+        builder below and therefore carries a sealed context rather than
+        inferring approval from environment settings or an earlier request.
+        """
+        context = self._capability_context
+        if context is None:
+            return None
+        if (
+            context.seal is not _CAPABILITY_CONTEXT_SEAL
+            or context.user_id != user_id
+            or not context.capabilities.response.query_v2_enabled
+            or not context.capabilities.response.research_backtest_bridge_enabled
+        ):
+            raise MarketDataResearchBindingError("MARKET_DATA_BRIDGE_DISABLED")
+        return context
+
+    def _with_runtime_capability_context(
+        self,
+        runtime: MarketDataResearchRuntimeBinding,
+        *,
+        capability_context: _MarketDataResearchCapabilityContext | None,
+        workspace_id: str,
+        unit_id: str,
+        signing_key: bytes,
+    ) -> MarketDataResearchRuntimeBinding:
+        """Attach the short-lived permit required by the synchronous child runner."""
+        if capability_context is None:
+            return runtime
+        issued_at = _trusted_now(self._clock)
+        expires_at = issued_at + _RUNTIME_CAPABILITY_CONTEXT_TTL
+        payload = build_market_data_runtime_capability_context_payload(
+            binding_id=runtime.binding_id,
+            binding_hash=runtime.binding_hash,
+            owner_user_id=runtime.user_id,
+            workspace_id=workspace_id,
+            unit_id=unit_id,
+            issued_at=issued_at,
+            expires_at=expires_at,
+        )
+        return replace(
+            runtime,
+            runtime_capability_context=MappingProxyType(
+                {
+                    **payload,
+                    "signature": sign_market_data_runtime_capability_context(payload, signing_key),
+                }
+            ),
+        )
+
+
+async def build_market_data_research_binding_service(
     db: AsyncSession,
+    *,
+    user_id: str,
 ) -> MarketDataResearchBindingService:
-    """Compose the binding boundary for a request/runtime database session.
+    """Compose a binding boundary after current user and durable capability checks.
 
-    The v2 query and exact legacy-contract factories remain the single source
-    for reviewed route policy.  They are imported only while composing a real
-    session, so this service module itself stays independent of FastAPI route
-    registration and test doubles can continue to inject explicit components.
+    This is the production composition path.  It intentionally accepts a
+    concrete user id instead of FastAPI dependencies, performs the data-read
+    authorization first, and only then evaluates the durable capability
+    ledger.  No binding artifact, workspace attachment, or task snapshot can
+    be created when that evidence is missing or stale.
     """
-    from app.api.data.base import get_legacy_market_data_query_contract_resolver
-    from app.api.data.queries import get_market_data_query_service
+    from app.api.data.base import build_legacy_market_data_query_contract_resolver
+    from app.api.data.queries import (
+        build_market_data_query_service,
+        evaluate_market_data_capabilities,
+    )
     from app.config import get_settings
 
+    if not isinstance(db, AsyncSession):
+        raise TypeError("db must be an AsyncSession")
+    owner_id = _required_text(user_id, field_name="user_id", maximum=36)
+    authorizer = MarketDataAccessAuthorizer(db)
+    try:
+        owner = (
+            await db.execute(
+                select(User).where(User.id == owner_id).execution_options(populate_existing=True)
+            )
+        ).scalar_one_or_none()
+    except SQLAlchemyError as exc:
+        await db.rollback()
+        raise MarketDataResearchBindingError(
+            "MARKET_DATA_BINDING_CAPABILITY_CONTEXT_UNAVAILABLE"
+        ) from exc
+    if owner is None:
+        raise MarketDataResearchBindingError("MARKET_DATA_BINDING_OWNER_INVALID")
+    try:
+        principal = await authorizer.principal_for_user(owner)
+        authorizer.require_read_data(principal=principal)
+    except MarketDataAuthorizationError as exc:
+        raise MarketDataResearchBindingError("MARKET_DATA_BINDING_ACCESS_DENIED") from exc
+
+    capabilities = await evaluate_market_data_capabilities(db)
+    if not (
+        capabilities.response.query_v2_enabled
+        and capabilities.response.research_backtest_bridge_enabled
+    ):
+        raise MarketDataResearchBindingError("MARKET_DATA_BRIDGE_DISABLED")
+    capability_context = _MarketDataResearchCapabilityContext(
+        user_id=owner_id,
+        capabilities=capabilities,
+        access=MarketDataQueryAccess(principal=principal, authorizer=authorizer),
+        seal=_CAPABILITY_CONTEXT_SEAL,
+    )
     settings = get_settings()
     return MarketDataResearchBindingService(
         db,
-        get_market_data_query_service(db),
-        get_legacy_market_data_query_contract_resolver(db),
-        MarketDataAccessAuthorizer(db),
+        build_market_data_query_service(db, capabilities),
+        build_legacy_market_data_query_contract_resolver(db, settings=settings),
+        authorizer,
         settings.MARKET_DATA_RESEARCH_ARTIFACT_ROOT,
         binding_signing_key=settings.MARKET_DATA_RESEARCH_ARTIFACT_SIGNING_KEY,
+        capability_context=capability_context,
     )
 
 
@@ -1108,7 +1252,9 @@ def build_market_data_binding_signature_payload(
     }
 
 
-def sign_market_data_binding_payload(payload: Mapping[str, object], signing_key: str | bytes) -> str:
+def sign_market_data_binding_payload(
+    payload: Mapping[str, object], signing_key: str | bytes
+) -> str:
     """Return a self-contained canonical-payload-plus-HMAC binding token."""
     key = _required_signing_key(signing_key)
     canonical = _canonical_json(dict(payload)).encode("utf-8")
@@ -1164,6 +1310,165 @@ def verify_market_data_binding_signature(
         raise MarketDataResearchBindingError("MARKET_DATA_BINDING_SIGNATURE_INVALID") from exc
     if payload != decoded:
         raise MarketDataResearchBindingError("MARKET_DATA_BINDING_SIGNATURE_INVALID")
+    return MappingProxyType(payload)
+
+
+def build_market_data_runtime_capability_context_payload(
+    *,
+    binding_id: str,
+    binding_hash: str,
+    owner_user_id: str,
+    workspace_id: str,
+    unit_id: str,
+    issued_at: datetime,
+    expires_at: datetime,
+) -> dict[str, object]:
+    """Build the short-lived server-only permit consumed by a child runtime.
+
+    The context is separate from the durable binding HMAC: a binding proves
+    immutable data provenance, whereas this permit proves that the current
+    request evaluated the durable capability ledger before its runtime config
+    was materialized.  Keep it deliberately small and scope it to the exact
+    binding owner and workspace unit.
+    """
+    normalized_issued_at = _aware_utc(issued_at, "issued_at")
+    normalized_expires_at = _aware_utc(expires_at, "expires_at")
+    lifetime = normalized_expires_at - normalized_issued_at
+    if lifetime <= timedelta(0) or lifetime > _RUNTIME_CAPABILITY_CONTEXT_TTL:
+        raise MarketDataResearchBindingError("MARKET_DATA_BINDING_CAPABILITY_CONTEXT_INVALID")
+    return {
+        "schema_version": _RUNTIME_CAPABILITY_CONTEXT_SCHEMA_VERSION,
+        "binding_id": _required_text(binding_id, field_name="binding_id", maximum=36),
+        "binding_hash": _required_sha256(binding_hash, field_name="binding_hash"),
+        "owner_user_id": _required_text(owner_user_id, field_name="owner_user_id", maximum=36),
+        "workspace_id": _required_text(workspace_id, field_name="workspace_id", maximum=36),
+        "unit_id": _required_text(unit_id, field_name="unit_id", maximum=36),
+        "issued_at": _iso_utc(normalized_issued_at),
+        "expires_at": _iso_utc(normalized_expires_at),
+    }
+
+
+def sign_market_data_runtime_capability_context(
+    payload: Mapping[str, object],
+    signing_key: str | bytes,
+) -> str:
+    """Sign one canonical runtime-capability payload with the server key."""
+    key = _required_signing_key(signing_key)
+    canonical = _canonical_json(dict(payload)).encode("utf-8")
+    encoded = base64.urlsafe_b64encode(canonical).decode("ascii").rstrip("=")
+    digest = hmac.new(key, canonical, hashlib.sha256).hexdigest()
+    return f"{encoded}.{digest}"
+
+
+def verify_market_data_runtime_capability_context(
+    context: Mapping[str, object],
+    signing_key: str | bytes,
+    *,
+    binding_id: str,
+    binding_hash: str,
+    owner_user_id: str,
+    workspace_id: str | None = None,
+    unit_id: str | None = None,
+    clock: Callable[[], datetime] | None = None,
+) -> Mapping[str, object]:
+    """Verify a request-scoped permit before a synchronous artifact read.
+
+    The runtime may be invoked without an HTTP request or an async database
+    session.  It must therefore require this server-signed, expiring context
+    rather than reopening a removed settings gate or assuming a prior service
+    call was authorized.
+    """
+    if not isinstance(context, Mapping):
+        raise MarketDataResearchBindingError("MARKET_DATA_BINDING_CAPABILITY_CONTEXT_REQUIRED")
+    raw_context = dict(context)
+    expected_keys = {
+        "schema_version",
+        "binding_id",
+        "binding_hash",
+        "owner_user_id",
+        "workspace_id",
+        "unit_id",
+        "issued_at",
+        "expires_at",
+        "signature",
+    }
+    if set(raw_context) != expected_keys:
+        raise MarketDataResearchBindingError("MARKET_DATA_BINDING_CAPABILITY_CONTEXT_INVALID")
+    signature = raw_context.pop("signature")
+    if not isinstance(signature, str) or signature.count(".") != 1:
+        raise MarketDataResearchBindingError("MARKET_DATA_BINDING_CAPABILITY_CONTEXT_INVALID")
+    encoded, supplied_digest = signature.split(".", 1)
+    if not encoded or _SHA256_PATTERN.fullmatch(supplied_digest) is None:
+        raise MarketDataResearchBindingError("MARKET_DATA_BINDING_CAPABILITY_CONTEXT_INVALID")
+    try:
+        canonical = base64.urlsafe_b64decode(encoded + ("=" * (-len(encoded) % 4)))
+        decoded = json.loads(canonical.decode("utf-8"))
+    except (binascii.Error, UnicodeDecodeError, ValueError, json.JSONDecodeError) as exc:
+        raise MarketDataResearchBindingError(
+            "MARKET_DATA_BINDING_CAPABILITY_CONTEXT_INVALID"
+        ) from exc
+    if not isinstance(decoded, dict) or _canonical_json(decoded).encode("utf-8") != canonical:
+        raise MarketDataResearchBindingError("MARKET_DATA_BINDING_CAPABILITY_CONTEXT_INVALID")
+    expected_digest = hmac.new(
+        _required_signing_key(signing_key), canonical, hashlib.sha256
+    ).hexdigest()
+    if not hmac.compare_digest(supplied_digest, expected_digest):
+        raise MarketDataResearchBindingError("MARKET_DATA_BINDING_CAPABILITY_CONTEXT_INVALID")
+    expected_payload_keys = expected_keys - {"signature"}
+    if (
+        set(decoded) != expected_payload_keys
+        or decoded.get("schema_version") != _RUNTIME_CAPABILITY_CONTEXT_SCHEMA_VERSION
+    ):
+        raise MarketDataResearchBindingError("MARKET_DATA_BINDING_CAPABILITY_CONTEXT_INVALID")
+    try:
+        payload = build_market_data_runtime_capability_context_payload(
+            binding_id=decoded["binding_id"],
+            binding_hash=decoded["binding_hash"],
+            owner_user_id=decoded["owner_user_id"],
+            workspace_id=decoded["workspace_id"],
+            unit_id=decoded["unit_id"],
+            issued_at=_parse_runtime_timestamp(decoded["issued_at"], "issued_at"),
+            expires_at=_parse_runtime_timestamp(decoded["expires_at"], "expires_at"),
+        )
+    except (KeyError, TypeError, ValueError, MarketDataResearchBindingError) as exc:
+        raise MarketDataResearchBindingError(
+            "MARKET_DATA_BINDING_CAPABILITY_CONTEXT_INVALID"
+        ) from exc
+    if payload != decoded:
+        raise MarketDataResearchBindingError("MARKET_DATA_BINDING_CAPABILITY_CONTEXT_INVALID")
+    try:
+        expected_binding_id = _required_text(binding_id, field_name="binding_id", maximum=36)
+        expected_binding_hash = _required_sha256(binding_hash, field_name="binding_hash")
+        expected_owner_user_id = _required_text(
+            owner_user_id, field_name="owner_user_id", maximum=36
+        )
+        expected_workspace_id = (
+            _required_text(workspace_id, field_name="workspace_id", maximum=36)
+            if workspace_id is not None
+            else None
+        )
+        expected_unit_id = (
+            _required_text(unit_id, field_name="unit_id", maximum=36)
+            if unit_id is not None
+            else None
+        )
+    except MarketDataResearchBindingError as exc:
+        raise MarketDataResearchBindingError(
+            "MARKET_DATA_BINDING_CAPABILITY_CONTEXT_INVALID"
+        ) from exc
+    if (
+        payload["binding_id"] != expected_binding_id
+        or payload["binding_hash"] != expected_binding_hash
+        or payload["owner_user_id"] != expected_owner_user_id
+        or (expected_workspace_id is not None and payload["workspace_id"] != expected_workspace_id)
+        or (expected_unit_id is not None and payload["unit_id"] != expected_unit_id)
+    ):
+        raise MarketDataResearchBindingError("MARKET_DATA_BINDING_CAPABILITY_CONTEXT_INVALID")
+    now = _trusted_now(clock or _utc_now)
+    issued_at = _parse_runtime_timestamp(payload["issued_at"], "issued_at")
+    expires_at = _parse_runtime_timestamp(payload["expires_at"], "expires_at")
+    if now < issued_at or now >= expires_at:
+        raise MarketDataResearchBindingError("MARKET_DATA_BINDING_CAPABILITY_CONTEXT_EXPIRED")
     return MappingProxyType(payload)
 
 
@@ -1473,7 +1778,10 @@ def _pit_evidence(execution: MarketDataQueryExecution) -> dict[str, object]:
 
 def _validated_manifest(binding: MdResearchDataBinding) -> Mapping[str, object]:
     manifest = binding.manifest_json
-    if not isinstance(manifest, Mapping) or _canonical_sha256(dict(manifest)) != binding.manifest_sha256:
+    if (
+        not isinstance(manifest, Mapping)
+        or _canonical_sha256(dict(manifest)) != binding.manifest_sha256
+    ):
         raise MarketDataResearchBindingError("MARKET_DATA_BINDING_MANIFEST_INVALID")
     if (
         manifest.get("schema_version") != _BINDING_SCHEMA_VERSION
@@ -1788,7 +2096,9 @@ def _parse_runtime_timestamp(value: object, field_name: str) -> datetime:
     try:
         parsed = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
     except ValueError as exc:
-        raise MarketDataResearchBindingError("MARKET_DATA_BINDING_RUNTIME_TIMESTAMP_INVALID") from exc
+        raise MarketDataResearchBindingError(
+            "MARKET_DATA_BINDING_RUNTIME_TIMESTAMP_INVALID"
+        ) from exc
     return _aware_utc(parsed, field_name)
 
 

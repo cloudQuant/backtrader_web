@@ -349,6 +349,7 @@ class MarketDataQueryService:
         coverage_planner: CoveragePlanner | None = None,
         snapshot_freshness_policies: SnapshotFreshnessPolicyRegistry | None = None,
         allow_online_fetch: bool = True,
+        online_route_ids: frozenset[str] | None = None,
         clock: Callable[[], datetime] | None = None,
         cursor_signing_key: str | bytes | None = None,
         cursor_ttl: timedelta = _DEFAULT_CURSOR_TTL,
@@ -378,6 +379,11 @@ class MarketDataQueryService:
             raise TypeError("snapshot_freshness_policies must be SnapshotFreshnessPolicyRegistry")
         if not isinstance(allow_online_fetch, bool):
             raise TypeError("allow_online_fetch must be a bool")
+        if online_route_ids is not None and (
+            not isinstance(online_route_ids, frozenset)
+            or any(not isinstance(route_id, str) for route_id in online_route_ids)
+        ):
+            raise TypeError("online_route_ids must be a frozenset of route IDs or None")
         if fetch_leases is not None and not all(
             hasattr(fetch_leases, method) for method in ("acquire", "release")
         ):
@@ -397,6 +403,11 @@ class MarketDataQueryService:
             snapshot_freshness_policies or DEFAULT_SNAPSHOT_FRESHNESS_POLICY_REGISTRY
         )
         self._allow_online_fetch = allow_online_fetch
+        # Local reads retain the full reviewed source-policy and current user
+        # authorization.  This narrower set governs provider I/O only: a
+        # missing/expired deployment attestation must never erase already
+        # persisted facts from a local-only or local-first reread.
+        self._online_route_ids = online_route_ids
         self._clock = clock or _utc_now
         self._cursor_ttl = cursor_ttl
         self._cursor_signing_key_override = (
@@ -719,7 +730,8 @@ class MarketDataQueryService:
                 ),
             )
 
-        if not policy_routes:
+        online_policy_routes = self._online_routes(policy_routes)
+        if not online_policy_routes:
             warnings.append(MarketDataQueryWarning(code="SOURCE_POLICY_NO_ELIGIBLE_PROVIDER"))
             return self._execution(
                 context=context,
@@ -775,7 +787,7 @@ class MarketDataQueryService:
                 ),
             )
 
-        routes = await self._active_routes(policy_routes, warnings)
+        routes = await self._active_routes(online_policy_routes, warnings)
         if not routes:
             return self._execution(
                 context=context,
@@ -844,7 +856,7 @@ class MarketDataQueryService:
                         context=context,
                         expected_access_grant_descriptor_hash=access_grant_descriptor_hash,
                     )
-                    routes = await self._active_routes(policy_routes, warnings)
+                    routes = await self._active_routes(self._online_routes(policy_routes), warnings)
                     knowledge_cutoff = max(knowledge_cutoff, _trusted_receipt_time(self._clock))
                     visibility_anchor = await self._store.resolve_visibility_anchor(
                         knowledge_cutoff=knowledge_cutoff
@@ -875,7 +887,7 @@ class MarketDataQueryService:
                         context=fetch_context,
                         expected_access_grant_descriptor_hash=access_grant_descriptor_hash,
                     )
-                    routes = await self._active_routes(policy_routes, warnings)
+                    routes = await self._active_routes(self._online_routes(policy_routes), warnings)
                     knowledge_cutoff = max(knowledge_cutoff, _trusted_receipt_time(self._clock))
                     visibility_anchor = await self._store.resolve_visibility_anchor(
                         knowledge_cutoff=knowledge_cutoff
@@ -1010,7 +1022,9 @@ class MarketDataQueryService:
                             context=fetch_context,
                             expected_access_grant_descriptor_hash=access_grant_descriptor_hash,
                         )
-                        routes = await self._active_routes(policy_routes, warnings)
+                        routes = await self._active_routes(
+                            self._online_routes(policy_routes), warnings
+                        )
                     window_state = await self._read_local_state(
                         fetch_context,
                         knowledge_cutoff,
@@ -1255,6 +1269,21 @@ class MarketDataQueryService:
             if route_active:
                 active_routes.append(route)
         return tuple(active_routes)
+
+    def _online_routes(
+        self,
+        routes: Sequence[MarketDataProviderRoute],
+    ) -> tuple[MarketDataProviderRoute, ...]:
+        """Return provider routes still enabled by the durable lifecycle read.
+
+        ``None`` keeps the long-standing direct-service behavior where the
+        caller owns the route policy.  An explicit empty set is different: it
+        deliberately preserves local reads while preventing every provider
+        adapter from being selected.
+        """
+        if self._online_route_ids is None:
+            return tuple(routes)
+        return tuple(route for route in routes if route.route_id in self._online_route_ids)
 
     def _route_satisfied_window(
         self,

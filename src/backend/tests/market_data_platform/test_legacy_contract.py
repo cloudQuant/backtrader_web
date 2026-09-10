@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime, timezone
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 import pytest_asyncio
@@ -16,23 +18,48 @@ from app.api.data.base import (
     get_market_instrument_service,
 )
 from app.api.data.deps import get_market_data_access_authorizer
+from app.api.data.queries import get_market_data_capability_evaluation
 from app.db.database import async_session_maker
 from app.main import app
 from app.models.asset_research import AssetInstrument
 from app.models.data_governance import DgDataset, DgDatasetStorage, DgStorageTarget
 from app.models.market_data_platform import MdInstrumentLookupKey
 from app.schemas.asset_research import FuturesIdentityDetails, InstrumentIdentity
+from app.services.market_data import dataset_contracts as dataset_contracts_module
 from app.services.market_data import openbb_runtime
 from app.services.market_data.access import MarketDataAuthorizationError
-from app.services.market_data.dataset_contracts import DatasetContractRegistryError
+from app.services.market_data.dataset_contracts import (
+    DatasetContractRegistry,
+    DatasetContractRegistryError,
+)
 from app.services.market_data.identity_projection import MarketDataIdentityProjectionWriter
 from app.services.market_data.legacy_contract import (
+    _FREQUENCY_BY_LEGACY_PERIOD,
     LegacyMarketDataQueryContractResolver,
     _semantics_for,
 )
 from app.services.market_data.openbb_runtime import OpenBBRuntimeRoutePermit
 
 UTC = timezone.utc
+
+
+def _capability_evaluation(*, query_v2_enabled: bool) -> SimpleNamespace:
+    """Build the durable-evaluation seam used by contract-only HTTP tests."""
+    return SimpleNamespace(response=SimpleNamespace(query_v2_enabled=query_v2_enabled))
+
+
+@pytest.fixture
+def market_data_capability_override() -> Any:
+    """Override only the already-authorized durable read, never raw settings."""
+
+    def set_evaluation(*, query_v2_enabled: bool) -> None:
+        evaluation = _capability_evaluation(query_v2_enabled=query_v2_enabled)
+        app.dependency_overrides[get_market_data_capability_evaluation] = lambda: evaluation
+
+    try:
+        yield set_evaluation
+    finally:
+        app.dependency_overrides.pop(get_market_data_capability_evaluation, None)
 
 
 class _PermittedMarketDataAccess:
@@ -151,6 +178,31 @@ def _fx_identity(*, canonical_id: str, symbol: str, venue: str) -> dict[str, obj
     }
 
 
+def _crypto_identity(*, canonical_id: str, symbol: str, venue: str) -> dict[str, object]:
+    """Return an exact spot-crypto product identity for a synthetic future B1 route."""
+    return {
+        "asset_type": "crypto",
+        "identity_level": "PRODUCT",
+        "canonical_id": canonical_id,
+        "display_symbol": symbol,
+        "name": "Bitcoin / US Dollar",
+        "venue": venue,
+        "currency": "USD",
+        "timezone": "UTC",
+        "identifier_type": "EXCHANGE_SYMBOL",
+        "identifier_value": symbol,
+        "product_type": "SPOT",
+        "metadata_version": "market-v1",
+        "details": {
+            "kind": "CRYPTO_PRODUCT",
+            "base_asset_id": "caip19:btc",
+            "quote_asset_id": "caip19:usd",
+            "market_type": "SPOT",
+            "linear_or_inverse": "NOT_APPLICABLE",
+        },
+    }
+
+
 async def _add_catalog(session: AsyncSession) -> None:
     bars_dataset = DgDataset(
         id="dataset-market-bars",
@@ -216,6 +268,33 @@ async def _add_catalog(session: AsyncSession) -> None:
                 id="binding-market-liquidity",
                 dataset_id=liquidity_dataset.id,
                 storage_target_id=target.id,
+                physical_table="md_observation_revisions",
+                write_mode="canonical_append_only",
+                is_primary=True,
+            ),
+        ]
+    )
+    await session.flush()
+
+
+async def _add_quote_snapshot_catalog(session: AsyncSession) -> None:
+    """Add the separate snapshot dataset required by a future B1 bridge test."""
+    quote_dataset = DgDataset(
+        id="dataset-market-quote-snapshot",
+        dataset_code="market.quote_snapshot",
+        display_name="Unified market quote snapshot",
+        domain="market",
+        canonical_schema={"asset_types": ["crypto"]},
+        primary_key=["canonical_id", "event_at"],
+        is_active=True,
+    )
+    session.add_all(
+        [
+            quote_dataset,
+            DgDatasetStorage(
+                id="binding-market-quote-snapshot",
+                dataset_id=quote_dataset.id,
+                storage_target_id="target-canonical-market",
                 physical_table="md_observation_revisions",
                 write_mode="canonical_append_only",
                 is_primary=True,
@@ -585,6 +664,106 @@ async def test_legacy_bridge_does_not_issue_an_openbb_crypto_contract_without_a_
     assert exc_info.value.code == "DATA_FAMILY_UNCONFIGURED"
 
 
+def test_legacy_bridge_recognizes_every_public_v2_frequency_label() -> None:
+    """The UI may send a declared public cadence without falling into an unknown-period 404."""
+    assert {
+        period: _FREQUENCY_BY_LEGACY_PERIOD[period]
+        for period in ("5min", "30min", "1h", "1d", "1w", "1mo", "snapshot")
+    } == {
+        "5min": "5min",
+        "30min": "30min",
+        "1h": "1h",
+        "1d": "1d",
+        "1w": "1w",
+        "1mo": "1mo",
+        "snapshot": "snapshot",
+    }
+
+
+@pytest.mark.asyncio
+async def test_legacy_bridge_maps_a_future_ready_snapshot_family_to_its_exact_public_frequency(
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A reviewed B1 snapshot route must not fail merely because it uses ``snapshot``.
+
+    This makes a test-only future state fully explicit: the registry's exact
+    ready shape, active catalog storage, exact canonical identity, operator
+    market allow-list, and immutable permit all agree. It does not promote the
+    current crypto family, whose shipped declaration remains unconfigured.
+    """
+    await _add_catalog(db_session)
+    await _add_quote_snapshot_catalog(db_session)
+    canonical_id = "instrument:crypto:US-COINBASE:BTC-USD"
+    await _add_identity(
+        db_session,
+        canonical_id=canonical_id,
+        symbol="BTC-USD",
+        market="US-COINBASE",
+        identity_payload=_crypto_identity(
+            canonical_id=canonical_id,
+            symbol="BTC-USD",
+            venue="US-COINBASE",
+        ),
+    )
+    contracts = tuple(
+        replace(
+            contract,
+            status="ready",
+            source_policy_id="market-default-v1",
+            reason_code=None,
+        )
+        if contract.family_id == "crypto.realtime"
+        else contract
+        for contract in dataset_contracts_module._CONTRACTS
+    )
+    registry = DatasetContractRegistry(contracts)
+    permit = OpenBBRuntimeRoutePermit(
+        route_id="openbb-yfinance-crypto-us-coinbase-snapshot-v1",
+        family_id="crypto.realtime",
+        provider="yfinance",
+        asset_type="crypto",
+        market="US-COINBASE",
+        data_kind="quote_snapshot",
+        frequency="snapshot",
+        adjustment=None,
+        price_basis=None,
+        currency=None,
+        unit=None,
+        endpoint="crypto.price.quote",
+    )
+    monkeypatch.setattr(openbb_runtime, "OPENBB_RUNTIME_PERMIT_MATRIX", (permit,))
+    resolver = LegacyMarketDataQueryContractResolver(
+        db_session,
+        openbb_allowed_markets=frozenset({"US-COINBASE"}),
+        family_contracts=registry,
+    )
+
+    contract = await resolver.resolve(
+        asset_type="crypto",
+        symbol="BTC-USD",
+        period="snapshot",
+        family_id="crypto.realtime",
+    )
+
+    assert contract is not None
+    assert contract["request"] == {
+        "identity": {"canonical_id": canonical_id},
+        "dataset_code": "market.quote_snapshot",
+        "data_kind": "quote_snapshot",
+        "frequency": "snapshot",
+        "required_fields": ["price", "change", "change_pct", "high", "low", "volume"],
+        "adjustment": None,
+        "price_basis": None,
+        "currency": None,
+        "unit": None,
+        "source_policy_id": "market-default-v1",
+        "mode": "local_first",
+        "family_id": "crypto.realtime",
+        "family_contract_version": "market-data-family-v1",
+    }
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("asset_type", "symbol", "market", "canonical_id", "identity_factory"),
@@ -764,9 +943,7 @@ async def test_legacy_lookup_rechecks_raw_symbols_after_a_case_insensitive_datab
 
     resolver = LegacyMarketDataQueryContractResolver(_CaseInsensitiveLookupSession())  # type: ignore[arg-type]
 
-    assert (
-        await resolver._unique_active_canonical_id(asset_type="stock", symbol="rb0")
-    ) is None
+    assert (await resolver._unique_active_canonical_id(asset_type="stock", symbol="rb0")) is None
     assert (
         await resolver._unique_active_canonical_id(asset_type="stock", symbol="RB0")
     ) == "instrument:stock:CN-SSE:RB0"
@@ -793,9 +970,7 @@ async def test_legacy_bridge_rechecks_the_frozen_symbol_after_case_insensitive_l
 
     monkeypatch.setattr(resolver, "_unique_active_canonical_id", _case_insensitive_lookup)
 
-    assert (
-        await resolver.resolve(asset_type="stock", symbol="rb0", period="daily")
-    ) is None
+    assert (await resolver.resolve(asset_type="stock", symbol="rb0", period="daily")) is None
 
 
 @pytest.mark.asyncio
@@ -1017,11 +1192,14 @@ async def test_legacy_bridge_only_publishes_periods_with_a_reviewed_default_rout
             venue="CN-OTC",
         ),
     )
-    assert _semantics_for(
-        family_id="stock.valuation",
-        asset_type="stock",
-        venue="CN-SSE",
-    ) is None
+    assert (
+        _semantics_for(
+            family_id="stock.valuation",
+            asset_type="stock",
+            venue="CN-SSE",
+        )
+        is None
+    )
     assert not resolver._has_reviewed_route(
         family_id="futures.realtime",
         asset_type="futures",
@@ -1115,12 +1293,10 @@ class _UnconfiguredFamilyContractResolver:
 async def test_contract_probe_returns_catalog_contract_without_legacy_lookup(
     client,
     auth_headers,
-    monkeypatch,
     permitted_market_data_access,
+    market_data_capability_override,
 ) -> None:
     """The first page probe only asks the strict resolver and never invokes a provider."""
-    import app.api.data.base as data_base
-
     expected = {
         "version": "market-data-v2",
         "request": {
@@ -1140,11 +1316,7 @@ async def test_contract_probe_returns_catalog_contract_without_legacy_lookup(
         },
     }
     resolver = _ContractResolver(expected)
-    monkeypatch.setattr(
-        data_base,
-        "get_settings",
-        lambda: SimpleNamespace(MARKET_DATA_QUERY_V2_ENABLED=True),
-    )
+    market_data_capability_override(query_v2_enabled=True)
     app.dependency_overrides[get_legacy_market_data_query_contract_resolver] = lambda: resolver
     try:
         response = await client.get(
@@ -1164,12 +1336,10 @@ async def test_contract_probe_returns_catalog_contract_without_legacy_lookup(
 async def test_contract_probe_forwards_the_explicit_bundle_family_to_the_server_resolver(
     client,
     auth_headers,
-    monkeypatch,
     permitted_market_data_access,
+    market_data_capability_override,
 ) -> None:
     """The frontend-selected product reaches the exact-contract issuer unchanged."""
-    import app.api.data.base as data_base
-
     expected = {
         "version": "market-data-v2",
         "request": {
@@ -1185,11 +1355,7 @@ async def test_contract_probe_forwards_the_explicit_bundle_family_to_the_server_
         },
     }
     resolver = _ContractResolver(expected)
-    monkeypatch.setattr(
-        data_base,
-        "get_settings",
-        lambda: SimpleNamespace(MARKET_DATA_QUERY_V2_ENABLED=True),
-    )
+    market_data_capability_override(query_v2_enabled=True)
     app.dependency_overrides[get_legacy_market_data_query_contract_resolver] = lambda: resolver
     try:
         response = await client.get(
@@ -1218,15 +1384,118 @@ async def test_contract_probe_forwards_the_explicit_bundle_family_to_the_server_
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("period", "frequency", "data_kind"),
+    (
+        ("5min", "5min", "bars"),
+        ("30min", "30min", "bars"),
+        ("1h", "1h", "bars"),
+        ("snapshot", "snapshot", "quote_snapshot"),
+    ),
+)
+async def test_contract_probe_forwards_all_public_frequency_labels_without_parameter_rejection(
+    client,
+    auth_headers,
+    permitted_market_data_access,
+    market_data_capability_override,
+    period: str,
+    frequency: str,
+    data_kind: str,
+) -> None:
+    """The endpoint forwards an exact issued cadence; readiness remains resolver-owned."""
+    expected = {
+        "version": "market-data-v2",
+        "request": {
+            "identity": {"canonical_id": "instrument:stock:CN-SSE:600000"},
+            "dataset_code": "market.quote_snapshot" if frequency == "snapshot" else "market.bars",
+            "data_kind": data_kind,
+            "frequency": frequency,
+            "required_fields": ["price"] if frequency == "snapshot" else ["close"],
+            "source_policy_id": "market-default-v1",
+            "mode": "local_first",
+            "family_id": "stock.quote_snapshot" if frequency == "snapshot" else "stock.realtime",
+            "family_contract_version": "market-data-family-v1",
+        },
+    }
+    resolver = _ContractResolver(expected)
+    market_data_capability_override(query_v2_enabled=True)
+    app.dependency_overrides[get_legacy_market_data_query_contract_resolver] = lambda: resolver
+    try:
+        response = await client.get(
+            "/api/v1/data/market-instruments/query-contract",
+            params={
+                "asset_type": "stock",
+                "symbol": "600000",
+                "period": period,
+                "family_id": expected["request"]["family_id"],
+            },
+            headers=auth_headers,
+        )
+    finally:
+        app.dependency_overrides.pop(get_legacy_market_data_query_contract_resolver, None)
+
+    assert response.status_code == 200
+    assert response.json() == expected
+    assert resolver.calls == [
+        {
+            "asset_type": "stock",
+            "symbol": "600000",
+            "period": period,
+            "family_id": expected["request"]["family_id"],
+        }
+    ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("asset_type", "family_id", "period"),
+    (
+        ("option", "option.derivative", "snapshot"),
+        ("option", "option.risk_surface", "snapshot"),
+        ("futures", "futures.inventory", "1d"),
+        ("crypto", "crypto.cme_position", "1d"),
+    ),
+)
+async def test_contract_probe_keeps_current_b2_families_rejected_even_with_public_period_labels(
+    client,
+    auth_headers,
+    db_session: AsyncSession,
+    permitted_market_data_access,
+    market_data_capability_override,
+    asset_type: str,
+    family_id: str,
+    period: str,
+) -> None:
+    """A recognized cadence cannot promote a B2 family past the exact ready gate."""
+    market_data_capability_override(query_v2_enabled=True)
+    resolver = LegacyMarketDataQueryContractResolver(db_session)
+    app.dependency_overrides[get_legacy_market_data_query_contract_resolver] = lambda: resolver
+    try:
+        response = await client.get(
+            "/api/v1/data/market-instruments/query-contract",
+            params={
+                "asset_type": asset_type,
+                "symbol": "test-symbol",
+                "period": period,
+                "family_id": family_id,
+            },
+            headers=auth_headers,
+        )
+    finally:
+        app.dependency_overrides.pop(get_legacy_market_data_query_contract_resolver, None)
+
+    assert response.status_code == 422
+    assert response.json()["details"] == {"code": "DATA_FAMILY_UNCONFIGURED"}
+
+
+@pytest.mark.asyncio
 async def test_contract_probe_preserves_explicit_null_fx_semantic_axes(
     client,
     auth_headers,
-    monkeypatch,
     permitted_market_data_access,
+    market_data_capability_override,
 ) -> None:
     """A signed FX contract keeps reviewed undeclared axes as JSON nulls."""
-    import app.api.data.base as data_base
-
     expected = {
         "version": "market-data-v2",
         "request": {
@@ -1246,11 +1515,7 @@ async def test_contract_probe_preserves_explicit_null_fx_semantic_axes(
         },
     }
     resolver = _ContractResolver(expected)
-    monkeypatch.setattr(
-        data_base,
-        "get_settings",
-        lambda: SimpleNamespace(MARKET_DATA_QUERY_V2_ENABLED=True),
-    )
+    market_data_capability_override(query_v2_enabled=True)
     app.dependency_overrides[get_legacy_market_data_query_contract_resolver] = lambda: resolver
     try:
         response = await client.get(
@@ -1287,30 +1552,20 @@ async def test_contract_probe_preserves_explicit_null_fx_semantic_axes(
 async def test_contract_probe_fails_closed_when_v2_is_disabled_or_unavailable(
     client,
     auth_headers,
-    monkeypatch,
     permitted_market_data_access,
+    market_data_capability_override,
 ) -> None:
     """A rollout gate or absent authoritative identity cannot silently create a contract."""
-    import app.api.data.base as data_base
-
     resolver = _ContractResolver(None)
     app.dependency_overrides[get_legacy_market_data_query_contract_resolver] = lambda: resolver
     try:
-        monkeypatch.setattr(
-            data_base,
-            "get_settings",
-            lambda: SimpleNamespace(MARKET_DATA_QUERY_V2_ENABLED=False),
-        )
+        market_data_capability_override(query_v2_enabled=False)
         disabled = await client.get(
             "/api/v1/data/market-instruments/query-contract",
             params={"asset_type": "stock", "symbol": "600000", "period": "daily"},
             headers=auth_headers,
         )
-        monkeypatch.setattr(
-            data_base,
-            "get_settings",
-            lambda: SimpleNamespace(MARKET_DATA_QUERY_V2_ENABLED=True),
-        )
+        market_data_capability_override(query_v2_enabled=True)
         unavailable = await client.get(
             "/api/v1/data/market-instruments/query-contract",
             params={"asset_type": "stock", "symbol": "600000", "period": "daily"},
@@ -1336,11 +1591,10 @@ async def test_legacy_lookup_survives_an_optional_v2_contract_database_failure(
     """A v2 compatibility probe cannot invalidate already returned legacy market data."""
     import app.api.data.base as data_base
 
-    monkeypatch.setattr(
-        data_base,
-        "get_settings",
-        lambda: SimpleNamespace(MARKET_DATA_QUERY_V2_ENABLED=True),
-    )
+    async def enabled_capabilities(_db: object) -> SimpleNamespace:
+        return _capability_evaluation(query_v2_enabled=True)
+
+    monkeypatch.setattr(data_base, "evaluate_market_data_capabilities", enabled_capabilities)
     app.dependency_overrides[get_market_instrument_service] = _SuccessfulLegacyLookupService
     app.dependency_overrides[get_legacy_market_data_query_contract_resolver] = (
         _FailingContractResolver
@@ -1384,11 +1638,11 @@ async def test_legacy_lookup_includes_v2_contract_only_after_data_read_is_grante
         },
     }
     resolver = _ContractResolver(expected)
-    monkeypatch.setattr(
-        data_base,
-        "get_settings",
-        lambda: SimpleNamespace(MARKET_DATA_QUERY_V2_ENABLED=True),
-    )
+
+    async def enabled_capabilities(_db: object) -> SimpleNamespace:
+        return _capability_evaluation(query_v2_enabled=True)
+
+    monkeypatch.setattr(data_base, "evaluate_market_data_capabilities", enabled_capabilities)
     app.dependency_overrides[get_market_instrument_service] = _SuccessfulLegacyLookupService
     app.dependency_overrides[get_legacy_market_data_query_contract_resolver] = lambda: resolver
     try:
@@ -1423,11 +1677,11 @@ async def test_legacy_lookup_omits_a_malformed_optional_v2_contract(
     import app.api.data.base as data_base
 
     resolver = _ContractResolver({"version": "market-data-v2", "request": {"identity": {}}})
-    monkeypatch.setattr(
-        data_base,
-        "get_settings",
-        lambda: SimpleNamespace(MARKET_DATA_QUERY_V2_ENABLED=True),
-    )
+
+    async def enabled_capabilities(_db: object) -> SimpleNamespace:
+        return _capability_evaluation(query_v2_enabled=True)
+
+    monkeypatch.setattr(data_base, "evaluate_market_data_capabilities", enabled_capabilities)
     app.dependency_overrides[get_market_instrument_service] = _SuccessfulLegacyLookupService
     app.dependency_overrides[get_legacy_market_data_query_contract_resolver] = lambda: resolver
     try:
@@ -1550,17 +1804,11 @@ async def test_legacy_lookup_survives_an_optional_v2_authorization_database_fail
 async def test_contract_probe_maps_metadata_database_failure_to_typed_unavailable(
     client,
     auth_headers,
-    monkeypatch,
     permitted_market_data_access,
+    market_data_capability_override,
 ) -> None:
     """A probe failure remains an explicit progressive-rollout compatibility state."""
-    import app.api.data.base as data_base
-
-    monkeypatch.setattr(
-        data_base,
-        "get_settings",
-        lambda: SimpleNamespace(MARKET_DATA_QUERY_V2_ENABLED=True),
-    )
+    market_data_capability_override(query_v2_enabled=True)
     app.dependency_overrides[get_legacy_market_data_query_contract_resolver] = (
         _FailingContractResolver
     )

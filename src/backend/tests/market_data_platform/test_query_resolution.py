@@ -315,23 +315,17 @@ async def test_query_resolver_rejects_every_unbound_public_product_before_catalo
 async def test_query_resolver_rejects_a_bound_unconfigured_multi_record_family() -> None:
     """A family key is not sufficient until its record-key and coverage model are ready."""
 
-    class _Catalog:
-        async def resolve_primary(self, dataset_code: str) -> object:
-            return SimpleNamespace(dataset_code=dataset_code)
+    class _UnexpectedCatalog:
+        async def resolve_primary(self, _dataset_code: str) -> object:
+            raise AssertionError("catalog must not be read for an unconfigured family")
 
-    class _OptionIdentities:
+    class _UnexpectedIdentities:
         async def resolve(self, *_args: object, **_kwargs: object) -> object:
-            return SimpleNamespace(
-                asset_type="option",
-                canonical_id="instrument:option:CN-CFFEX:IO2609-C-3000",
-                metadata_version="option-v1",
-                valid_to=None,
-                venue="CN-CFFEX",
-            )
+            raise AssertionError("identity must not be read for an unconfigured family")
 
     resolver = MarketDataQueryResolver(
-        catalog=_Catalog(),  # type: ignore[arg-type]
-        identities=_OptionIdentities(),  # type: ignore[arg-type]
+        catalog=_UnexpectedCatalog(),  # type: ignore[arg-type]
+        identities=_UnexpectedIdentities(),  # type: ignore[arg-type]
     )
     request = _request(
         identity={"canonical_id": "instrument:option:CN-CFFEX:IO2609-C-3000"},

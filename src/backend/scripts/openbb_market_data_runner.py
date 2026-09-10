@@ -41,9 +41,13 @@ _PERMIT_MANIFEST_PATH = (
 _OUTBOUND_END_BOUND_UNATTESTED = "OPENBB_YFINANCE_OUTBOUND_END_BOUND_UNATTESTED"
 _RUNTIME_ARTIFACT_UNATTESTED = "OPENBB_YFINANCE_RUNTIME_ARTIFACT_UNATTESTED"
 _RUNTIME_ARTIFACT_MANIFEST_VERSION = "openbb-yfinance-runtime-artifact-manifest-v1"
-_YFINANCE_DAILY_END_BOUND_CONTRACT = (
-    "openbb-yfinance-daily-inclusive-to-yfinance-exclusive-v1"
-)
+RUNTIME_ATTESTATION_VERSION = "openbb-yfinance-runtime-attestation-v1"
+_YFINANCE_DAILY_END_BOUND_CONTRACT = "openbb-yfinance-daily-inclusive-to-yfinance-exclusive-v1"
+_RUNTIME_ATTESTATION_ISOLATION_UNATTESTED = "OPENBB_RUNTIME_ISOLATION_UNATTESTED"
+_RUNTIME_ATTESTATION_ROUTE_UNATTESTED = "OPENBB_RUNTIME_ROUTE_UNATTESTED"
+_YFINANCE_DAILY_PROBE_START_DATE = date(2024, 1, 2)
+_YFINANCE_DAILY_PROBE_OPENBB_END_DATE = date(2024, 1, 3)
+_YFINANCE_DAILY_PROBE_YFINANCE_END_DATE = date(2024, 1, 4)
 _RUNTIME_ARTIFACT_MANIFEST_PATH = (
     Path(__file__).resolve().parents[1]
     / "app"
@@ -51,6 +55,18 @@ _RUNTIME_ARTIFACT_MANIFEST_PATH = (
     / "market_data"
     / "openbb_yfinance_runtime_artifact_manifest.json"
 )
+
+
+def _has_pre_import_isolation_boundary() -> bool:
+    """Return whether Python skipped environment and ``site`` startup hooks.
+
+    This is intentionally a narrow interpreter-startup check.  It does not
+    claim a container, service-account, filesystem, license, route, or egress
+    boundary.  It only prevents the runner from proceeding to a possible
+    OpenBB import after ordinary Python startup could already have honored
+    ``PYTHONPATH`` or executed ``sitecustomize``.
+    """
+    return bool(sys.flags.isolated) and bool(sys.flags.no_site)
 
 
 @dataclass(frozen=True, slots=True)
@@ -119,6 +135,7 @@ class _RunnerRuntimeArtifactManifest:
     manifest_version: str
     artifact_set_version: str
     attestation_state: str
+    source_revision: str | None
     outbound_end_bound_contract: str | None
     distributions: tuple[_RunnerRuntimeArtifactDistribution, ...]
 
@@ -133,8 +150,29 @@ class _RuntimeArtifactAttestation:
     manifest_version: str | None
     artifact_set_version: str | None
     attestation_state: str | None
+    source_revision: str | None
     distribution_names: tuple[str, ...]
     verified_file_count: int
+    artifact_fingerprint: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class _YFinanceDailyEndBoundProbe:
+    """Bounded status for the disabled daily end-bound runtime check.
+
+    Until a pre-import isolation boundary is accepted, this runner only emits
+    ``not_run`` values. A future result remains narrower than authorization:
+    it must not be treated as egress isolation, provider entitlement, or a
+    live-route grant.
+    """
+
+    status: str
+    code: str | None
+    observed_start: str | None
+    observed_end: str | None
+    observed_period: object | None
+    observed_interval: str | None
+    call_count: int
 
 
 def _manifest_text(value: object) -> str:
@@ -218,13 +256,50 @@ def _load_static_runtime_permit_manifest() -> tuple[
     return permit_matrix_version, provider_names, dangerous_environment_keys, permits, None
 
 
-(
-    _PERMIT_MATRIX_VERSION,
-    _EXACT_ALLOWED_PROVIDER_NAMES,
-    _DANGEROUS_OPENBB_ENVIRONMENT_KEYS,
-    _ACTIVE_RUNTIME_ROUTE_PERMITS,
-    _PERMIT_MANIFEST_ERROR,
-) = _load_static_runtime_permit_manifest()
+_PERMIT_RUNTIME_MANIFEST_STATE: (
+    tuple[
+        str | None,
+        tuple[str, ...],
+        tuple[str, ...],
+        tuple[_RunnerRuntimeRoutePermit, ...],
+        str | None,
+    ]
+    | None
+) = None
+_PERMIT_MATRIX_VERSION: str | None = None
+_EXACT_ALLOWED_PROVIDER_NAMES: tuple[str, ...] = ()
+_DANGEROUS_OPENBB_ENVIRONMENT_KEYS: tuple[str, ...] = ()
+_ACTIVE_RUNTIME_ROUTE_PERMITS: tuple[_RunnerRuntimeRoutePermit, ...] = ()
+_PERMIT_MANIFEST_ERROR: str | None = None
+
+
+def _ensure_static_runtime_permit_manifest() -> None:
+    """Load static route controls only after the startup boundary is accepted.
+
+    Importing this script through ordinary Python can execute a caller-provided
+    ``sitecustomize`` before any code below runs.  The permit JSON must remain
+    unread until an entrypoint has established ``-I -S``; otherwise an ordinary
+    ``--self-check`` could disclose or rely on data that is not trustworthy in
+    that interpreter state.
+    """
+    global _ACTIVE_RUNTIME_ROUTE_PERMITS
+    global _DANGEROUS_OPENBB_ENVIRONMENT_KEYS
+    global _EXACT_ALLOWED_PROVIDER_NAMES
+    global _PERMIT_MANIFEST_ERROR
+    global _PERMIT_MATRIX_VERSION
+    global _PERMIT_RUNTIME_MANIFEST_STATE
+
+    if _PERMIT_RUNTIME_MANIFEST_STATE is not None:
+        return
+    state = _load_static_runtime_permit_manifest()
+    _PERMIT_RUNTIME_MANIFEST_STATE = state
+    (
+        _PERMIT_MATRIX_VERSION,
+        _EXACT_ALLOWED_PROVIDER_NAMES,
+        _DANGEROUS_OPENBB_ENVIRONMENT_KEYS,
+        _ACTIVE_RUNTIME_ROUTE_PERMITS,
+        _PERMIT_MANIFEST_ERROR,
+    ) = state
 
 
 def _artifact_manifest_text(value: object) -> str:
@@ -259,6 +334,14 @@ def _artifact_manifest_sha256(value: object) -> str:
     if re.fullmatch(r"[0-9a-f]{64}", sha256) is None:
         raise ValueError("invalid static runtime artifact manifest")
     return sha256
+
+
+def _artifact_manifest_source_revision(value: object) -> str:
+    """Accept one immutable lower-case OpenBB source revision identifier."""
+    source_revision = _artifact_manifest_text(value)
+    if re.fullmatch(r"[0-9a-f]{40}", source_revision) is None:
+        raise ValueError("invalid static runtime artifact manifest")
+    return source_revision
 
 
 def _artifact_manifest_file(value: object) -> _RunnerRuntimeArtifactFile:
@@ -298,10 +381,11 @@ def _load_static_runtime_artifact_manifest() -> tuple[
     """Load the versioned pre-import artifact contract without importing OpenBB.
 
     ``disabled`` is an explicit safe default. ``candidate`` records an exact
-    fork package set and its bounded daily end-date contract, but remains
-    non-executable: a future isolated-image/import-closure design must add a
-    new execution attestation state in code.  This parser deliberately does
-    not accept a data-only transition to ``attested``.
+    fork package set, source revision, and bounded daily end-date contract. A
+    separate operator CLI may produce offline candidate evidence, but it
+    remains non-executable until an isolated-image/import-closure design is
+    independently accepted. This parser deliberately does not accept a
+    data-only transition to ``attested``.
     """
     try:
         raw = json.loads(_RUNTIME_ARTIFACT_MANIFEST_PATH.read_text(encoding="utf-8"))
@@ -309,6 +393,7 @@ def _load_static_runtime_artifact_manifest() -> tuple[
             "manifest_version",
             "artifact_set_version",
             "attestation_state",
+            "source_revision",
             "outbound_end_bound_contract",
             "artifacts",
         }:
@@ -318,18 +403,25 @@ def _load_static_runtime_artifact_manifest() -> tuple[
             raise ValueError("manifest version is unsupported")
         artifact_set_version = _artifact_manifest_text(raw.get("artifact_set_version"))
         attestation_state = _artifact_manifest_text(raw.get("attestation_state"))
+        raw_source_revision = raw.get("source_revision")
         outbound_end_bound_contract = raw.get("outbound_end_bound_contract")
         raw_distributions = raw.get("artifacts")
         if not isinstance(raw_distributions, list):
             raise ValueError("artifact list is invalid")
         if attestation_state == "disabled":
-            if raw_distributions or outbound_end_bound_contract is not None:
+            if (
+                raw_distributions
+                or raw_source_revision is not None
+                or outbound_end_bound_contract is not None
+            ):
                 raise ValueError("disabled manifests cannot name artifacts")
             distributions: tuple[_RunnerRuntimeArtifactDistribution, ...] = ()
+            source_revision: str | None = None
             contract: str | None = None
         elif attestation_state == "candidate":
             if outbound_end_bound_contract != _YFINANCE_DAILY_END_BOUND_CONTRACT:
                 raise ValueError("candidate end-bound contract is invalid")
+            source_revision = _artifact_manifest_source_revision(raw_source_revision)
             distributions = tuple(
                 _artifact_manifest_distribution(item) for item in raw_distributions
             )
@@ -345,6 +437,7 @@ def _load_static_runtime_artifact_manifest() -> tuple[
             manifest_version=manifest_version,
             artifact_set_version=artifact_set_version,
             attestation_state=attestation_state,
+            source_revision=source_revision,
             outbound_end_bound_contract=contract,
             distributions=distributions,
         ),
@@ -352,10 +445,31 @@ def _load_static_runtime_artifact_manifest() -> tuple[
     )
 
 
-(
-    _RUNTIME_ARTIFACT_MANIFEST,
-    _RUNTIME_ARTIFACT_MANIFEST_ERROR,
-) = _load_static_runtime_artifact_manifest()
+_RUNTIME_ARTIFACT_MANIFEST_NOT_LOADED = object()
+_RUNTIME_ARTIFACT_MANIFEST: _RunnerRuntimeArtifactManifest | None | object = (
+    _RUNTIME_ARTIFACT_MANIFEST_NOT_LOADED
+)
+_RUNTIME_ARTIFACT_MANIFEST_ERROR: str | None | object = _RUNTIME_ARTIFACT_MANIFEST_NOT_LOADED
+
+
+def _runtime_artifact_manifest() -> _RunnerRuntimeArtifactManifest | None:
+    """Load the artifact JSON lazily after the caller accepted isolation.
+
+    This helper intentionally has no interpreter-boundary check itself so
+    focused unit tests can exercise artifact parsing in-process.  Runner CLI
+    entrypoints must check ``_has_pre_import_isolation_boundary`` before they
+    call any function that reaches this helper.
+    """
+    global _RUNTIME_ARTIFACT_MANIFEST
+    global _RUNTIME_ARTIFACT_MANIFEST_ERROR
+
+    if _RUNTIME_ARTIFACT_MANIFEST is _RUNTIME_ARTIFACT_MANIFEST_NOT_LOADED:
+        manifest, error = _load_static_runtime_artifact_manifest()
+        _RUNTIME_ARTIFACT_MANIFEST = manifest
+        _RUNTIME_ARTIFACT_MANIFEST_ERROR = error
+    if isinstance(_RUNTIME_ARTIFACT_MANIFEST, _RunnerRuntimeArtifactManifest):
+        return _RUNTIME_ARTIFACT_MANIFEST
+    return None
 
 
 def _sha256_file(path: Path) -> str:
@@ -367,6 +481,44 @@ def _sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _runtime_artifact_fingerprint(manifest: _RunnerRuntimeArtifactManifest) -> str:
+    """Bind static candidate evidence to the exact reviewed identity.
+
+    The digest intentionally covers only pure manifest identity fields.  It is
+    an evidence correlation value, never an authorization credential: changing
+    the JSON cannot change a candidate into a usable route.
+    """
+    canonical_manifest = {
+        "manifest_version": manifest.manifest_version,
+        "artifact_set_version": manifest.artifact_set_version,
+        "attestation_state": manifest.attestation_state,
+        "source_revision": manifest.source_revision,
+        "outbound_end_bound_contract": manifest.outbound_end_bound_contract,
+        "artifacts": [
+            {
+                "distribution": distribution.distribution,
+                "version": distribution.version,
+                "files": [
+                    {
+                        "relative_path": file_artifact.relative_path,
+                        "sha256": file_artifact.sha256,
+                    }
+                    for file_artifact in distribution.files
+                ],
+            }
+            for distribution in manifest.distributions
+        ],
+    }
+    return hashlib.sha256(
+        json.dumps(
+            canonical_manifest,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+    ).hexdigest()
+
+
 def _runtime_artifact_attestation() -> _RuntimeArtifactAttestation:
     """Verify exact installed artifacts before an OpenBB import can occur.
 
@@ -374,7 +526,7 @@ def _runtime_artifact_attestation() -> _RuntimeArtifactAttestation:
     All validation failures collapse to one public stable code so the runner
     cannot disclose package layout while still refusing an unreviewed runtime.
     """
-    manifest = _RUNTIME_ARTIFACT_MANIFEST
+    manifest = _runtime_artifact_manifest()
     if manifest is None:
         return _RuntimeArtifactAttestation(
             status="unattested",
@@ -383,8 +535,10 @@ def _runtime_artifact_attestation() -> _RuntimeArtifactAttestation:
             manifest_version=None,
             artifact_set_version=None,
             attestation_state=None,
+            source_revision=None,
             distribution_names=(),
             verified_file_count=0,
+            artifact_fingerprint=None,
         )
     distribution_names = tuple(item.distribution for item in manifest.distributions)
     expected_file_count = sum(len(item.files) for item in manifest.distributions)
@@ -392,7 +546,9 @@ def _runtime_artifact_attestation() -> _RuntimeArtifactAttestation:
         "manifest_version": manifest.manifest_version,
         "artifact_set_version": manifest.artifact_set_version,
         "attestation_state": manifest.attestation_state,
+        "source_revision": manifest.source_revision,
         "distribution_names": distribution_names,
+        "artifact_fingerprint": _runtime_artifact_fingerprint(manifest),
     }
     if manifest.attestation_state == "disabled":
         return _RuntimeArtifactAttestation(
@@ -535,6 +691,29 @@ def _distribution_versions() -> dict[str, str | None]:
     return versions
 
 
+def _isolation_unattested_error() -> dict[str, str]:
+    """Return the bounded error shared by all ordinary-Python entrypoints."""
+    return {
+        "code": _RUNTIME_ATTESTATION_ISOLATION_UNATTESTED,
+        "detail": "runner requires an isolated no-site Python startup boundary",
+    }
+
+
+def _self_check_without_pre_import_isolation() -> dict[str, object]:
+    """Return no runtime identity after unsafe interpreter startup.
+
+    In this state neither manifest nor package metadata is safe evidence, and
+    even reporting whether one exists reveals unnecessary runtime identity.
+    Keep this deliberately smaller than the isolated self-check contract.
+    """
+    return {
+        "protocol_version": PROTOCOL_VERSION,
+        "self_check_version": SELF_CHECK_VERSION,
+        "status": "blocked",
+        "error": _isolation_unattested_error(),
+    }
+
+
 def _self_check_payload() -> dict[str, object]:
     """Return a local, non-secret attestation for the blocked runtime boundary.
 
@@ -544,6 +723,9 @@ def _self_check_payload() -> dict[str, object]:
     prevents it from changing runtime state or loading a mutable extension
     merely to inspect it.
     """
+    if not _has_pre_import_isolation_boundary():
+        return _self_check_without_pre_import_isolation()
+    _ensure_static_runtime_permit_manifest()
     configured_provider_names = _configured_provider_names()
     distribution_versions = _distribution_versions()
     artifact_attestation = _runtime_artifact_attestation()
@@ -582,9 +764,7 @@ def _self_check_payload() -> dict[str, object]:
                 "permit_manifest_status": (
                     "valid" if _PERMIT_MANIFEST_ERROR is None else "invalid"
                 ),
-                "active_route_ids": [
-                    permit.route_id for permit in _ACTIVE_RUNTIME_ROUTE_PERMITS
-                ],
+                "active_route_ids": [permit.route_id for permit in _ACTIVE_RUNTIME_ROUTE_PERMITS],
             },
             "configuration": {
                 "configured_provider_names": list(configured_provider_names),
@@ -618,13 +798,137 @@ def _yfinance_outbound_end_bound_is_attested(
     """
     if artifact_attestation is None:
         artifact_attestation = _runtime_artifact_attestation()
-    manifest = _RUNTIME_ARTIFACT_MANIFEST
+    manifest = _runtime_artifact_manifest()
     return (
         artifact_attestation.status == "attested"
         and manifest is not None
         and manifest.attestation_state == "attested"
         and manifest.outbound_end_bound_contract == _YFINANCE_DAILY_END_BOUND_CONTRACT
     )
+
+
+def _unattested_daily_end_bound_probe(
+    code: str,
+) -> _YFinanceDailyEndBoundProbe:
+    """Return a bounded non-execution result without importing an extension."""
+    return _YFinanceDailyEndBoundProbe(
+        status="not_run",
+        code=code,
+        observed_start=None,
+        observed_end=None,
+        observed_period=None,
+        observed_interval=None,
+        call_count=0,
+    )
+
+
+def _yfinance_daily_end_bound_probe(
+    *,
+    artifact_attestation: _RuntimeArtifactAttestation | None = None,
+) -> _YFinanceDailyEndBoundProbe:
+    """Fail closed until a pre-import isolated runtime boundary is accepted.
+
+    Artifact metadata and file hashes can identify a candidate package set,
+    but they cannot stop ``PYTHONPATH`` from selecting an attacker-controlled
+    package before a post-import origin check can run. This runner has no
+    accepted import-closure boundary, so ``--attest-runtime`` deliberately
+    performs no dynamic OpenBB, yfinance, or pandas import. A future isolated
+    worker must establish that boundary before replacing this result.
+    """
+    _ensure_static_runtime_permit_manifest()
+    before = artifact_attestation or _runtime_artifact_attestation()
+    if (
+        before.status != "candidate"
+        or before.attestation_state != "candidate"
+        or before.source_revision is None
+        or before.artifact_fingerprint is None
+    ):
+        return _unattested_daily_end_bound_probe(_RUNTIME_ARTIFACT_UNATTESTED)
+    if any(os.getenv(key) for key in _DANGEROUS_OPENBB_ENVIRONMENT_KEYS):
+        return _unattested_daily_end_bound_probe("OPENBB_RUNNER_DANGEROUS_ENVIRONMENT")
+    return _unattested_daily_end_bound_probe(_RUNTIME_ATTESTATION_ISOLATION_UNATTESTED)
+
+
+def _runtime_attestation_without_pre_import_isolation() -> dict[str, object]:
+    """Return the only safe attestation result after ordinary Python startup.
+
+    ``sitecustomize`` and ``PYTHONPATH`` can already have selected and
+    executed attacker-controlled code before this script begins.  Do not read
+    package metadata or publish candidate identity in that state: those facts
+    cannot establish a trustworthy import boundary.  ``not_attempted_by_runner``
+    deliberately describes this runner only; it is not an assertion about
+    host, container, or startup-hook egress.
+    """
+    return {
+        "protocol_version": PROTOCOL_VERSION,
+        "runtime_attestation_version": RUNTIME_ATTESTATION_VERSION,
+        "status": "blocked",
+        "error": _isolation_unattested_error(),
+    }
+
+
+def _runtime_attestation_payload() -> dict[str, object]:
+    """Emit static candidate evidence while preserving a fail-closed route state.
+
+    The runner cannot attest its current import closure before dynamic package
+    code executes, so it does not probe OpenBB at all. An immutable isolated
+    worker, full import-closure evidence, egress controls, authorization
+    review, and a separately reviewed exact route permit remain required.
+    """
+    if not _has_pre_import_isolation_boundary():
+        return _runtime_attestation_without_pre_import_isolation()
+    _ensure_static_runtime_permit_manifest()
+    artifact_attestation = _runtime_artifact_attestation()
+    probe = _yfinance_daily_end_bound_probe(artifact_attestation=artifact_attestation)
+    return {
+        "protocol_version": PROTOCOL_VERSION,
+        "runtime_attestation_version": RUNTIME_ATTESTATION_VERSION,
+        "status": "blocked",
+        "attestation": {
+            "runtime_artifact": {
+                "status": artifact_attestation.status,
+                "code": artifact_attestation.code,
+                "manifest_status": artifact_attestation.manifest_status,
+                "manifest_version": artifact_attestation.manifest_version,
+                "artifact_set_version": artifact_attestation.artifact_set_version,
+                "attestation_state": artifact_attestation.attestation_state,
+                "source_revision": artifact_attestation.source_revision,
+                "artifact_fingerprint": artifact_attestation.artifact_fingerprint,
+                "distribution_names": list(artifact_attestation.distribution_names),
+                "verified_file_count": artifact_attestation.verified_file_count,
+                "paths_included": False,
+                "file_hashes_included": False,
+            },
+            "yfinance_daily_end_bound": {
+                "status": probe.status,
+                "code": probe.code,
+                "verification_scope": "not-run-without-pre-import-isolation-boundary",
+                "network_access": "not_attempted_by_runner",
+                "expected": {
+                    "openbb_start_date": _YFINANCE_DAILY_PROBE_START_DATE.isoformat(),
+                    "openbb_inclusive_end_date": _YFINANCE_DAILY_PROBE_OPENBB_END_DATE.isoformat(),
+                    "yfinance_exclusive_end_date": _YFINANCE_DAILY_PROBE_YFINANCE_END_DATE.isoformat(),
+                    "period": None,
+                    "interval": "1d",
+                },
+                "observed": {
+                    "start": probe.observed_start,
+                    "end": probe.observed_end,
+                    "period": probe.observed_period,
+                    "interval": probe.observed_interval,
+                    "call_count": probe.call_count,
+                },
+            },
+            "isolation": {
+                "status": "unattested",
+                "code": _RUNTIME_ATTESTATION_ISOLATION_UNATTESTED,
+            },
+            "route_authorization": {
+                "status": "blocked",
+                "code": _RUNTIME_ATTESTATION_ROUTE_UNATTESTED,
+            },
+        },
+    }
 
 
 def _has_active_runtime_route_permit(request: Mapping[str, Any]) -> bool:
@@ -797,6 +1101,18 @@ def main() -> int:
         return _error(request_id, "OPENBB_RUNNER_INVALID_REQUEST", "request body must be an object")
     if request.get("request_id") != request_id:
         return _error(request_id, "OPENBB_RUNNER_INVALID_REQUEST", "request ID must match envelope")
+    if not _has_pre_import_isolation_boundary():
+        # Python may already have executed a ``sitecustomize`` module or
+        # selected code from ``PYTHONPATH`` before this script began.  This
+        # must remain ahead of every package-metadata/artifact decision and
+        # every possible OpenBB import, even if a future artifact or permit
+        # implementation otherwise appears to authorize the request.
+        return _error(
+            request_id,
+            _RUNTIME_ATTESTATION_ISOLATION_UNATTESTED,
+            "runner requires an isolated no-site Python startup boundary",
+        )
+    _ensure_static_runtime_permit_manifest()
     dangerous_environment_keys = [
         key for key in _DANGEROUS_OPENBB_ENVIRONMENT_KEYS if os.getenv(key)
     ]
@@ -863,9 +1179,7 @@ def main() -> int:
             _RUNTIME_ARTIFACT_UNATTESTED,
             "the OpenBB yfinance runtime artifact is not attested",
         )
-    if not _yfinance_outbound_end_bound_is_attested(
-        artifact_attestation=artifact_attestation
-    ):
+    if not _yfinance_outbound_end_bound_is_attested(artifact_attestation=artifact_attestation):
         # This must remain before the OpenBB import. The installed helper's
         # post-fetch filtering cannot prove that yfinance received the parent
         # request's exclusive end bound, so importing it for a live request is
@@ -880,6 +1194,14 @@ def main() -> int:
             request_id,
             "OPENBB_ROUTE_UNATTESTED",
             "no exact active runner permit matches this request",
+        )
+    if not _has_pre_import_isolation_boundary():
+        # Retain a last-moment guard next to the only dynamic package import.
+        # It protects this boundary if request handling is later refactored.
+        return _error(
+            request_id,
+            _RUNTIME_ATTESTATION_ISOLATION_UNATTESTED,
+            "runner requires an isolated no-site Python startup boundary",
         )
 
     try:
@@ -935,9 +1257,15 @@ def main() -> int:
 
 
 def _run(argv: list[str]) -> int:
-    """Choose the local self-check without allowing undocumented CLI modes."""
+    """Choose one bounded operator check without allowing undocumented CLI modes."""
     if argv == ["--self-check"]:
+        if not _has_pre_import_isolation_boundary():
+            return _emit(_self_check_without_pre_import_isolation())
         return _emit(_self_check_payload())
+    if argv == ["--attest-runtime"]:
+        if not _has_pre_import_isolation_boundary():
+            return _emit(_runtime_attestation_without_pre_import_isolation())
+        return _emit(_runtime_attestation_payload())
     if argv:
         return _error(None, "OPENBB_RUNNER_ARGUMENT_INVALID", "unsupported runner argument")
     return main()

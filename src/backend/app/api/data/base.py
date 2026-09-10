@@ -12,12 +12,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.data.deps import (
     get_market_data_access_authorizer,
-    require_authorized_market_data_read,
+)
+from app.api.data.queries import (
+    evaluate_market_data_capabilities,
+    get_market_data_capability_evaluation,
 )
 from app.api.deps import get_current_user
 from app.config import get_settings
 from app.db.database import get_db
 from app.services.market_data.access import MarketDataAccessAuthorizer, MarketDataAuthorizationError
+from app.services.market_data.capability_ledger import MarketDataCapabilityEvaluation
 from app.services.market_data.dataset_contracts import DatasetContractRegistryError
 from app.services.market_data.legacy_contract import LegacyMarketDataQueryContractResolver
 from app.services.market_instrument import (
@@ -34,21 +38,36 @@ def get_market_instrument_service() -> MarketInstrumentService:
     return MarketInstrumentService()
 
 
-def get_legacy_market_data_query_contract_resolver(
-    db: AsyncSession = Depends(get_db),
+def build_legacy_market_data_query_contract_resolver(
+    db: AsyncSession,
+    *,
+    settings: object | None = None,
 ) -> LegacyMarketDataQueryContractResolver:
-    """Build the read-only v2 compatibility bridge for a request database session."""
-    settings = get_settings()
+    """Build the read-only v2 compatibility bridge from concrete inputs.
+
+    This is deliberately a plain composition helper so non-HTTP consumers do
+    not need to invoke a FastAPI dependency function directly.
+    """
+    effective_settings = get_settings() if settings is None else settings
     allowed_markets = frozenset(
         item.strip()
-        for item in str(getattr(settings, "MARKET_DATA_OPENBB_ALLOWED_MARKETS", "")).split(",")
+        for item in str(
+            getattr(effective_settings, "MARKET_DATA_OPENBB_ALLOWED_MARKETS", "")
+        ).split(",")
         if item.strip()
     )
     return LegacyMarketDataQueryContractResolver(
         db,
-        openbb_provider=str(getattr(settings, "MARKET_DATA_OPENBB_PROVIDER", "yfinance")),
+        openbb_provider=str(getattr(effective_settings, "MARKET_DATA_OPENBB_PROVIDER", "yfinance")),
         openbb_allowed_markets=allowed_markets,
     )
+
+
+def get_legacy_market_data_query_contract_resolver(
+    db: AsyncSession = Depends(get_db),
+) -> LegacyMarketDataQueryContractResolver:
+    """Build the read-only v2 compatibility bridge for a request database session."""
+    return build_legacy_market_data_query_contract_resolver(db)
 
 
 @router.get(
@@ -61,13 +80,16 @@ async def get_market_data_query_contract(
         ..., min_length=1, description="Exact instrument code from approved master data"
     ),
     asset_type: MarketAssetType = Query("stock", description="Instrument type"),
-    period: str = Query("daily", description="Period: daily/weekly/monthly"),
+    period: str = Query(
+        "daily",
+        description="Legacy period label or an exact server-issued v2 cadence",
+    ),
     family_id: str | None = Query(
         default=None,
         max_length=128,
         description="Optional exact market-page family selected from the server bundle",
     ),
-    _read_authorized: None = Depends(require_authorized_market_data_read),
+    capabilities: MarketDataCapabilityEvaluation = Depends(get_market_data_capability_evaluation),
     query_contracts: LegacyMarketDataQueryContractResolver = Depends(
         get_legacy_market_data_query_contract_resolver
     ),
@@ -80,7 +102,7 @@ async def get_market_data_query_contract(
     symbol and the endpoint intentionally returns 404 if bootstrap or
     approved master data is incomplete; clients then retain the legacy path.
     """
-    if not get_settings().MARKET_DATA_QUERY_V2_ENABLED:
+    if not capabilities.response.query_v2_enabled:
         raise HTTPException(
             status_code=503,
             detail={"code": "MARKET_DATA_QUERY_V2_DISABLED"},
@@ -226,6 +248,7 @@ async def lookup_market_instrument(
         description="Deprecated legacy online refresh; use the v2 local-first query endpoint",
     ),
     current_user: typing.Any = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
     service: MarketInstrumentService = Depends(get_market_instrument_service),
     access_authorizer: MarketDataAccessAuthorizer = Depends(get_market_data_access_authorizer),
     query_contracts: LegacyMarketDataQueryContractResolver = Depends(
@@ -247,20 +270,23 @@ async def lookup_market_instrument(
         # explicitly enabled and its catalog/master-data prerequisites are
         # satisfied.  Absence of this optional field is a safe instruction for
         # clients to continue using the existing compatibility endpoint.
-        if get_settings().MARKET_DATA_QUERY_V2_ENABLED:
-            try:
-                principal = await access_authorizer.principal_for_user(current_user)
-                access_authorizer.require_read_data(principal=principal)
-            except MarketDataAuthorizationError:
-                # Keep the legacy lookup's historic authorization semantics,
-                # but never mint or disclose a v2 catalog/identity template to
-                # a caller without the independent data-read entitlement.
-                contract = None
-            except SQLAlchemyError:
-                # A current-principal check is optional on this legacy route.
-                # Its metadata outage must not invalidate an already completed
-                # compatibility lookup, and must never cause a v2 disclosure.
-                logger.warning("market-data v2 compatibility authorization unavailable")
+        try:
+            principal = await access_authorizer.principal_for_user(current_user)
+            access_authorizer.require_read_data(principal=principal)
+            capabilities = await evaluate_market_data_capabilities(db)
+        except MarketDataAuthorizationError:
+            # Keep the legacy lookup's historic authorization semantics, but
+            # never mint or disclose a v2 catalog/identity template to a
+            # caller without the independent data-read entitlement.
+            contract = None
+        except SQLAlchemyError:
+            # A current-principal check is optional on this legacy route. Its
+            # metadata outage must not invalidate an already completed
+            # compatibility lookup, and must never cause a v2 disclosure.
+            logger.warning("market-data v2 compatibility authorization unavailable")
+            contract = None
+        else:
+            if not capabilities.response.query_v2_enabled:
                 contract = None
             else:
                 try:

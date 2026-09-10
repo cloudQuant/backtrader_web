@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import DataPage from '@/views/DataPage.vue'
 import { elStubs } from '@/test/stubs'
+import enUS from '@/i18n/locales/en-US'
 import type {
   MarketAssetType,
   MarketDataQueryBundle,
@@ -56,6 +57,45 @@ vi.mock('@/api/marketData', () => ({
       && (value as { request?: unknown }).request,
     )
   ),
+  isMarketDataQueryBundleFamilyExecutable: (value: unknown) => {
+    if (!value || typeof value !== 'object') return false
+    const family = value as {
+      status?: unknown
+      source_policy_id?: unknown
+      reason_code?: unknown
+      data_kind?: unknown
+      frequency_semantics?: unknown
+      frequencies?: unknown
+      coverage_model?: unknown
+      dimension_fields?: unknown
+    }
+    const dataKind = family.data_kind
+    const frequencies = family.frequencies
+    const hasNoDimensions = Array.isArray(family.dimension_fields) && family.dimension_fields.length === 0
+    const isCalendarSeries = (
+      (dataKind === 'bars' || dataKind === 'reference_series')
+      && family.frequency_semantics === 'calendar_grid'
+      && family.coverage_model === 'calendar_grid'
+      && Array.isArray(frequencies)
+      && frequencies.length > 0
+      && frequencies.every((frequency) => frequency !== 'snapshot')
+      && hasNoDimensions
+    )
+    const isQuoteSnapshot = (
+      dataKind === 'quote_snapshot'
+      && family.frequency_semantics === 'snapshot'
+      && family.coverage_model === 'snapshot_freshness'
+      && Array.isArray(frequencies)
+      && frequencies.length === 1
+      && frequencies[0] === 'snapshot'
+      && hasNoDimensions
+    )
+    return family.status === 'ready'
+      && typeof family.source_policy_id === 'string'
+      && family.source_policy_id.trim().length > 0
+      && family.reason_code === null
+      && (isCalendarSeries || isQuoteSnapshot)
+  },
   createMarketDataQueryFromContract: (
     contract: { request: Record<string, unknown> },
     options: Record<string, unknown>,
@@ -2102,7 +2142,10 @@ describe('DataPage', () => {
       .toEqual(expect.objectContaining({ readState: 'facts_loaded' }))
   })
 
-  it('renders declared snapshot, reference, and dimensioned families without issuing their facts', async () => {
+  it('renders mocked future-ready control-plane shapes without manufacturing facts for unconfigured families', async () => {
+    // The synthetic ready snapshot below is only a browser presentation
+    // fixture. It is not a claim that the current backend has issued this
+    // route; B2 inventory remains explicitly unconfigured in this fixture.
     vi.stubEnv('VITE_MARKET_DATA_QUERY_BUNDLE_ENABLED', 'true')
     const bundle = createQueryBundleFixture('stock')
     bundle.families.push(
@@ -2157,8 +2200,8 @@ describe('DataPage', () => {
 
     expect(quoteSnapshot).toEqual(expect.objectContaining({
       statusLabel: '已配置',
-      readState: 'control_plane_only',
-      readStatusLabel: '控制面已声明；本页不发起事实请求',
+      readState: 'generic_query_available',
+      readStatusLabel: '本页支持通用观测事实读取',
       contract: expect.objectContaining({
         dataKind: 'quote_snapshot',
         frequencySemantics: 'snapshot',
@@ -2186,11 +2229,297 @@ describe('DataPage', () => {
       .toContain('quote_snapshot · snapshot')
     expect(wrapper.find('[data-test="market-data-family-stock.inventory"]').text())
       .toContain('dimensioned_records')
-    expect((wrapper.vm as any).selectableDataFamilies).toEqual([])
+    expect((wrapper.vm as any).selectableDataFamilies).toEqual([
+      expect.objectContaining({ value: 'stock.quote_snapshot' }),
+    ])
+    ;(wrapper.vm as any).selectDataFamily('stock.inventory')
+    await flushPromises()
+    expect((wrapper.vm as any).selectedFamilyId).toBe('stock.realtime')
     expect(apiMocks.getQueryContract).not.toHaveBeenCalled()
     expect(apiMocks.queryLocalFirst).not.toHaveBeenCalled()
     expect(apiMocks.lookupInstrument).not.toHaveBeenCalled()
     expect((wrapper.vm as any).result?.query_contract).toBeNull()
+  })
+
+  it('renders a mocked future-ready snapshot presentation without recasting it as bars', async () => {
+    // This mocked bundle/contract/response verifies a future approved B1
+    // presentation only. It must not be read as current route acceptance.
+    const bundle = createQueryBundleFixture('stock')
+    bundle.families.push({
+      family_id: 'stock.quote_snapshot',
+      family_contract_version: 'market-data-family-v1',
+      asset_type: 'stock',
+      status: 'ready',
+      dataset_code: 'market.quote_snapshot',
+      data_kind: 'quote_snapshot',
+      frequency_semantics: 'snapshot',
+      frequencies: ['snapshot'],
+      field_profile_id: 'stock-quote-snapshot-v1',
+      required_fields: ['price', 'update_time'],
+      optional_fields: ['bid', 'ask'],
+      dimension_fields: [],
+      coverage_model: 'snapshot_freshness',
+      source_policy_id: 'market-default-v1',
+      reason_code: null,
+    })
+    const quoteContract = {
+      version: 'market-data-v2' as const,
+      request: {
+        identity: { canonical_id: 'instrument:stock:CN-SZSE:000001' },
+        dataset_code: 'market.quote_snapshot',
+        data_kind: 'quote_snapshot' as const,
+        frequency: 'snapshot' as const,
+        required_fields: ['price', 'update_time'],
+        adjustment: null,
+        price_basis: null,
+        currency: 'CNY',
+        unit: 'share',
+        source_policy_id: 'market-default-v1',
+        family_id: 'stock.quote_snapshot',
+        family_contract_version: 'market-data-family-v1' as const,
+        mode: 'local_first' as const,
+      },
+    }
+    const quoteResponse: MarketDataQueryResponse = {
+      ...createV2ResponseFixture({
+        family_id: 'stock.quote_snapshot',
+        family_contract_version: 'market-data-family-v1',
+      }),
+      query_id: 'query-stock-quote-1',
+      dataset_code: 'market.quote_snapshot',
+      data_kind: 'quote_snapshot',
+      frequency: 'snapshot',
+      observations: [
+        {
+          revision_id: 'quote-revision-1',
+          source_snapshot_id: 'quote-source-1',
+          event_at: '2026-06-19T09:30:00Z',
+          available_at: '2026-06-19T09:30:02Z',
+          committed_at: '2026-06-19T09:30:03Z',
+          revision_number: 1,
+          quality: 'pass',
+          fields: {
+            price: 12.34,
+            update_time: '2026-06-19T09:30:00Z',
+            provider_only_extra: 'must-not-become-a-column',
+          },
+        },
+        {
+          revision_id: 'quote-revision-2',
+          source_snapshot_id: 'quote-source-2',
+          event_at: '2026-06-19T09:31:00Z',
+          available_at: '2026-06-19T09:31:02Z',
+          committed_at: '2026-06-19T09:31:03Z',
+          revision_number: 2,
+          quality: 'failed',
+          fields: { price: 12.35, update_time: '2026-06-19T09:31:00Z' },
+        },
+      ],
+    }
+    apiMocks.getQueryBundle.mockResolvedValue(bundle)
+    apiMocks.getQueryContract.mockResolvedValue(quoteContract)
+    apiMocks.queryLocalFirst.mockResolvedValue(quoteResponse)
+
+    const wrapper = await mountPage()
+    const vm = wrapper.vm as any
+    apiMocks.getQueryContract.mockClear()
+    apiMocks.queryLocalFirst.mockClear()
+
+    vm.selectDataFamily('stock.quote_snapshot')
+    await flushPromises()
+    expect(vm.form.period).toBe('snapshot')
+    expect(vm.periods).toEqual([
+      { value: 'snapshot', labelKey: 'dataMgmt.periodSnapshot' },
+    ])
+    expect(vm.isGenericObservationSelected).toBe(true)
+    expect(wrapper.find('[data-test="market-generic-observation-table"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="market-generic-observation-table"]').text())
+      .not.toContain('must-not-become-a-column')
+
+    // A user can edit the picker after selecting a generic family. The page
+    // must still send the server's current seven-day direct-window maximum.
+    vm.dateRange = ['2026-01-01', '2026-03-31']
+    await vm.lookupInstrument('local_first')
+    await flushPromises()
+
+    expect(apiMocks.getQueryContract).toHaveBeenCalledWith({
+      asset_type: 'stock', symbol: '000001', period: 'snapshot', family_id: 'stock.quote_snapshot',
+    })
+    expect(apiMocks.queryLocalFirst).toHaveBeenCalledWith(expect.objectContaining({
+      family_id: 'stock.quote_snapshot',
+      data_kind: 'quote_snapshot',
+      frequency: 'snapshot',
+      required_fields: ['price', 'update_time'],
+      start: '2026-03-25T00:00:00.000Z',
+      end: '2026-04-01T00:00:00.000Z',
+    }), expect.objectContaining({ suppressErrorMessage: true }))
+    expect(vm.genericObservationResult).toEqual(expect.objectContaining({
+      familyId: 'stock.quote_snapshot',
+      dataKind: 'quote_snapshot',
+      requiredFields: ['price', 'update_time'],
+      dimensionFields: [],
+    }))
+    expect(vm.dateRange).toEqual(['2026-03-25', '2026-03-31'])
+    expect(vm.genericObservationRows).toHaveLength(2)
+    expect(vm.genericObservationColumns.map((column: { key: string }) => column.key)).toEqual([
+      'event_at', 'quality', 'source_snapshot_id', 'revision_id', 'available_at', 'committed_at',
+      'revision_number', 'price', 'update_time',
+    ])
+    expect(vm.genericObservationColumns.map((column: { key: string }) => column.key))
+      .not.toContain('provider_only_extra')
+    expect(vm.genericObservationRows[0].fields).not.toHaveProperty('provider_only_extra')
+    expect(vm.result.snapshot.price).toBeUndefined()
+    expect(vm.result.history.total).toBe(0)
+    expect(vm.chartCanRender).toBe(false)
+    expect(wrapper.find('.market-chart-card').exists()).toBe(false)
+    expect(wrapper.find('[data-test="market-generic-observation-table"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="market-generic-observation-family"]').text())
+      .toContain('stock.quote_snapshot · quote_snapshot')
+    expect(wrapper.find('[data-test="market-data-platform-provenance"]').text())
+      .toContain('数据族：stock.quote_snapshot')
+    expect(vm.assetDataFamilies.find((family: { familyId: string }) => (
+      family.familyId === 'stock.quote_snapshot'
+    ))).toEqual(expect.objectContaining({
+      readState: 'facts_loaded',
+      fields: expect.arrayContaining([
+        expect.objectContaining({ name: 'price', present: true }),
+        expect.objectContaining({ name: 'update_time', present: true }),
+      ]),
+    }))
+  })
+
+  it('uses translated label keys for B1 cadence choices and ships English labels', async () => {
+    // This is a client label regression only. The synthetic intraday
+    // declaration is not evidence that the current server has enabled it.
+    const bundle = createQueryBundleFixture('stock', { 'stock.realtime': 'ready' })
+    const realtime = bundle.families.find((family) => family.family_id === 'stock.realtime')
+    if (!realtime) throw new Error('missing stock realtime fixture')
+    realtime.frequencies = ['5min', '30min', '1h']
+    apiMocks.getQueryBundle.mockResolvedValue(bundle)
+
+    const wrapper = await mountPage()
+    const periods = (wrapper.vm as any).periods
+
+    expect(periods).toEqual([
+      { value: '5min', labelKey: 'dataMgmt.periodFiveMinutes' },
+      { value: '30min', labelKey: 'dataMgmt.periodThirtyMinutes' },
+      { value: '1h', labelKey: 'dataMgmt.periodHourly' },
+    ])
+    const englishPeriodLabels: Record<string, string> = {
+      'dataMgmt.periodFiveMinutes': enUS.dataMgmt.periodFiveMinutes,
+      'dataMgmt.periodThirtyMinutes': enUS.dataMgmt.periodThirtyMinutes,
+      'dataMgmt.periodHourly': enUS.dataMgmt.periodHourly,
+      'dataMgmt.periodSnapshot': enUS.dataMgmt.periodSnapshot,
+    }
+    expect(periods.map((period: { labelKey: string }) => englishPeriodLabels[period.labelKey]))
+      .toEqual(['5 minutes', '30 minutes', 'Hourly'])
+    expect(enUS.dataMgmt.periodSnapshot).toBe('Snapshot')
+  })
+
+  it('ships English generic-observation and read-state copy through data-management keys', () => {
+    expect(enUS.dataMgmt).toMatchObject({
+      dataFamilySelectPlaceholder: 'Data family',
+      genericObservationTitle: 'Observations',
+      genericObservationEmpty: 'The server returned no displayable observations',
+      genericObservationColumnEventAt: 'Event time',
+      genericObservationColumnSourceSnapshotId: 'Source snapshot',
+      dataFamilyReadStateFactsLoaded: 'Constrained facts loaded',
+      dataFamilyReadStateGenericQueryAvailable: 'This page can query observation facts',
+      dataFamilyReadStateUnconfigured: 'Unconfigured; this page will not query facts',
+    })
+  })
+
+  it('keeps a mocked ready B2 report family unselectable and does not issue a query', async () => {
+    // A forged ready status is not sufficient for a B2 report family. The
+    // page only has a reviewed single-record renderer and must retain the
+    // server's current B2 NO-GO boundary even when a test double lies.
+    const bundle = createQueryBundleFixture('stock')
+    bundle.families.push({
+      family_id: 'stock.position_report',
+      family_contract_version: 'market-data-family-v1',
+      asset_type: 'stock',
+      status: 'ready',
+      dataset_code: 'market.position_report',
+      data_kind: 'position_report',
+      frequency_semantics: 'reporting_period',
+      frequencies: ['1d'],
+      field_profile_id: 'stock-position-report-v1',
+      required_fields: ['net_position'],
+      optional_fields: ['open_interest'],
+      dimension_fields: ['report_date', 'reporting_entity'],
+      coverage_model: 'report_completeness',
+      source_policy_id: 'market-default-v1',
+      reason_code: null,
+    })
+    apiMocks.getQueryBundle.mockResolvedValue(bundle)
+
+    const wrapper = await mountPage()
+    const vm = wrapper.vm as any
+    apiMocks.getQueryContract.mockClear()
+    apiMocks.queryLocalFirst.mockClear()
+
+    vm.selectDataFamily('stock.position_report')
+    await flushPromises()
+
+    expect(vm.selectableDataFamilies).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ value: 'stock.position_report' }),
+    ]))
+    expect(vm.selectedFamilyId).toBe('stock.realtime')
+    expect(vm.genericObservationResult).toBeNull()
+    expect(wrapper.find('[data-test="market-generic-observation-table"]').exists()).toBe(false)
+    expect(apiMocks.getQueryContract).not.toHaveBeenCalled()
+    expect(apiMocks.queryLocalFirst).not.toHaveBeenCalled()
+  })
+
+  it('clears previous family provenance immediately when the selected family changes', async () => {
+    const bundle = createQueryBundleFixture('stock', { 'stock.realtime': 'ready' })
+    bundle.families.push({
+      family_id: 'stock.quote_snapshot',
+      family_contract_version: 'market-data-family-v1',
+      asset_type: 'stock',
+      status: 'ready',
+      dataset_code: 'market.quote_snapshot',
+      data_kind: 'quote_snapshot',
+      frequency_semantics: 'snapshot',
+      frequencies: ['snapshot'],
+      field_profile_id: 'stock-quote-snapshot-v1',
+      required_fields: ['price', 'update_time'],
+      optional_fields: [],
+      dimension_fields: [],
+      coverage_model: 'snapshot_freshness',
+      source_policy_id: 'market-default-v1',
+      reason_code: null,
+    })
+    apiMocks.getQueryBundle.mockResolvedValue(bundle)
+    apiMocks.getQueryContract.mockResolvedValue(createV2ContractFixture())
+    apiMocks.queryLocalFirst.mockResolvedValue(createV2ResponseFixture())
+
+    const wrapper = await mountPage()
+    const vm = wrapper.vm as any
+    expect(vm.marketDataPlatformStatus).toMatchObject({
+      path: 'local_only',
+      familyId: 'stock.realtime',
+      datasetCode: 'market.bars',
+    })
+
+    vm.selectDataFamily('stock.quote_snapshot')
+    await flushPromises()
+
+    expect(vm.result).toBeNull()
+    expect(vm.referenceSeriesResult).toBeNull()
+    expect(vm.genericObservationResult).toBeNull()
+    expect(vm.marketDataPlatformStatus).toEqual(expect.objectContaining({
+      path: 'family_selection_pending',
+      familyId: 'stock.quote_snapshot',
+      canonicalId: null,
+      datasetCode: null,
+      sourcePolicyId: null,
+      instrumentMetadataVersion: null,
+    }))
+    const provenance = wrapper.find('[data-test="market-data-platform-provenance"]').text()
+    expect(provenance).toContain('数据族：stock.quote_snapshot')
+    expect(provenance).not.toContain('market.bars')
+    expect(wrapper.find('.market-chart-card').exists()).toBe(false)
   })
 
   it('constrains weekly and monthly selection to the declared daily cadence for futures, bonds, options, and FX', async () => {
@@ -2484,8 +2813,65 @@ describe('DataPage', () => {
       undefined,
       ...Array.from({ length: 16 }, (_, index) => `cursor-${index + 1}`),
     ])
+    const querySignals = apiMocks.queryLocalFirst.mock.calls.map(([, options]) => (
+      (options as { signal?: AbortSignal } | undefined)?.signal
+    ))
+    expect(querySignals.every((signal) => signal instanceof AbortSignal)).toBe(true)
+    expect(new Set(querySignals).size).toBe(1)
     expect((wrapper.vm as any).result.history.total).toBe(516)
     expect((wrapper.vm as any).historyRows).toHaveLength(516)
+  })
+
+  it('aborts a v2 cursor lifecycle when the selected family changes after the first page resolves', async () => {
+    const firstPage = {
+      ...createV2ResponseFixture(stockRealtimeFamilyBinding()),
+      next_cursor: 'cursor-after-selection',
+    }
+    const firstPageDeferred = createDeferred<MarketDataQueryResponse>()
+    apiMocks.getQueryBundle.mockResolvedValue(createStockLiquidityBundleFixture())
+    apiMocks.getQueryContract.mockResolvedValue(createV2ContractFixture(stockRealtimeFamilyBinding()))
+    apiMocks.queryLocalFirst.mockImplementation(({ cursor }: { cursor?: string }) => {
+      if (cursor) return Promise.resolve(createV2ResponseFixture(stockRealtimeFamilyBinding()))
+      return firstPageDeferred.promise
+    })
+
+    const wrapper = await mountPage()
+    const vm = wrapper.vm as any
+    const firstOptions = apiMocks.queryLocalFirst.mock.calls[0]?.[1] as {
+      signal?: AbortSignal
+    } | undefined
+
+    expect(apiMocks.queryLocalFirst).toHaveBeenCalledTimes(1)
+    expect(firstOptions?.signal).toBeInstanceOf(AbortSignal)
+
+    // Resolve the page first, then switch the selection before its awaiting
+    // continuation can issue the server-provided cursor request.
+    firstPageDeferred.resolve(firstPage)
+    vm.selectDataFamily('stock.liquidity')
+    await flushPromises()
+
+    expect(firstOptions?.signal?.aborted).toBe(true)
+    expect(apiMocks.queryLocalFirst).toHaveBeenCalledTimes(1)
+    expect(apiMocks.queryLocalFirst.mock.calls.map(([request]) => request.cursor)).toEqual([undefined])
+  })
+
+  it('aborts an active v2 market query when the page unmounts', async () => {
+    const firstPageDeferred = createDeferred<MarketDataQueryResponse>()
+    apiMocks.getQueryContract.mockResolvedValue(createV2ContractFixture())
+    apiMocks.queryLocalFirst.mockReturnValue(firstPageDeferred.promise)
+
+    const wrapper = await mountPage()
+    const firstOptions = apiMocks.queryLocalFirst.mock.calls[0]?.[1] as {
+      signal?: AbortSignal
+    } | undefined
+
+    expect(firstOptions?.signal).toBeInstanceOf(AbortSignal)
+    wrapper.unmount()
+    expect(firstOptions?.signal?.aborted).toBe(true)
+
+    firstPageDeferred.resolve(createV2ResponseFixture())
+    await flushPromises()
+    expect(apiMocks.queryLocalFirst).toHaveBeenCalledTimes(1)
   })
 
   it('remembers successful queries independently for each asset type', async () => {

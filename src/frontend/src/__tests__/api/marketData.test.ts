@@ -6,12 +6,15 @@ import {
   hasMarketDataCapabilities,
   hasMarketDataQueryBundle,
   hasMarketDataQueryContract,
+  isMarketDataQueryBundleFamilyExecutable,
   isMarketDataQueryV2FallbackError,
   marketDataFamilyObservationShape,
   marketDataApi,
   type MarketDataQueryContract,
   type MarketDataQueryBundle,
   type MarketDataCapabilitiesResponse,
+  type MarketDataQueryDataKind,
+  type MarketDataQueryFrequency,
 } from '@/api/marketData'
 
 vi.mock('@/api/index', () => ({
@@ -310,6 +313,48 @@ describe('marketDataApi', () => {
         reason_code: null,
       }],
     })).toBe(false)
+    expect(isMarketDataQueryBundleFamilyExecutable({
+      ...bundle.families[3],
+      status: 'ready',
+      source_policy_id: 'market-default-v1',
+      reason_code: null,
+    })).toBe(false)
+    expect(hasMarketDataQueryBundle({
+      ...bundle,
+      families: [{
+        ...bundle.families[2],
+        data_kind: 'valuation_snapshot',
+        dataset_code: 'market.valuation_snapshot',
+        status: 'ready',
+        source_policy_id: 'market-default-v1',
+        reason_code: null,
+      }],
+    })).toBe(false)
+    // The browser accepts B2 wire shapes only while their explicit NO-GO
+    // state remains intact. A forged ready status cannot make them selectable.
+    expect(hasMarketDataQueryBundle({
+      ...bundle,
+      families: [{
+        ...bundle.families[0],
+        frequency_semantics: 'snapshot',
+        frequencies: ['snapshot'],
+        coverage_model: 'snapshot_freshness',
+      }],
+    })).toBe(false)
+    expect(hasMarketDataQueryBundle({
+      ...bundle,
+      families: [{
+        ...bundle.families[2],
+        coverage_model: 'calendar_grid',
+      }],
+    })).toBe(false)
+    expect(hasMarketDataQueryBundle({
+      ...bundle,
+      families: [{
+        ...bundle.families[3],
+        dimension_fields: [],
+      }],
+    })).toBe(false)
   })
 
   it('keeps a server-issued single-record snapshot contract representable without inferring facts', () => {
@@ -340,6 +385,189 @@ describe('marketDataApi', () => {
     expect(request.data_kind).toBe('quote_snapshot')
     expect(request.frequency).toBe('snapshot')
     expect(request.family_id).toBe('stock.quote_snapshot')
+    expect(hasMarketDataQueryContract({
+      ...contract,
+      request: { ...contract.request, frequency: '1d' },
+    })).toBe(false)
+    expect(hasMarketDataQueryContract({
+      ...contract,
+      request: { ...contract.request, required_fields: ['price', 'price'] },
+    })).toBe(false)
+  })
+
+  it.each([
+    {
+      dataKind: 'bars' as const,
+      validFrequencies: ['5min', '30min', '1h', '1d', '1w', '1mo'] as const,
+      invalidFrequency: 'snapshot' as const,
+    },
+    {
+      dataKind: 'reference_series' as const,
+      validFrequencies: ['5min', '30min', '1h', '1d', '1w', '1mo'] as const,
+      invalidFrequency: 'snapshot' as const,
+    },
+    {
+      dataKind: 'quote_snapshot' as const,
+      validFrequencies: ['snapshot'] as const,
+      invalidFrequency: '1d' as const,
+    },
+    {
+      dataKind: 'valuation_snapshot' as const,
+      validFrequencies: ['snapshot'] as const,
+      invalidFrequency: '1d' as const,
+    },
+    {
+      dataKind: 'option_chain' as const,
+      validFrequencies: ['snapshot'] as const,
+      invalidFrequency: '1d' as const,
+    },
+    {
+      dataKind: 'option_risk_surface' as const,
+      validFrequencies: ['snapshot'] as const,
+      invalidFrequency: '1d' as const,
+    },
+    {
+      dataKind: 'position_report' as const,
+      validFrequencies: ['5min', '30min', '1h', '1d', '1w', '1mo'] as const,
+      invalidFrequency: 'snapshot' as const,
+    },
+    {
+      dataKind: 'inventory_report' as const,
+      validFrequencies: ['5min', '30min', '1h', '1d', '1w', '1mo'] as const,
+      invalidFrequency: 'snapshot' as const,
+    },
+  ])('validates the $dataKind frequency shape without asserting backend route readiness', ({
+    dataKind,
+    validFrequencies,
+    invalidFrequency,
+  }: {
+    dataKind: MarketDataQueryDataKind
+    validFrequencies: readonly MarketDataQueryFrequency[]
+    invalidFrequency: MarketDataQueryFrequency
+  }) => {
+    const request = {
+      identity: { canonical_id: 'instrument:stock:CN-SZSE:000001' },
+      dataset_code: `market.${dataKind}`,
+      data_kind: dataKind,
+      frequency: validFrequencies[0],
+      required_fields: ['value'],
+      source_policy_id: 'market-default-v1',
+      family_id: `stock.${dataKind}`,
+      family_contract_version: 'market-data-family-v1' as const,
+      mode: 'local_first' as const,
+    }
+
+    for (const frequency of validFrequencies) {
+      expect(hasMarketDataQueryContract({
+        version: 'market-data-v2',
+        request: { ...request, frequency },
+      })).toBe(true)
+    }
+    expect(hasMarketDataQueryContract({
+      version: 'market-data-v2',
+      request: { ...request, frequency: invalidFrequency },
+    })).toBe(false)
+  })
+
+  it('validates every supported v2 wire shape while keeping unsupported ready families fail-closed', () => {
+    const families: MarketDataQueryBundle['families'] = [
+      {
+        family_id: 'stock.bars', family_contract_version: 'market-data-family-v1', asset_type: 'stock',
+        status: 'ready', dataset_code: 'market.bars', data_kind: 'bars',
+        frequency_semantics: 'calendar_grid', frequencies: ['1d'], field_profile_id: 'bars-v1',
+        required_fields: ['close'], optional_fields: [], dimension_fields: [],
+        coverage_model: 'calendar_grid', source_policy_id: 'market-default-v1', reason_code: null,
+      },
+      {
+        family_id: 'stock.quote', family_contract_version: 'market-data-family-v1', asset_type: 'stock',
+        status: 'ready', dataset_code: 'market.quote_snapshot', data_kind: 'quote_snapshot',
+        frequency_semantics: 'snapshot', frequencies: ['snapshot'], field_profile_id: 'quote-v1',
+        required_fields: ['price'], optional_fields: [], dimension_fields: [],
+        coverage_model: 'snapshot_freshness', source_policy_id: 'market-default-v1', reason_code: null,
+      },
+      {
+        family_id: 'stock.valuation_snapshot', family_contract_version: 'market-data-family-v1', asset_type: 'stock',
+        status: 'unconfigured', dataset_code: 'market.valuation', data_kind: 'valuation_snapshot',
+        frequency_semantics: 'snapshot', frequencies: ['snapshot'], field_profile_id: 'valuation-v1',
+        required_fields: ['pe'], optional_fields: [], dimension_fields: [],
+        coverage_model: 'snapshot_freshness', source_policy_id: null, reason_code: 'DATA_FAMILY_UNCONFIGURED',
+      },
+      {
+        family_id: 'stock.option_chain', family_contract_version: 'market-data-family-v1', asset_type: 'stock',
+        status: 'unconfigured', dataset_code: 'market.option_chain', data_kind: 'option_chain',
+        frequency_semantics: 'snapshot', frequencies: ['snapshot'], field_profile_id: 'option-chain-v1',
+        required_fields: ['price'], optional_fields: [], dimension_fields: ['expiry', 'strike'],
+        coverage_model: 'slice_completeness', source_policy_id: null, reason_code: 'DATA_FAMILY_UNCONFIGURED',
+      },
+      {
+        family_id: 'stock.position', family_contract_version: 'market-data-family-v1', asset_type: 'stock',
+        status: 'unconfigured', dataset_code: 'market.position', data_kind: 'position_report',
+        frequency_semantics: 'reporting_period', frequencies: ['1d'], field_profile_id: 'position-v1',
+        required_fields: ['net_position'], optional_fields: [], dimension_fields: ['report_date'],
+        coverage_model: 'report_completeness', source_policy_id: null, reason_code: 'DATA_FAMILY_UNCONFIGURED',
+      },
+      {
+        family_id: 'stock.reference', family_contract_version: 'market-data-family-v1', asset_type: 'stock',
+        status: 'ready', dataset_code: 'market.reference', data_kind: 'reference_series',
+        frequency_semantics: 'calendar_grid', frequencies: ['1d'], field_profile_id: 'reference-v1',
+        required_fields: ['value'], optional_fields: [], dimension_fields: [],
+        coverage_model: 'calendar_grid', source_policy_id: 'market-default-v1', reason_code: null,
+      },
+      {
+        family_id: 'stock.inventory', family_contract_version: 'market-data-family-v1', asset_type: 'stock',
+        status: 'unconfigured', dataset_code: 'market.inventory', data_kind: 'inventory_report',
+        frequency_semantics: 'reporting_period', frequencies: ['1d'], field_profile_id: 'inventory-v1',
+        required_fields: ['inventory_quantity'], optional_fields: [], dimension_fields: ['warehouse'],
+        coverage_model: 'report_completeness', source_policy_id: null, reason_code: 'DATA_FAMILY_UNCONFIGURED',
+      },
+      {
+        family_id: 'stock.option_surface', family_contract_version: 'market-data-family-v1', asset_type: 'stock',
+        status: 'unconfigured', dataset_code: 'market.option_surface', data_kind: 'option_risk_surface',
+        frequency_semantics: 'snapshot', frequencies: ['snapshot'], field_profile_id: 'option-surface-v1',
+        required_fields: ['implied_volatility'], optional_fields: [], dimension_fields: ['expiry', 'delta'],
+        coverage_model: 'slice_completeness', source_policy_id: null, reason_code: 'DATA_FAMILY_UNCONFIGURED',
+      },
+    ]
+    const bundle: MarketDataQueryBundle = {
+      version: 'market-data-family-bundle-v1',
+      requested_asset_type: 'stock',
+      families,
+    }
+
+    expect(hasMarketDataQueryBundle(bundle)).toBe(true)
+    expect(families.map((family) => family.data_kind)).toEqual([
+      'bars', 'quote_snapshot', 'valuation_snapshot', 'option_chain',
+      'position_report', 'reference_series', 'inventory_report', 'option_risk_surface',
+    ])
+    expect(families.map(marketDataFamilyObservationShape)).toEqual([
+      'single_record', 'single_record', 'single_record', 'dimensioned_records',
+      'dimensioned_records', 'single_record', 'dimensioned_records', 'dimensioned_records',
+    ])
+    expect(hasMarketDataQueryBundle({
+      ...bundle,
+      families: [{ ...families[3], coverage_model: 'snapshot_freshness' }],
+    })).toBe(false)
+    expect(hasMarketDataQueryBundle({
+      ...bundle,
+      families: [{ ...families[4], frequency_semantics: 'calendar_grid' }],
+    })).toBe(false)
+    for (const family of [families[2], families[3], families[4], families[6], families[7]]) {
+      expect(hasMarketDataQueryBundle({
+        ...bundle,
+        families: [{
+          ...family,
+          status: 'ready',
+          source_policy_id: 'market-default-v1',
+          reason_code: null,
+        }],
+      })).toBe(false)
+      expect(isMarketDataQueryBundleFamilyExecutable({
+        ...family,
+        status: 'ready',
+        source_policy_id: 'market-default-v1',
+        reason_code: null,
+      })).toBe(false)
+    }
   })
 
   it('posts only server-issued v2 request facts to the local-first endpoint', async () => {

@@ -46,6 +46,7 @@ _SOURCE_FILES = (
     ("backend_query_schema", "src/backend/app/schemas/market_data_platform.py"),
     ("backend_legacy_contract", "src/backend/app/services/market_data/legacy_contract.py"),
     ("frontend_market_page", "src/frontend/src/views/data/useDataPage.ts"),
+    ("frontend_market_data_api", "src/frontend/src/api/marketData.ts"),
 )
 _BASELINE_KEYS = frozenset(
     {
@@ -72,17 +73,27 @@ _MANIFEST_KEYS = frozenset(
         "manifest_sha256",
     }
 )
-_REQUIRED_FRONTEND_V2_MARKERS = (
+_REQUIRED_FRONTEND_PAGE_V2_MARKERS = (
     "function defaultFamilyId(",
     "`${assetType}.realtime`",
     "function isMarketPageSelectableFamily(",
     "function selectedMarketPageFamilyFromQueryBundle(",
-    "family.status === 'ready'",
-    "family.frequency_semantics === 'calendar_grid'",
-    "family.dimension_fields.length === 0",
-    "family.data_kind === 'bars' || family.data_kind === 'reference_series'",
+    "family.asset_type === assetType",
+    "isMarketDataQueryBundleFamilyExecutable(family)",
+    "function genericObservationResultFromV2Response(",
     "selectedFamilyId.value",
 )
+_REQUIRED_FRONTEND_API_V2_MARKERS = (
+    "function hasCoherentMarketDataQueryBundleFamilyShape(",
+    "export function isMarketDataQueryBundleFamilyExecutable(",
+    "family.status !== 'ready'",
+    "family.data_kind === 'bars'",
+    "family.data_kind === 'reference_series'",
+    "family.data_kind === 'quote_snapshot'",
+    "coverageModel === 'slice_completeness'",
+    "coverageModel === 'report_completeness'",
+)
+_MARKET_PAGE_EXECUTABLE_READY_DATA_KINDS = frozenset({"bars", "reference_series", "quote_snapshot"})
 
 
 class ScopeManifestError(ValueError):
@@ -230,6 +241,7 @@ def inspect_frontend_market_input_surface(project_root: Path) -> FrontendMarketI
     """Extract only stable current-page literals; syntax drift fails instead of guessing."""
     relative_path = "src/frontend/src/views/data/useDataPage.ts"
     source = _read_project_source(project_root, relative_path)
+    api_source = _read_project_source(project_root, "src/frontend/src/api/marketData.ts")
     asset_block = _const_block(
         source, "const assetTabs: AssetTab[] = [", "const assetDisplayConfigs:"
     )
@@ -249,7 +261,9 @@ def inspect_frontend_market_input_surface(project_root: Path) -> FrontendMarketI
         raise ScopeManifestError("SCOPE_MANIFEST_FRONTEND_SURFACE_UNREADABLE")
     if len(family_ids) != len(set(family_ids)):
         raise ScopeManifestError("SCOPE_MANIFEST_FRONTEND_FAMILY_DRIFT")
-    if any(marker not in source for marker in _REQUIRED_FRONTEND_V2_MARKERS):
+    if any(marker not in source for marker in _REQUIRED_FRONTEND_PAGE_V2_MARKERS) or any(
+        marker not in api_source for marker in _REQUIRED_FRONTEND_API_V2_MARKERS
+    ):
         raise ScopeManifestError("SCOPE_MANIFEST_FRONTEND_V2_RULE_UNREADABLE")
 
     return FrontendMarketInputSurface(
@@ -447,18 +461,17 @@ def _manifest_row(
     declared_compatibility_periods = [
         period for period in frontend.legacy_periods if legacy_period_mapping[period] in frequencies
     ]
-    # The market page defaults to ``asset.realtime``, but its reviewed selector
-    # can execute any explicitly selected, single-record calendar-grid family
-    # meeting this exact shape.  Keep the manifest aligned with that bounded
-    # selector rather than incorrectly presenting B1 families as unavailable.
+    # The market page defaults to ``asset.realtime``.  Its reviewed renderer
+    # can execute only the three single-record public DTO kinds proved by the
+    # frontend API allowlist.  The bundle can still describe B2 or private
+    # shapes as unconfigured/not_applicable, but this manifest must not claim
+    # that a forged or future ``ready`` status makes them selectable.
     is_market_page_selectable_family = (
         asset_type in frontend.asset_types
         and family_id in frontend.family_ids
         and family["status"] == "ready"
         and family["source_policy_id"] is not None
-        and family["frequency_semantics"] == "calendar_grid"
-        and not family["dimension_fields"]
-        and family["data_kind"] in {"bars", "reference_series"}
+        and family["data_kind"] in _MARKET_PAGE_EXECUTABLE_READY_DATA_KINDS
     )
     row_without_hash: dict[str, Any] = {
         "family_id": family_id,
@@ -483,6 +496,8 @@ def _manifest_row(
             "market_page_family_declared": family_id in frontend.family_ids,
             "legacy_page_period_inputs": list(frontend.legacy_periods),
             "declared_compatibility_periods": declared_compatibility_periods,
+            "v2_query_available": is_market_page_selectable_family,
+            "v2_query_frequencies": list(frequencies) if is_market_page_selectable_family else [],
             "v2_query_periods": (
                 declared_compatibility_periods if is_market_page_selectable_family else []
             ),
