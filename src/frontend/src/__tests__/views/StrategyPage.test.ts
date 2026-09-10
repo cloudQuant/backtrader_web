@@ -405,7 +405,12 @@ vi.mock('@/api/strategy', () => ({
           objective: payload.raw_prompt || '生成一个趋势策略',
           prompt_origin: payload.prompt_origin || 'explicit',
         },
-        asset_scope: { symbol: payload.symbol || '000001.SZ' },
+        asset_scope: {
+          symbol: payload.symbol || '000001.SZ',
+          ...(payload.market_data_asset_type
+            ? { market_data_asset_type: payload.market_data_asset_type }
+            : {}),
+        },
         timeframe: payload.timeframe || '1d',
         objective: payload.raw_prompt || '生成一个趋势策略',
         risk_constraints: payload.risk_constraints || {},
@@ -1534,6 +1539,7 @@ describe('StrategyPage', () => {
     })
     vm.aiResearchForm.symbol = 'RB0'
     vm.aiResearchForm.symbol_name = '螺纹钢主连'
+    vm.aiResearchForm.market_data_asset_type = 'fund'
     vm.aiResearchForm.target_sharpe = 1.3
     vm.aiResearchForm.min_total_trades = 12
 
@@ -1545,6 +1551,7 @@ describe('StrategyPage', () => {
       prompt: expect.stringContaining('请为 螺纹钢主连（RB0）'),
       research_config: expect.objectContaining({
         symbol: 'RB0',
+        market_data_asset_type: 'fund',
         target_sharpe: 1.3,
         min_total_trades: 12,
       }),
@@ -5556,6 +5563,7 @@ describe('StrategyPage', () => {
 
   it('uses AI research run history to refill the form', () => {
     const vm = doMount().vm as any
+    vm.aiResearchForm.market_data_asset_type = 'fund'
     vm.useAIResearchRecord({
       run_id: 'history-run',
       prompt: '历史趋势策略',
@@ -5627,6 +5635,7 @@ describe('StrategyPage', () => {
     })
     expect(vm.aiResearchForm.prompt).toBe('历史趋势策略')
     expect(vm.aiResearchForm.symbol).toBe('600000.SH')
+    expect(vm.aiResearchForm.market_data_asset_type).toBe('')
     expect(vm.aiResearchForm.start_date).toBe('2024-01-01')
     expect(vm.aiResearchForm.end_date).toBe('2024-12-31')
     expect(vm.aiResearchForm.initial_cash).toBe(250000)
@@ -5660,6 +5669,34 @@ describe('StrategyPage', () => {
     expect(vm.aiResearchForm.research_workspace_id).toBe('research-ws')
     expect(vm.aiResearchForm.seed_strategy_id).toBe('best-strategy')
     expect(vm.aiResearchForm.continue_from_run_id).toBe('history-run')
+  })
+
+  it('restores only a valid task-snapshot asset intent and uses it in the research prompt', () => {
+    const vm = doMount().vm as any
+    vm.aiResearchForm.market_data_asset_type = 'fund'
+
+    vm.applyAIResearchTaskSnapshotToForm({
+      request_snapshot: {
+        prompt: '债券任务',
+        symbol: 'CGB10Y',
+        timeframe: '1d',
+        data_config: { market_data_asset_type: 'bond' },
+      },
+    })
+
+    expect(vm.aiResearchForm.market_data_asset_type).toBe('bond')
+    expect(vm.aiResearchAssetConstraintLine()).toContain('债券资产')
+
+    vm.applyAIResearchTaskSnapshotToForm({
+      request_snapshot: {
+        prompt: '无效资产类型任务',
+        symbol: 'CGB10Y',
+        timeframe: '1d',
+        data_config: { market_data_asset_type: 'untrusted-type' },
+      },
+    })
+
+    expect(vm.aiResearchForm.market_data_asset_type).toBe('')
   })
 
   it('selects AI research history records into result and task progress panels', async () => {
@@ -8643,6 +8680,7 @@ describe('StrategyPage', () => {
       vm.aiResearchForm.end_date = '2024-12-31'
       vm.aiResearchForm.target_sharpe = 1.25
       vm.aiResearchForm.min_total_trades = 12
+      vm.aiResearchForm.market_data_asset_type = 'fund'
       await setConfirmedAIResearchMandate(wrapper)
       vi.mocked(strategyApi.runAIResearchLoop).mockClear()
 
@@ -8656,11 +8694,12 @@ describe('StrategyPage', () => {
       vm.aiResearchForm.end_date = '2025-01-31'
       vm.aiResearchForm.target_sharpe = 9
       vm.aiResearchForm.min_total_trades = 99
+      vm.aiResearchForm.market_data_asset_type = 'crypto'
       await running
 
       expect(strategyApi.runAIResearchLoop).toHaveBeenCalledWith(expect.objectContaining({
         symbol: '000001.SZ',
-        data_config: { market_data_asset_type: 'stock' },
+        data_config: { market_data_asset_type: 'fund' },
         timeframe: '1d',
         start_date: '2024-01-01',
         end_date: '2024-12-31',
@@ -8770,6 +8809,43 @@ describe('StrategyPage', () => {
       }))
       expect(strategyApi.runAIResearchLoop).not.toHaveBeenCalled()
       expect(vm.aiResearchMandateConfirmed).toBe(false)
+    } finally {
+      wrapper.unmount()
+    }
+  })
+
+  it('requires a fresh mandate after the confirmed market-data asset intent changes', async () => {
+    enableMarketDataBridge()
+    const { strategyApi } = await import('@/api/strategy')
+    const wrapper = doMount()
+    try {
+      const vm = wrapper.vm as any
+      await flushPromises()
+      vm.aiResearchForm.symbol = '510300.SH'
+      vm.aiResearchForm.prompt = '同一代码按不同资产类型研究时必须重新确认'
+      vm.aiResearchForm.timeframe = '1d'
+      vm.aiResearchForm.market_data_asset_type = 'stock'
+      await setConfirmedAIResearchMandate(wrapper)
+      expect(vm.aiResearchMandate.asset_scope.market_data_asset_type).toBe('stock')
+      vi.mocked(strategyApi.createAIResearchMandate).mockClear()
+      vi.mocked(strategyApi.runAIResearchLoop).mockClear()
+
+      vm.aiResearchForm.market_data_asset_type = 'fund'
+      await vm.runAIResearchLoop()
+
+      expect(strategyApi.createAIResearchMandate).toHaveBeenCalledWith(expect.objectContaining({
+        symbol: '510300.SH',
+        market_data_asset_type: 'fund',
+      }))
+      expect(strategyApi.runAIResearchLoop).not.toHaveBeenCalled()
+      expect(vm.aiResearchMandateConfirmed).toBe(false)
+
+      vm.confirmAIResearchMandate()
+      await vm.runAIResearchLoop()
+      expect(strategyApi.runAIResearchLoop).toHaveBeenCalledWith(expect.objectContaining({
+        mandate_id: 'test-mandate',
+        data_config: { market_data_asset_type: 'fund' },
+      }))
     } finally {
       wrapper.unmount()
     }
@@ -9033,6 +9109,62 @@ describe('StrategyPage', () => {
       expect(request?.data_config).not.toHaveProperty('query_id')
       expect(request?.data_config).not.toHaveProperty('receipt')
       expect(request?.data_config).not.toHaveProperty('artifact')
+    } finally {
+      wrapper.unmount()
+    }
+  })
+
+  it.each([
+    ['stock', '000001.SZ'],
+    ['futures', 'RB0'],
+    ['bond', 'CGB10Y'],
+    ['fund', '510300.SH'],
+    ['option', '510050C2409M02500'],
+    ['fx', 'USDCNY'],
+    ['crypto', 'BTCUSDT'],
+  ])('sends an explicit %s asset intent without guessing a different family', async (
+    assetType,
+    symbol,
+  ) => {
+    enableMarketDataBridge()
+    const wrapper = doMount()
+    try {
+      const vm = wrapper.vm as any
+      await flushPromises()
+      vm.aiResearchForm.symbol = symbol
+      vm.aiResearchForm.market_data_asset_type = assetType
+      vm.aiResearchForm.prompt = '显式资产类型桥接测试'
+      expect(wrapper.find('[data-test="ai-research-market-data-asset-type"]').exists()).toBe(true)
+      await setConfirmedAIResearchMandate(wrapper)
+      const { strategyApi } = await import('@/api/strategy')
+      vi.mocked(strategyApi.runAIResearchLoop).mockClear()
+
+      await vm.runAIResearchLoop()
+      const request = vi.mocked(strategyApi.runAIResearchLoop).mock.calls.at(-1)?.[0]
+
+      expect(request?.data_config).toEqual({ market_data_asset_type: assetType })
+    } finally {
+      wrapper.unmount()
+    }
+  })
+
+  it('uses the selected asset type for the legacy precheck', async () => {
+    enableMarketDataBridge()
+    const wrapper = doMount()
+    try {
+      const vm = wrapper.vm as any
+      await flushPromises()
+      runPrecheck.mockClear()
+      vm.aiResearchForm.symbol = 'CGB10Y'
+      vm.aiResearchForm.market_data_asset_type = 'bond'
+
+      await vm.runAIResearchDataPrecheck({ interactive: false })
+      await flushPromises()
+
+      expect(runPrecheck).toHaveBeenCalledWith(expect.objectContaining({
+        asset_type: 'bond',
+        symbol: 'CGB10Y',
+      }), expect.any(Object))
     } finally {
       wrapper.unmount()
     }

@@ -441,6 +441,22 @@
                   <el-form-item :label="t('strategy.aiResearchSymbolName')">
                     <el-input v-model="aiResearchForm.symbol_name" />
                   </el-form-item>
+                  <el-form-item label="数据资产类型">
+                    <el-select
+                      v-model="aiResearchForm.market_data_asset_type"
+                      clearable
+                      placeholder="自动识别"
+                      class="w-full"
+                      data-test="ai-research-market-data-asset-type"
+                    >
+                      <el-option
+                        v-for="option in aiResearchMarketDataAssetTypeOptions"
+                        :key="option.value"
+                        :label="option.label"
+                        :value="option.value"
+                      />
+                    </el-select>
+                  </el-form-item>
                   <el-form-item label="知识库 ID">
                     <el-input
                       v-model="aiResearchForm.knowledge_base_id"
@@ -3030,6 +3046,7 @@ const {
   LIVE_GATEWAY_CONFIG_PLACEHOLDER,
   form,
   aiResearchForm,
+  aiResearchMarketDataAssetTypeOptions,
   aiResearchHeroSteps,
   aiResearchHeroMetrics,
   aiResearchPrecheckTagType,

@@ -56,6 +56,7 @@ if str(BACKEND_ROOT) not in sys.path:
 
 from app.services.market_data.scope_manifest import (  # noqa: E402
     ScopeManifestError,
+    load_iter196_baseline,
     load_scope_manifest,
     validate_scope_manifest,
 )
@@ -103,15 +104,17 @@ ASSET_TYPES = frozenset({"stock", "futures", "bond", "fund", "option", "fx", "cr
 _CASE_ID_RE = re.compile(r"^AC-(?:0[1-9]|[1-4][0-9])$")
 _FORMAL_CASE_ID_RE = re.compile(r"^AC-197-MATRIX-(?:00[1-9]|0[1-4][0-9])$")
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+_GIT_OBJECT_ID_RE = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")
 _APPROVAL_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{2,127}$")
 _IDENTIFIER_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$")
 _MAX_MANIFEST_BYTES = 1_048_576
 _SENSITIVE_PATH_PART_RE = re.compile(r"(?:^|[._-])(env|secret|credential|token|password|private|key)(?:$|[._-])", re.I)
 
-# This is the only migration head that includes both the frozen Iteration 196
-# authority chain and the Iteration 197 governed-data/binding chain.  A sole,
-# arbitrary older head is not acceptable evidence.
-EXPECTED_ALEMBIC_HEAD = "20260910_market_data_shared_source_payloads"
+# The candidate is sealed to this exact single migration tip. The mandatory
+# ancestry below gives an actionable failure when a checkout has an incomplete
+# or forked chain, while the exact tip prevents an unreviewed successor from
+# being counted as Iteration 197 acceptance evidence.
+EXPECTED_ALEMBIC_HEAD = "20260910_market_data_capability_ledger"
 REQUIRED_ALEMBIC_REVISIONS = frozenset(
     {
         "20260908_ai_research_approval_authority",
@@ -123,12 +126,39 @@ REQUIRED_ALEMBIC_REVISIONS = frozenset(
         "20260909_market_data_research_bindings",
         "20260909_market_data_research_binding_consumers",
         "20260910_market_data_shared_source_payloads",
+        "20260910_market_data_capability_ledger",
     }
 )
 
 DEFAULT_SCOPE_MANIFEST_RELATIVE = Path(
     "docs/iterations/迭代197-本地优先市场数据中台/"
     "iteration197-market-data-scope-manifest-20260909.json"
+)
+DEFAULT_ITER196_BASELINE_RELATIVE = Path(
+    "docs/iterations/迭代197-本地优先市场数据中台/"
+    "iter196-market-data-baseline-20260909.json"
+)
+# The Iteration 196 freeze receipt names this merge as the immutable boundary
+# that Iteration 197 is allowed to inherit.  Its second parent must therefore
+# be the baseline implementation candidate exactly, never merely an ancestor.
+ITER196_FREEZE_MERGE_COMMIT = "fec74728ad4469ae6481b134323a6dd7d1401d32"
+ITER196_IMPLEMENTATION_CANDIDATE_COMMIT = "3ebe7717a0bfe7ebf1cde2dfc501d6842034c253"
+ITER196_ORIGINAL_RECORDED_CANDIDATE_COMMIT = "3ebe7717f6f901932591f59e6f1bb8244827b493"
+ITER196_ORIGINAL_FREEZE_RECEIPT_RELATIVE = Path(
+    "docs/iterations/迭代196-改进优化ai生成策略流程/CANDIDATE_FREEZE_20260909.md"
+)
+ITER196_ORIGINAL_FREEZE_RECEIPT_SHA256 = (
+    "f47d8ff435a36f53a43049a209c0b614f4bde59f8c50e2dd76d56385e42646d1"
+)
+ITER196_CORRECTION_RECEIPT_RELATIVE = Path(
+    "docs/iterations/迭代196-改进优化ai生成策略流程/CANDIDATE_FREEZE_CORRECTION_20260910.md"
+)
+_ITER196_CORRECTION_REQUIRED_TOKENS = (
+    ITER196_ORIGINAL_RECORDED_CANDIDATE_COMMIT,
+    ITER196_IMPLEMENTATION_CANDIDATE_COMMIT,
+    ITER196_FREEZE_MERGE_COMMIT,
+    ITER196_ORIGINAL_FREEZE_RECEIPT_SHA256,
+    f"| 合并提交第二父 | 未单列 | `{ITER196_IMPLEMENTATION_CANDIDATE_COMMIT}` |",
 )
 
 # Every offline target is an exact pytest node and explicitly assigned to the
@@ -364,6 +394,37 @@ class AlembicEvidence:
             "expected_head": self.expected_head,
             "missing_required_revisions": list(self.missing_revisions),
         }
+
+
+@dataclass(frozen=True, slots=True)
+class Iter196BaselineEvidence:
+    """Read-only proof that the frozen Iteration 196 input is internally sound."""
+
+    valid: bool
+    code: str
+    baseline_ref: str | None = None
+    artifact_ref: str | None = None
+    artifact_sha256: str | None = None
+    original_receipt_sha256: str | None = None
+    merge_second_parent: str | None = None
+
+    def as_dict(self) -> dict[str, object]:
+        payload: dict[str, object] = {
+            "valid": self.valid,
+            "code": self.code,
+            "expected_merge_commit": ITER196_FREEZE_MERGE_COMMIT,
+        }
+        if self.baseline_ref is not None:
+            payload["baseline_ref"] = self.baseline_ref
+        if self.artifact_ref is not None:
+            payload["artifact_ref"] = self.artifact_ref
+        if self.artifact_sha256 is not None:
+            payload["artifact_sha256"] = self.artifact_sha256
+        if self.original_receipt_sha256 is not None:
+            payload["original_receipt_sha256"] = self.original_receipt_sha256
+        if self.merge_second_parent is not None:
+            payload["merge_second_parent"] = self.merge_second_parent
+        return payload
 
 
 @dataclass(frozen=True, slots=True)
@@ -727,8 +788,172 @@ def _collect_scope_evidence(project_root: Path, manifest_path: Path) -> ScopeEvi
         return ScopeEvidence(valid=False, code="SCOPE_MANIFEST_VALIDATION_FAILED")
 
 
+def _safe_git_artifact_ref(value: str) -> str | None:
+    """Return one canonical repository-relative artifact path or ``None``."""
+    if not value or "\\" in value or "\x00" in value or ":" in value:
+        return None
+    path = PurePosixPath(value)
+    if (
+        path.is_absolute()
+        or not path.parts
+        or any(part in {"", ".", ".."} for part in path.parts)
+        or path.as_posix() != value
+    ):
+        return None
+    return path.as_posix()
+
+
+def _read_regular_file_bytes(path: Path) -> bytes | None:
+    """Read one non-symlink checkout file without following a replacement link."""
+    try:
+        if not path.is_file() or path.is_symlink():
+            return None
+        return path.read_bytes()
+    except OSError:
+        return None
+
+
+def _resolve_git_commit(project_root: Path, ref: str) -> str | None:
+    """Resolve one already validated Git object reference to its commit identity."""
+    completed = _git_command(project_root, ("rev-parse", "--verify", f"{ref}^{{commit}}"))
+    if completed is None or completed.returncode != 0:
+        return None
+    resolved = completed.stdout.decode("ascii", errors="ignore").strip()
+    return resolved if _GIT_OBJECT_ID_RE.fullmatch(resolved) else None
+
+
+def _collect_iter196_baseline_evidence(project_root: Path) -> Iter196BaselineEvidence:
+    """Fail closed unless the checked-in Iteration 196 baseline has an exact Git chain."""
+    baseline_path = project_root / DEFAULT_ITER196_BASELINE_RELATIVE
+    try:
+        baseline = load_iter196_baseline(baseline_path)
+    except ScopeManifestError as exc:
+        return Iter196BaselineEvidence(valid=False, code=exc.code)
+
+    artifact_ref = _safe_git_artifact_ref(baseline.artifact_ref)
+    if artifact_ref is None:
+        return Iter196BaselineEvidence(
+            valid=False,
+            code="ITER196_BASELINE_ARTIFACT_REF_INVALID",
+            baseline_ref=baseline.baseline_ref,
+        )
+    if artifact_ref != ITER196_CORRECTION_RECEIPT_RELATIVE.as_posix():
+        return Iter196BaselineEvidence(
+            valid=False,
+            code="ITER196_BASELINE_ARTIFACT_REF_UNEXPECTED",
+            baseline_ref=baseline.baseline_ref,
+            artifact_ref=artifact_ref,
+        )
+
+    if _resolve_git_commit(project_root, baseline.baseline_ref) is None:
+        return Iter196BaselineEvidence(
+            valid=False,
+            code="ITER196_BASELINE_REF_UNRESOLVABLE",
+            baseline_ref=baseline.baseline_ref,
+            artifact_ref=artifact_ref,
+        )
+
+    merge_commit = _resolve_git_commit(project_root, ITER196_FREEZE_MERGE_COMMIT)
+    if merge_commit is None:
+        return Iter196BaselineEvidence(
+            valid=False,
+            code="ITER196_BASELINE_MERGE_UNRESOLVABLE",
+            baseline_ref=baseline.baseline_ref,
+            artifact_ref=artifact_ref,
+        )
+    merge_parents = _git_command(project_root, ("show", "-s", "--format=%P", merge_commit))
+    parents = (
+        tuple(merge_parents.stdout.decode("ascii", errors="ignore").split())
+        if merge_parents is not None and merge_parents.returncode == 0
+        else ()
+    )
+    if len(parents) < 2 or not all(_GIT_OBJECT_ID_RE.fullmatch(parent) for parent in parents):
+        return Iter196BaselineEvidence(
+            valid=False,
+            code="ITER196_BASELINE_MERGE_SECOND_PARENT_MISSING",
+            baseline_ref=baseline.baseline_ref,
+            artifact_ref=artifact_ref,
+        )
+    second_parent = parents[1]
+    if second_parent != baseline.baseline_ref:
+        return Iter196BaselineEvidence(
+            valid=False,
+            code="ITER196_BASELINE_MERGE_SECOND_PARENT_MISMATCH",
+            baseline_ref=baseline.baseline_ref,
+            artifact_ref=artifact_ref,
+            merge_second_parent=second_parent,
+        )
+
+    original_receipt = _read_regular_file_bytes(
+        project_root / ITER196_ORIGINAL_FREEZE_RECEIPT_RELATIVE
+    )
+    if original_receipt is None:
+        return Iter196BaselineEvidence(
+            valid=False,
+            code="ITER196_BASELINE_ORIGINAL_RECEIPT_UNAVAILABLE",
+            baseline_ref=baseline.baseline_ref,
+            artifact_ref=artifact_ref,
+            merge_second_parent=second_parent,
+        )
+    original_receipt_sha256 = _sha256(original_receipt)
+    if original_receipt_sha256 != ITER196_ORIGINAL_FREEZE_RECEIPT_SHA256:
+        return Iter196BaselineEvidence(
+            valid=False,
+            code="ITER196_BASELINE_ORIGINAL_RECEIPT_SHA256_MISMATCH",
+            baseline_ref=baseline.baseline_ref,
+            artifact_ref=artifact_ref,
+            original_receipt_sha256=original_receipt_sha256,
+            merge_second_parent=second_parent,
+        )
+
+    correction_receipt = _read_regular_file_bytes(project_root / artifact_ref)
+    if correction_receipt is None:
+        return Iter196BaselineEvidence(
+            valid=False,
+            code="ITER196_BASELINE_CORRECTION_RECEIPT_UNAVAILABLE",
+            baseline_ref=baseline.baseline_ref,
+            artifact_ref=artifact_ref,
+            original_receipt_sha256=original_receipt_sha256,
+            merge_second_parent=second_parent,
+        )
+    artifact_sha256 = _sha256(correction_receipt)
+    if artifact_sha256 != baseline.baseline_sha256:
+        return Iter196BaselineEvidence(
+            valid=False,
+            code="ITER196_BASELINE_ARTIFACT_SHA256_MISMATCH",
+            baseline_ref=baseline.baseline_ref,
+            artifact_ref=artifact_ref,
+            artifact_sha256=artifact_sha256,
+            original_receipt_sha256=original_receipt_sha256,
+            merge_second_parent=second_parent,
+        )
+    try:
+        correction_text = correction_receipt.decode("utf-8")
+    except UnicodeDecodeError:
+        correction_text = ""
+    if not all(token in correction_text for token in _ITER196_CORRECTION_REQUIRED_TOKENS):
+        return Iter196BaselineEvidence(
+            valid=False,
+            code="ITER196_BASELINE_CORRECTION_RECEIPT_RELATION_INVALID",
+            baseline_ref=baseline.baseline_ref,
+            artifact_ref=artifact_ref,
+            artifact_sha256=artifact_sha256,
+            original_receipt_sha256=original_receipt_sha256,
+            merge_second_parent=second_parent,
+        )
+    return Iter196BaselineEvidence(
+        valid=True,
+        code="ITER196_BASELINE_PROVENANCE_VALID",
+        baseline_ref=baseline.baseline_ref,
+        artifact_ref=artifact_ref,
+        artifact_sha256=artifact_sha256,
+        original_receipt_sha256=original_receipt_sha256,
+        merge_second_parent=second_parent,
+    )
+
+
 def _collect_alembic_evidence(backend_root: Path) -> AlembicEvidence:
-    """Inspect the exact required migration ancestry without connecting to a database."""
+    """Inspect the sealed migration tip and required ancestry without connecting to a database."""
     try:
         config = Config(str(backend_root / "alembic.ini"))
         config.set_main_option("script_location", str(backend_root / "alembic"))
@@ -739,9 +964,16 @@ def _collect_alembic_evidence(backend_root: Path) -> AlembicEvidence:
     if heads != (EXPECTED_ALEMBIC_HEAD,):
         return AlembicEvidence(valid=False, code="ALEMBIC_HEAD_UNEXPECTED", heads=heads)
     try:
-        ancestry = {revision.revision for revision in script.iterate_revisions(EXPECTED_ALEMBIC_HEAD, "base")}
+        ancestry = {
+            revision.revision
+            for revision in script.iterate_revisions(EXPECTED_ALEMBIC_HEAD, "base")
+        }
     except Exception:
-        return AlembicEvidence(valid=False, code="ALEMBIC_ANCESTRY_INSPECTION_FAILED", heads=heads)
+        return AlembicEvidence(
+            valid=False,
+            code="ALEMBIC_ANCESTRY_INSPECTION_FAILED",
+            heads=heads,
+        )
     missing = tuple(sorted(REQUIRED_ALEMBIC_REVISIONS - ancestry))
     if missing:
         return AlembicEvidence(
@@ -750,7 +982,11 @@ def _collect_alembic_evidence(backend_root: Path) -> AlembicEvidence:
             heads=heads,
             missing_revisions=missing,
         )
-    return AlembicEvidence(valid=True, code="ALEMBIC_HEAD_AND_ANCESTRY_VALID", heads=heads)
+    return AlembicEvidence(
+        valid=True,
+        code="ALEMBIC_HEAD_AND_ANCESTRY_VALID",
+        heads=heads,
+    )
 
 
 def _safe_json_file(path_value: str | None) -> tuple[dict[str, Any] | None, str | None, str]:
@@ -1564,6 +1800,7 @@ def _build_result(
     candidate_evidence: CandidateEvidence,
     selection_errors: Sequence[str],
     cases: Sequence[Mapping[str, object]],
+    iter196_baseline_evidence: Iter196BaselineEvidence | None = None,
 ) -> dict[str, object]:
     exit_code = _summarize_exit(cases, selection_errors)
     payload: dict[str, object] = {
@@ -1592,6 +1829,8 @@ def _build_result(
         payload["scope_manifest"] = scope_evidence.as_dict()
     if alembic_evidence is not None:
         payload["alembic"] = alembic_evidence.as_dict()
+    if iter196_baseline_evidence is not None:
+        payload["iter196_baseline"] = iter196_baseline_evidence.as_dict()
     if external_gate is not None:
         payload["external_gate"] = external_gate.as_dict()
     if external_source_evidence is not None:
@@ -1765,6 +2004,32 @@ def run_acceptance(
             cases=cases,
         )
 
+    # The immutable 196/197 boundary is G0 provenance.  It runs after the
+    # candidate ownership check but before manifest inspection or any child
+    # test so stale or self-contradictory freeze metadata cannot mint evidence.
+    iter196_baseline_evidence = _collect_iter196_baseline_evidence(project_root)
+    if not iter196_baseline_evidence.valid:
+        cases = _static_case_results(
+            slices=selected_slices,
+            status=STATUS_FAIL,
+            code=iter196_baseline_evidence.code,
+        )
+        return _build_result(
+            mode=mode,
+            dry_run=False,
+            requested_case_ids=requested_case_ids,
+            requested_unknown_case_ids=unknown_case_ids,
+            asset_types=reporting_assets,
+            scope_evidence=None,
+            alembic_evidence=None,
+            external_gate=external_gate if mode != MODE_OFFLINE else None,
+            external_source_evidence=None,
+            candidate_evidence=candidate_evidence,
+            selection_errors=(),
+            cases=cases,
+            iter196_baseline_evidence=iter196_baseline_evidence,
+        )
+
     scope_evidence = _collect_scope_evidence(project_root, manifest_path)
     alembic_evidence = _collect_alembic_evidence(backend_root)
     if not scope_evidence.valid:
@@ -1782,6 +2047,7 @@ def run_acceptance(
             candidate_evidence=candidate_evidence,
             selection_errors=(),
             cases=cases,
+            iter196_baseline_evidence=iter196_baseline_evidence,
         )
     if not alembic_evidence.valid:
         cases = _static_case_results(slices=selected_slices, status=STATUS_FAIL, code=alembic_evidence.code)
@@ -1798,6 +2064,7 @@ def run_acceptance(
             candidate_evidence=candidate_evidence,
             selection_errors=(),
             cases=cases,
+            iter196_baseline_evidence=iter196_baseline_evidence,
         )
 
     external_source_evidence: dict[str, object] | None = None
@@ -1828,6 +2095,7 @@ def run_acceptance(
                 candidate_evidence=candidate_evidence,
                 selection_errors=(),
                 cases=cases,
+                iter196_baseline_evidence=iter196_baseline_evidence,
             )
 
     if mode == MODE_OFFLINE:
@@ -1863,6 +2131,7 @@ def run_acceptance(
         candidate_evidence=candidate_evidence,
         selection_errors=(),
         cases=cases,
+        iter196_baseline_evidence=iter196_baseline_evidence,
     )
 
 

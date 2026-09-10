@@ -1,4 +1,4 @@
-> 2026-09-09 Git 候选冻结：实现候选 `3ebe7717f6f901932591f59e6f1bb8244827b493` 已作为 `fec74728ad4469ae6481b134323a6dd7d1401d32` 合并到 `dev` 并推送。仓库 provenance / implementation-candidate seal 为 `PASS`；这只替代此前“工作树未提交”的 Git 身份阻断，不改变真实 Provider、独立 Evaluator、对象存储/IAM、跨进程竞争、三数据库在线升级、Node 20、T2/T3 与生产隔离等 `NO-GO` 边界。完整收据见 [2026-09-09 Git 候选冻结收据](CANDIDATE_FREEZE_20260909.md)。
+> 2026-09-10 Git 候选冻结更正：实现候选 `3ebe7717a0bfe7ebf1cde2dfc501d6842034c253` 是 `fec74728ad4469ae6481b134323a6dd7d1401d32` 的第二父；原收据中的完整 SHA 是不可解析的笔误，原文保持不变。仓库 provenance / implementation-candidate seal 为 `PASS`；这只替代此前“工作树未提交”的 Git 身份阻断，不改变真实 Provider、独立 Evaluator、对象存储/IAM、跨进程竞争、三数据库在线升级、Node 20、T2/T3 与生产隔离等 `NO-GO` 边界。完整更正见 [2026-09-10 Git 候选冻结收据更正](CANDIDATE_FREEZE_CORRECTION_20260910.md)。
 
 # 迭代 196 实施与验收状态
 

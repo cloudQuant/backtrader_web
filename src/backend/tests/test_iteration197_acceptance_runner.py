@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 
 import pytest
@@ -86,10 +86,23 @@ def _candidate_evidence(*, valid: bool, code: str) -> runner.CandidateEvidence:
     )
 
 
+def _iter196_baseline_evidence(*, valid: bool, code: str) -> runner.Iter196BaselineEvidence:
+    return runner.Iter196BaselineEvidence(
+        valid=valid,
+        code=code,
+        baseline_ref="a" * 40,
+        artifact_ref="docs/freeze.md",
+        artifact_sha256="b" * 64,
+        merge_second_parent="a" * 40,
+    )
+
+
 def _allow_clean_candidate(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Decouple execution-contract tests from intentional worktree changes."""
+    """Decouple execution-contract tests from checkout-specific G0 state."""
     evidence = _candidate_evidence(valid=True, code="CANDIDATE_CLEAN_OR_ALLOWLISTED")
     monkeypatch.setattr(runner, "_collect_candidate_evidence", lambda **_: evidence)
+    baseline = _iter196_baseline_evidence(valid=True, code="ITER196_BASELINE_PROVENANCE_VALID")
+    monkeypatch.setattr(runner, "_collect_iter196_baseline_evidence", lambda _: baseline)
 
 
 def _junit_path(command: Sequence[object]) -> Path:
@@ -185,6 +198,248 @@ def test_each_executable_mode_maps_only_to_a_formal_required_gate() -> None:
     """The matrix driver must not invent a recovery/performance gate for an AC."""
     for case in runner._CASES:
         assert {runner.GATE_BY_MODE[mode] for mode in case.modes} == case.required_gates
+
+
+def test_alembic_evidence_uses_the_sealed_iteration197_checkout_tip() -> None:
+    """The candidate runner accepts only its reviewed migration tip."""
+    evidence = runner._collect_alembic_evidence(PROJECT_ROOT / "src/backend")
+
+    assert evidence.valid is True
+    assert evidence.code == "ALEMBIC_HEAD_AND_ANCESTRY_VALID"
+    assert evidence.heads == (runner.EXPECTED_ALEMBIC_HEAD,)
+    assert evidence.expected_head == runner.EXPECTED_ALEMBIC_HEAD
+    assert evidence.missing_revisions == ()
+
+
+def test_alembic_evidence_rejects_an_unreviewed_successor_tip(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A successor needs a new sealed candidate rather than silently passing this one."""
+    successor_head = "20260999_reviewed_successor"
+
+    class _SuccessorGraph:
+        def get_heads(self) -> tuple[str, ...]:
+            return (successor_head,)
+
+    monkeypatch.setattr(runner.ScriptDirectory, "from_config", lambda _: _SuccessorGraph())
+
+    evidence = runner._collect_alembic_evidence(PROJECT_ROOT / "src/backend")
+
+    assert evidence.valid is False
+    assert evidence.code == "ALEMBIC_HEAD_UNEXPECTED"
+    assert evidence.heads == (successor_head,)
+    assert evidence.expected_head == runner.EXPECTED_ALEMBIC_HEAD
+
+
+def _current_original_receipt_bytes() -> bytes:
+    """Read the immutable original receipt used by the real provenance contract."""
+    value = (PROJECT_ROOT / runner.ITER196_ORIGINAL_FREEZE_RECEIPT_RELATIVE).read_bytes()
+    assert runner._sha256(value) == runner.ITER196_ORIGINAL_FREEZE_RECEIPT_SHA256
+    return value
+
+
+def _current_correction_receipt_bytes() -> bytes:
+    """Read the checked-in append-only correction receipt used by the real contract."""
+    return (PROJECT_ROOT / runner.ITER196_CORRECTION_RECEIPT_RELATIVE).read_bytes()
+
+
+def _write_iter196_baseline(
+    project_root: Path,
+    *,
+    baseline_ref: str,
+    correction_bytes: bytes,
+    artifact_ref: str | None = None,
+    original_bytes: bytes | None = None,
+) -> str:
+    """Write a complete receipt chain for isolated Git-provenance tests."""
+    resolved_artifact_ref = (
+        runner.ITER196_CORRECTION_RECEIPT_RELATIVE.as_posix()
+        if artifact_ref is None
+        else artifact_ref
+    )
+    original_path = project_root / runner.ITER196_ORIGINAL_FREEZE_RECEIPT_RELATIVE
+    original_path.parent.mkdir(parents=True, exist_ok=True)
+    original_path.write_bytes(
+        _current_original_receipt_bytes() if original_bytes is None else original_bytes
+    )
+    correction_path = project_root / resolved_artifact_ref
+    correction_path.parent.mkdir(parents=True, exist_ok=True)
+    correction_path.write_bytes(correction_bytes)
+    baseline_path = project_root / runner.DEFAULT_ITER196_BASELINE_RELATIVE
+    baseline_path.parent.mkdir(parents=True, exist_ok=True)
+    baseline_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "iter196-market-data-baseline-v1",
+                "iteration": 196,
+                "status": "frozen",
+                "baseline_ref": baseline_ref,
+                "baseline_sha256": runner._sha256(correction_bytes),
+                "artifact_ref": resolved_artifact_ref,
+                "frozen_at": "2026-09-09T00:34:46Z",
+            }
+        ),
+        encoding="utf-8",
+    )
+    return resolved_artifact_ref
+
+
+def _iter196_git_command(
+    project_root: Path,
+    *,
+    baseline_ref: str,
+    second_parent: str | None = None,
+) -> Callable[[Path, Sequence[str]], subprocess.CompletedProcess[bytes]]:
+    """Return deterministic Git facts for one isolated Iteration 196 chain."""
+    expected_second_parent = baseline_ref if second_parent is None else second_parent
+
+    def git_command(root: Path, arguments: Sequence[str]) -> subprocess.CompletedProcess[bytes]:
+        assert root == project_root
+        if arguments == ("rev-parse", "--verify", f"{baseline_ref}^{{commit}}"):
+            return subprocess.CompletedProcess([], 0, stdout=f"{baseline_ref}\n".encode(), stderr=b"")
+        if arguments == (
+            "rev-parse",
+            "--verify",
+            f"{runner.ITER196_FREEZE_MERGE_COMMIT}^{{commit}}",
+        ):
+            return subprocess.CompletedProcess(
+                [], 0, stdout=f"{runner.ITER196_FREEZE_MERGE_COMMIT}\n".encode(), stderr=b""
+            )
+        if arguments == ("show", "-s", "--format=%P", runner.ITER196_FREEZE_MERGE_COMMIT):
+            return subprocess.CompletedProcess(
+                [],
+                0,
+                stdout=f"{'b' * 40} {expected_second_parent}\n".encode(),
+                stderr=b"",
+            )
+        pytest.fail(f"unexpected Git command: {arguments!r}")
+
+    return git_command
+
+
+def test_iter196_baseline_provenance_requires_the_fixed_append_only_receipt_chain(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A valid G0 baseline binds the original receipt and its specific correction."""
+    baseline_ref = runner.ITER196_IMPLEMENTATION_CANDIDATE_COMMIT
+    artifact_bytes = _current_correction_receipt_bytes()
+    artifact_ref = _write_iter196_baseline(
+        tmp_path,
+        baseline_ref=baseline_ref,
+        correction_bytes=artifact_bytes,
+    )
+    monkeypatch.setattr(
+        runner,
+        "_git_command",
+        _iter196_git_command(tmp_path, baseline_ref=baseline_ref),
+    )
+
+    evidence = runner._collect_iter196_baseline_evidence(tmp_path)
+
+    assert evidence.valid is True
+    assert evidence.code == "ITER196_BASELINE_PROVENANCE_VALID"
+    assert evidence.baseline_ref == baseline_ref
+    assert evidence.artifact_ref == artifact_ref
+    assert evidence.artifact_sha256 == runner._sha256(artifact_bytes)
+    assert evidence.original_receipt_sha256 == runner.ITER196_ORIGINAL_FREEZE_RECEIPT_SHA256
+    assert evidence.merge_second_parent == baseline_ref
+
+
+def test_iter196_baseline_provenance_rejects_an_unexpected_correction_reference(
+    tmp_path: Path,
+) -> None:
+    """A matching hash on an arbitrary replacement receipt cannot authorize G0."""
+    artifact_ref = _write_iter196_baseline(
+        tmp_path,
+        baseline_ref=runner.ITER196_IMPLEMENTATION_CANDIDATE_COMMIT,
+        correction_bytes=_current_correction_receipt_bytes(),
+        artifact_ref="docs/iteration196/replacement.md",
+    )
+
+    evidence = runner._collect_iter196_baseline_evidence(tmp_path)
+
+    assert evidence.valid is False
+    assert evidence.code == "ITER196_BASELINE_ARTIFACT_REF_UNEXPECTED"
+    assert evidence.artifact_ref == artifact_ref
+
+
+def test_iter196_baseline_provenance_rejects_a_changed_original_receipt(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The correction cannot rewrite the immutable contents of the original receipt."""
+    baseline_ref = runner.ITER196_IMPLEMENTATION_CANDIDATE_COMMIT
+    _write_iter196_baseline(
+        tmp_path,
+        baseline_ref=baseline_ref,
+        correction_bytes=_current_correction_receipt_bytes(),
+        original_bytes=b"modified original receipt\n",
+    )
+    monkeypatch.setattr(
+        runner,
+        "_git_command",
+        _iter196_git_command(tmp_path, baseline_ref=baseline_ref),
+    )
+
+    evidence = runner._collect_iter196_baseline_evidence(tmp_path)
+
+    assert evidence.valid is False
+    assert evidence.code == "ITER196_BASELINE_ORIGINAL_RECEIPT_SHA256_MISMATCH"
+    assert evidence.original_receipt_sha256 == runner._sha256(b"modified original receipt\n")
+
+
+def test_iter196_baseline_provenance_rejects_a_correction_without_the_second_parent_relation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The correction hash alone is insufficient without its explicit historical relation."""
+    baseline_ref = runner.ITER196_IMPLEMENTATION_CANDIDATE_COMMIT
+    _write_iter196_baseline(
+        tmp_path,
+        baseline_ref=baseline_ref,
+        correction_bytes=b"append-only receipt without required relationship\n",
+    )
+    monkeypatch.setattr(
+        runner,
+        "_git_command",
+        _iter196_git_command(tmp_path, baseline_ref=baseline_ref),
+    )
+
+    evidence = runner._collect_iter196_baseline_evidence(tmp_path)
+
+    assert evidence.valid is False
+    assert evidence.code == "ITER196_BASELINE_CORRECTION_RECEIPT_RELATION_INVALID"
+
+
+def test_iter196_baseline_provenance_rejects_a_different_merge_second_parent(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A reachable receipt cannot substitute for the exact frozen implementation candidate."""
+    baseline_ref = runner.ITER196_IMPLEMENTATION_CANDIDATE_COMMIT
+    other_parent = "c" * 40
+    _write_iter196_baseline(
+        tmp_path,
+        baseline_ref=baseline_ref,
+        correction_bytes=_current_correction_receipt_bytes(),
+    )
+    monkeypatch.setattr(
+        runner,
+        "_git_command",
+        _iter196_git_command(
+            tmp_path,
+            baseline_ref=baseline_ref,
+            second_parent=other_parent,
+        ),
+    )
+
+    evidence = runner._collect_iter196_baseline_evidence(tmp_path)
+
+    assert evidence.valid is False
+    assert evidence.code == "ITER196_BASELINE_MERGE_SECOND_PARENT_MISMATCH"
+    assert evidence.baseline_ref == baseline_ref
+    assert evidence.merge_second_parent == other_parent
 
 
 def test_recovery_is_incompatible_for_a_formal_g2_only_case(tmp_path: Path) -> None:
@@ -757,6 +1012,35 @@ def test_scope_drift_is_a_fail_not_a_provider_fallback(
         "SCOPE_MANIFEST_INVALID",
         "SCOPE_MANIFEST_VALIDATION_FAILED",
     }
+
+
+def test_invalid_iter196_baseline_stops_before_scope_or_child_command(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """G0 provenance is a fail-closed prerequisite for every non-dry local slice."""
+    _allow_clean_candidate(monkeypatch)
+    rejected = _iter196_baseline_evidence(
+        valid=False,
+        code="ITER196_BASELINE_REF_UNRESOLVABLE",
+    )
+    monkeypatch.setattr(runner, "_collect_iter196_baseline_evidence", lambda _: rejected)
+    monkeypatch.setattr(
+        runner,
+        "_collect_scope_evidence",
+        lambda *_: pytest.fail("G0 failure must precede scope validation"),
+    )
+
+    result = runner.run_acceptance(
+        _args(tmp_path, mode="offline", cases=["AC-01"], asset_types=["stock"]),
+        command_runner=lambda *args, **kwargs: pytest.fail("G0 failure must precede pytest"),
+    )
+
+    assert result["exit_code"] == runner.EXIT_FAIL
+    assert result["iter196_baseline"] == rejected.as_dict()
+    assert "scope_manifest" not in result
+    assert result["cases"][0]["status"] == "FAIL"
+    assert result["cases"][0]["code"] == "ITER196_BASELINE_REF_UNRESOLVABLE"
 
 
 def test_main_writes_result_json_and_keeps_missing_live_configuration_non_sensitive(

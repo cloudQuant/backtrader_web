@@ -106,15 +106,15 @@
     }
   },
   "iter196_baseline": {
-    "artifact_ref": "docs/iterations/迭代196-改进优化ai生成策略流程/CANDIDATE_FREEZE_20260909.md",
-    "baseline_ref": "3ebe7717f6f901932591f59e6f1bb8244827b493",
-    "baseline_sha256": "f47d8ff435a36f53a43049a209c0b614f4bde59f8c50e2dd76d56385e42646d1",
+    "artifact_ref": "docs/iterations/迭代196-改进优化ai生成策略流程/CANDIDATE_FREEZE_CORRECTION_20260910.md",
+    "baseline_ref": "3ebe7717a0bfe7ebf1cde2dfc501d6842034c253",
+    "baseline_sha256": "a02197ce712fdd43e7f85aeb88420865ab161d83d29b85e80959305e4af27f39",
     "frozen_at": "2026-09-09T00:34:46Z",
     "iteration": 196,
     "schema_version": "iter196-market-data-baseline-v1",
     "status": "frozen"
   },
-  "manifest_sha256": "e06de85ea5a48a265c7737cba9ec1ebdd1b583b45699ec3e9873fca1bf2b1265",
+  "manifest_sha256": "2950d1ac6f05d3a468060d07d4b2289363f21413d026e20ef844f9c8018961df",
   "rows": [
     {
       "api": {
@@ -1353,17 +1353,17 @@
     {
       "path": "src/backend/app/services/market_data/dataset_contracts.py",
       "role": "backend_contract_registry",
-      "sha256": "72d5672936306f86a2a893861d77bf8ec0926a2ad5afdb60c9fb4dd2d21fa1f1"
+      "sha256": "033e11413947f7c1cf4618edd83a503caf503604597eb50e4bcc5abfefaed274"
     },
     {
       "path": "src/backend/app/schemas/market_data_platform.py",
       "role": "backend_query_schema",
-      "sha256": "1ba72ce5b87f0aa03c4e80520ccc97ddaa3eef252bb3052f01daaddebe2e3fd5"
+      "sha256": "5ef930b8801ba6446b2375fb963de0a6d0c64f5577b2b3a4695db25247a8674e"
     },
     {
       "path": "src/backend/app/services/market_data/legacy_contract.py",
       "role": "backend_legacy_contract",
-      "sha256": "9a51f491128ff73b4fd35594dc34a0f2d0b00c6e063ab4e208bef17b0e4fe33b"
+      "sha256": "03c72fa771427a8dde2f493206520b11577acdb76cdd5775f64a0a60d8da5dac"
     },
     {
       "path": "src/frontend/src/views/data/useDataPage.ts",

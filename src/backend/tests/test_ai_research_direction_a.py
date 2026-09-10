@@ -45,6 +45,7 @@ async def test_investment_mandate_parse_and_get(auth_user):
         InvestmentMandateCreate(
             raw_prompt="为螺纹钢主连设计一个日线趋势策略，目标是控制回撤并获得稳定收益。",
             symbol="RB0",
+            market_data_asset_type="futures",
             timeframe="1d",
             quality_gates={"target_sharpe": 1.0, "min_total_trades": 1},
         ),
@@ -52,12 +53,34 @@ async def test_investment_mandate_parse_and_get(auth_user):
 
     assert mandate.asset_scope["asset_class"] == "futures"
     assert mandate.asset_scope["symbol"] == "RB0"
+    assert mandate.asset_scope["market_data_asset_type"] == "futures"
     assert mandate.timeframe == "1d"
     assert "回撤" in mandate.objective
 
     loaded = await service.get_mandate(user_id, mandate.id)
     assert loaded is not None
     assert loaded.id == mandate.id
+    assert loaded.asset_scope["market_data_asset_type"] == "futures"
+
+
+@pytest.mark.parametrize(
+    "asset_type",
+    ("stock", "futures", "bond", "fund", "option", "fx", "crypto"),
+)
+async def test_investment_mandate_accepts_only_canonical_market_data_asset_types(
+    asset_type: str,
+):
+    """The mandate input normalizes the seven public data-family selections."""
+    mandate = InvestmentMandateCreate(
+        raw_prompt="为目标标的设计策略",
+        market_data_asset_type=asset_type.upper(),
+    )
+
+    assert mandate.market_data_asset_type == asset_type
+    assert InvestmentMandateCreate(
+        raw_prompt="不声明数据族的兼容请求",
+        market_data_asset_type="",
+    ).market_data_asset_type is None
 
 
 async def test_investment_mandate_rejects_a_tampered_direct_research_request(monkeypatch):
@@ -84,12 +107,17 @@ async def test_investment_mandate_rejects_a_tampered_direct_research_request(mon
         calc_method="compound",
         weight_mode="risk_parity",
         mandate_id="mandate-1",
+        data_config={"market_data_asset_type": "stock"},
     )
     mandate = InvestmentMandateResponse(
         id="mandate-1",
         raw_prompt=request.prompt,
         structured_goal={"timeframe": request.timeframe},
-        asset_scope={"symbol": request.symbol, "symbol_name": request.symbol_name},
+        asset_scope={
+            "symbol": request.symbol,
+            "symbol_name": request.symbol_name,
+            "market_data_asset_type": "stock",
+        },
         timeframe=request.timeframe,
         objective=request.prompt,
         risk_constraints=service._risk_constraints_from_request(request),
@@ -115,15 +143,63 @@ async def test_investment_mandate_rejects_a_tampered_direct_research_request(mon
         "user-1", request.model_copy(update={"start_paper_trading": False})
     )
     assert matched.id == mandate.id
+    # The chosen data family remains auditable on the mandate, while an
+    # Iter196 fallback request has no fresh bridge marker to compare yet.
+    assert (
+        await service.ensure_for_request(
+            "user-1", request.model_copy(update={"data_config": {}})
+        )
+    ).id == mandate.id
 
     for tampered in (
         request.model_copy(update={"symbol": "600000.SH"}),
         request.model_copy(update={"timeframe": "1h"}),
         request.model_copy(update={"target_sharpe": 2.0}),
         request.model_copy(update={"robustness_methods": ["monte_carlo"]}),
+        request.model_copy(update={"data_config": {"market_data_asset_type": "fund"}}),
+        request.model_copy(update={"data_config": {"market_data_asset_type": "equity"}}),
     ):
         with pytest.raises(ValueError, match="INVESTMENT_MANDATE_REQUEST_MISMATCH"):
             await service.ensure_for_request("user-1", tampered)
+
+
+async def test_investment_mandate_rejects_new_market_data_intent_for_legacy_scope(monkeypatch):
+    """A legacy mandate cannot be extended to a later declared data family."""
+    service = InvestmentMandateService()
+    request = AIStrategyResearchRunRequest(
+        prompt="为平安银行设计一个日线趋势策略",
+        symbol="000001.SZ",
+        symbol_name="平安银行",
+        timeframe="1d",
+        mandate_id="legacy-mandate-without-data-family",
+    )
+    legacy_mandate = InvestmentMandateResponse(
+        id=request.mandate_id,
+        raw_prompt=request.prompt,
+        structured_goal={"timeframe": request.timeframe},
+        asset_scope={"symbol": request.symbol, "symbol_name": request.symbol_name},
+        timeframe=request.timeframe,
+        objective=request.prompt,
+        risk_constraints=service._risk_constraints_from_request(request),
+        trading_constraints=service._controlled_trading_constraints_from_request(request),
+        quality_gates=service._quality_gates_from_request(request),
+        status="confirmed",
+        source="legacy-rule",
+        created_at="2026-09-10T00:00:00+00:00",
+        updated_at="2026-09-10T00:00:00+00:00",
+    )
+
+    async def get_mandate(_: str, mandate_id: str):
+        return legacy_mandate if mandate_id == legacy_mandate.id else None
+
+    monkeypatch.setattr(service, "get_mandate", get_mandate)
+
+    assert (await service.ensure_for_request("user-1", request)).id == legacy_mandate.id
+    with pytest.raises(ValueError, match="INVESTMENT_MANDATE_REQUEST_MISMATCH"):
+        await service.ensure_for_request(
+            "user-1",
+            request.model_copy(update={"data_config": {"market_data_asset_type": "stock"}}),
+        )
 
 
 async def test_investment_mandate_normalizes_only_known_legacy_request_fields(monkeypatch):
@@ -345,6 +421,7 @@ async def test_investment_mandate_auto_creation_persists_server_canonical_previe
         symbol_name="沪深300股指期货",
         timeframe="1h",
         target_sharpe=1.1,
+        data_config={"market_data_asset_type": "futures"},
     )
     forged_preview = "攻击者提交的任意前端自动预览"
     forged_objective = "攻击者提交的任意自动投研目标"
@@ -353,6 +430,7 @@ async def test_investment_mandate_auto_creation_persists_server_canonical_previe
         prompt_origin="auto_generated",
         symbol=request.symbol,
         symbol_name=request.symbol_name,
+        market_data_asset_type="futures",
         timeframe=request.timeframe,
         risk_constraints=service._risk_constraints_from_request(request),
         trading_constraints={
@@ -371,6 +449,7 @@ async def test_investment_mandate_auto_creation_persists_server_canonical_previe
     assert created.raw_prompt != forged_preview
     assert created.raw_prompt.startswith("服务器自动生成投研目标：")
     assert expected["structured_goal"]["auto_basis_digest"] in created.raw_prompt
+    assert created.asset_scope["market_data_asset_type"] == "futures"
     assert created.objective == expected["objective"]
     assert created.objective != forged_objective
     assert created.structured_goal["objective"] == created.objective
@@ -378,10 +457,17 @@ async def test_investment_mandate_auto_creation_persists_server_canonical_previe
     assert loaded is not None
     assert loaded.raw_prompt == created.raw_prompt
     assert loaded.objective == created.objective
+    assert loaded.asset_scope["market_data_asset_type"] == "futures"
     assert (
         await service.ensure_for_request(
             user_id,
             request.model_copy(update={"mandate_id": created.id}),
+        )
+    ).id == created.id
+    assert (
+        await service.ensure_for_request(
+            user_id,
+            request.model_copy(update={"mandate_id": created.id, "data_config": {}}),
         )
     ).id == created.id
     # A stored auto preview may contain display text from the selected
@@ -406,6 +492,16 @@ async def test_investment_mandate_auto_creation_persists_server_canonical_previe
             user_id,
             request.model_copy(update={"mandate_id": created.id, "target_sharpe": 1.2}),
         )
+    with pytest.raises(ValueError, match="INVESTMENT_MANDATE_REQUEST_MISMATCH"):
+        await service.ensure_for_request(
+            user_id,
+            request.model_copy(
+                update={
+                    "mandate_id": created.id,
+                    "data_config": {"market_data_asset_type": "stock"},
+                }
+            ),
+        )
 
 
 async def test_auto_mandate_continuations_restore_blank_prompt_before_binding(monkeypatch):
@@ -428,6 +524,7 @@ async def test_auto_mandate_continuations_restore_blank_prompt_before_binding(mo
         prompt_origin="auto_generated",
         symbol=initial.symbol,
         symbol_name=initial.symbol_name,
+        market_data_asset_type="stock",
         timeframe=initial.timeframe,
         risk_constraints=service._risk_constraints_from_request(initial),
         trading_constraints={
@@ -644,6 +741,7 @@ async def test_ai_research_direction_a_api(client, auth_headers):
         json={
             "raw_prompt": "为纯碱期货做 1h 趋势策略，控制回撤。",
             "symbol": "SA0",
+            "market_data_asset_type": "futures",
             "timeframe": "1h",
             "quality_gates": {"target_sharpe": 1.0},
         },
@@ -657,12 +755,32 @@ async def test_ai_research_direction_a_api(client, auth_headers):
     )
     assert loaded.status_code == 200
     assert loaded.json()["asset_scope"]["asset_class"] == "futures"
+    assert loaded.json()["asset_scope"]["market_data_asset_type"] == "futures"
 
     missing_timeline = await client.get(
         "/api/v1/strategy/ai-research/runs/missing/timeline",
         headers=auth_headers,
     )
     assert missing_timeline.status_code == 404
+
+
+async def test_ai_research_mandate_api_rejects_unknown_market_data_asset_type(
+    client,
+    auth_headers,
+):
+    """The public mandate endpoint rejects data-family strings outside the seven-item contract."""
+    response = await client.post(
+        "/api/v1/strategy/ai-research/mandates",
+        headers=auth_headers,
+        json={
+            "raw_prompt": "为目标标的生成策略",
+            "symbol": "000001.SZ",
+            "market_data_asset_type": "equity",
+        },
+    )
+
+    assert response.status_code == 422
+    assert "INVESTMENT_MANDATE_MARKET_DATA_ASSET_TYPE_INVALID" in response.text
 
 
 async def test_ai_research_auto_mandate_api_discards_forged_preview_and_objective(

@@ -15836,6 +15836,7 @@ async def test_auto_mandate_continuation_routes_restore_only_trusted_prompt_and_
             prompt_origin="auto_generated",
             symbol=source_request.symbol,
             symbol_name=source_request.symbol_name,
+            market_data_asset_type="stock",
             timeframe=source_request.timeframe,
             risk_constraints=mandate_service._risk_constraints_from_request(source_request),
             trading_constraints={

@@ -15,6 +15,7 @@ import type {
   QualityGateEvaluation,
   RobustnessTestResultResponse,
 } from '@/types/trust'
+import type { MarketAssetType } from '@/api/marketData'
 
 export interface StrategyCopilotDataSource {
   type: string
@@ -195,6 +196,7 @@ export interface InvestmentMandateCreateRequest {
   prompt_origin?: 'explicit' | 'auto_generated'
   symbol?: string | null
   symbol_name?: string | null
+  market_data_asset_type?: MarketAssetType | null
   timeframe?: string | null
   objective?: string | null
   risk_constraints?: Record<string, unknown>
