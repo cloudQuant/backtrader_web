@@ -1,6 +1,6 @@
 # 迭代 197 数据产品扩展计划
 
-> 状态：设计基线。本文把“页面已经列出”与“已能本地优先读取、在线补齐并重放”分开；不改变当前候选的 `NOT_RUN`、`BLOCKED` 和 `NO-GO` 验收状态。
+> 状态：设计基线加本地 B2 事实基础。本文把“页面已经列出”、`UNCONFIGURED` 的公开产品，与已实现但未接入的 record-key 存储/本地读取能力分开；不改变当前候选的 `NOT_RUN`、`BLOCKED` 和 `NO-GO` 验收状态。
 
 ## 1. 完整覆盖的判定
 
@@ -24,7 +24,7 @@
 | stock | liquidity | 单记录参考序列 | `READY`（候选代码） | 真实来源、数据库与页面灰度验收 |
 | futures | realtime | 单序列 bars | `READY` | 真实来源和数据库验收 |
 | futures | settlement | 单记录 | `UNCONFIGURED` | 单记录产品工作包 |
-| futures | inventory | 多记录报告 | `UNCONFIGURED` | 多记录事实模型工作包 |
+| futures | inventory | 多记录报告 | `UNCONFIGURED` | B2 本地事实基础已交付；仍缺 family/source/public activation 与真实验收 |
 | bond | realtime | 单序列 bars | `READY` | 真实来源和数据库验收 |
 | bond | orderbook | 单快照 | `UNCONFIGURED` | 单记录产品工作包 |
 | bond | fixed_income | 单记录 | `UNCONFIGURED` | 单记录产品工作包 |
@@ -32,13 +32,13 @@
 | fund | liquidity | 单记录参考序列 | `READY`（候选代码） | 真实来源、数据库与页面灰度验收 |
 | fund | nav | 单记录参考序列 | `READY`（候选代码） | 真实来源、数据库与页面灰度验收 |
 | option | realtime | 单序列 bars | `READY` | 真实来源和数据库验收 |
-| option | derivative | 多记录快照 | `UNCONFIGURED` | 多记录事实模型工作包 |
-| option | risk_surface | 多记录快照 | `UNCONFIGURED` | 多记录事实模型工作包 |
+| option | derivative | 多记录快照 | `UNCONFIGURED` | B2 本地事实基础已交付；仍缺 family/source/public activation 与真实验收 |
+| option | risk_surface | 多记录快照 | `UNCONFIGURED` | B2 本地事实基础已交付；仍缺 family/source/public activation 与真实验收 |
 | fx | realtime | 单序列 bars | `READY` | 真实来源和数据库验收 |
 | fx | macro_fx | 单记录 | `UNCONFIGURED` | 单记录产品工作包 |
 | fx | range | 单序列 OHLC bars | `READY`（候选代码） | 真实来源、数据库与页面灰度验收 |
 | crypto | realtime | 单快照 | `UNCONFIGURED` | 单记录产品工作包 |
-| crypto | cme_position | 多记录报告 | `UNCONFIGURED` | 多记录事实模型工作包 |
+| crypto | cme_position | 多记录报告 | `UNCONFIGURED` | B2 本地事实基础已交付；仍缺 family/source/public activation 与真实验收 |
 | crypto | range | 单序列 bars | `UNCONFIGURED` | 单记录产品工作包 |
 
 `READY` 仅说明当前代码已具备受控的 family contract（`bars` 或 `reference_series`）和本地优先链路；它仍不代表真实 AkShare/OpenBB、MySQL/PostgreSQL、多 worker 或页面灰度验收已经通过。
@@ -82,21 +82,21 @@ family contract 的 `ready` 有两层防线：公共 DTO 仅接受受审核的�
 
 ### 3.3 197-B2：4 个多记录产品
 
-以下产品不能直接复用当前“一个 event time 对应一个修订”的事实唯一性：
+以下产品不能直接复用旧的“一个 event time 对应一个修订”事实唯一性。`20260911_market_data_semantic_record_keys` 已完成泛型本地底座：semantic record key、`(series,event,key,revision)` 唯一约束、V3 identity seal、PIT 坐标选择、纯 completeness planner 和内部 `local_only` reader。四个 family 仍是 `UNCONFIGURED`，这段工作不能创建 public contract、provider 或页面入口：
 
 - `futures.inventory`：`report_date + commodity + location + warehouse`；
 - `option.derivative`：`snapshot_at + underlying + contract + expiry + strike + right`；
 - `option.risk_surface`：`snapshot_at + underlying + expiry + moneyness + model_version`；
 - `crypto.cme_position`：`report_date + entity + rank + report_type`。
 
-在任一多记录 family 启用前，必须先交付独立的数据模型迁移和以下契约：
+在任一多记录 family 启用前，必须完成下列 family-specific 契约；标注“已交付”的只表示离线本地基础，不表示来源或公开路径通过：
 
-1. **稳定记录身份**：将 server-normalized dimension object 以规范 JSON 序列化，保存可审计的 `semantic_record_key` 与 SHA-256；客户端不能提供任意 key。
-2. **事实唯一性**：事实/修订唯一约束至少包含 series、event/report/snapshot time、record-key hash、revision number；不同 strike、仓库或实体不能相互覆盖。
-3. **读取与分页**：查询要求声明或服务端签发 slice selector；稳定排序键为 `(event_at, semantic_record_key, revision_number)`，cursor 绑定 selector、record-key 排序和 PIT anchor。
-4. **完整性**：期权链/风险曲面使用 `slice_completeness`，库存/CME 报告使用 `report_completeness`。provider 必须提交被请求 slice/report 的计数、边界和完整性证据；空响应只有在来源明确声明“该精确 slice 无记录”时才可作为完整。
-5. **PIT 与 provenance**：同一 snapshot/report 的每一行都绑定相同或可追溯的 source receipt，同时保留各行 record key、字段 hash、质量和 `available_at`。读取不能跨 revision 拼装字段。
-6. **重放验收**：至少覆盖同一时间两行以上、局部 slice 缺口、修订更正、稳定翻页、截止点前后可见性、provider 重复行以及不完整报告拒绝。
+1. **稳定记录身份（本地基础已交付）**：将 server-normalized dimension object 以规范 JSON 序列化，保存可审计的 `semantic_record_key` 与 SHA-256；客户端/provider 不能提供任意 key。每个 family 仍须审核 dimensions schema、别名/单位规则和 expected manifest 签发者。
+2. **事实唯一性（本地基础已交付）**：事实/修订唯一约束包含 series、event/report/snapshot time、record-key hash、revision number；不同 strike、仓库或实体不能相互覆盖。迁移只回填 fixed singleton，不把历史 `source_record_key` 改写为业务身份。
+3. **读取与分页（内部本地基础已交付）**：内部查询要求声明 selector；稳定排序键为 `(event_at, semantic_record_key, revision_number)`，HMAC cursor 绑定 selector、series、event、PIT anchor、访问 binding 和原始 expiry。public contract/route 仍未存在。
+4. **完整性（planner 已交付，来源证据未交付）**：期权链/风险曲面使用 `slice_completeness`，库存/CME 报告使用 `report_completeness`。provider 必须在 future route 中提交被请求 slice/report 的 expected-key manifest、计数、边界和完整性证据；空响应只有有 durable、selector/event-bound zero-record receipt 时才可作为完整。当前 reader 不接收内存 zero certificate。
+5. **PIT 与 provenance（local Store 已交付，来源链未交付）**：同一 snapshot/report 的每一行都绑定相同或可追溯的 source receipt，同时保留各行 record key、字段 hash、质量和 `available_at`。读取不能跨 revision 拼装字段；future public wrapper 必须从 `MarketDataAccessGrant` 派生 verified-source allowlist 并绑定 policy/access-grant descriptors。
+6. **重放验收（离线本地回归已交付，真实验收未交付）**：至少覆盖同一时间两行以上、局部 slice 缺口、修订更正、稳定翻页、截止点前后可见性、provider 重复行以及不完整报告拒绝；另须完成真实 provider → Store → strict `local_only` replay、MySQL/PostgreSQL migration/concurrency/scale 和浏览器/API/数据库三方验收。
 
 这项迁移不能为追求页面展示速度而弱化为“把链或报告序列化进一个 JSON 字段”。那样无法提供记录级唯一性、PIT 重放、覆盖证明或可审计分页。
 

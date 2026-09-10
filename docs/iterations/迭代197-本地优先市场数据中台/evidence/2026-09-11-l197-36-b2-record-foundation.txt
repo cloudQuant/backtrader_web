@@ -1,0 +1,60 @@
+# L-197-36：B2 多记录事实本地基础冻结收据
+
+日期：2026-09-11
+代码候选：`acece716c5e4fb146edc1568555f56c9e8dba77d`
+工作树：`/Users/yunjinqi/Downloads/backtrader_web/.worktrees/codex/iteration-197-b2-record-model`
+
+## 本地开发验证
+
+执行命令：
+
+```text
+/Users/yunjinqi/opt/anaconda3/bin/conda run --no-capture-output -n base python -m pytest -q \
+  tests/market_data_platform/test_multi_record_identity.py \
+  tests/market_data_platform/test_multi_record_completeness.py \
+  tests/market_data_platform/test_multi_record_store.py \
+  tests/market_data_platform/test_multi_record_query_service.py \
+  tests/market_data_platform/test_multi_record_migration.py \
+  tests/market_data_platform/test_storage_models.py \
+  tests/market_data_platform/test_store.py \
+  tests/market_data_platform/test_query_service.py \
+  tests/market_data_platform/test_dataset_contracts.py \
+  -p no:cacheprovider --tb=short
+```
+
+结果：`266 passed, 66 warnings in 90.64s`。warnings 为已有 Backtrader Quandl 和 Alembic 配置弃用告警；没有测试失败。
+
+附加检查：
+
+```text
+/Users/yunjinqi/opt/anaconda3/bin/conda run --no-capture-output -n base python -m ruff check \
+  src/backend/app/models/market_data_platform.py \
+  src/backend/alembic/versions/20260911_market_data_semantic_record_keys.py \
+  src/backend/app/services/market_data/multi_record.py \
+  src/backend/app/services/market_data/multi_record_query_service.py \
+  src/backend/app/services/market_data/providers.py \
+  src/backend/app/services/market_data/store.py \
+  src/backend/tests/market_data_platform/test_storage_models.py \
+  src/backend/tests/market_data_platform/test_store.py \
+  src/backend/tests/market_data_platform/test_dataset_contracts.py \
+  src/backend/tests/market_data_platform/test_multi_record_identity.py \
+  src/backend/tests/market_data_platform/test_multi_record_completeness.py \
+  src/backend/tests/market_data_platform/test_multi_record_migration.py \
+  src/backend/tests/market_data_platform/test_multi_record_store.py \
+  src/backend/tests/market_data_platform/test_multi_record_query_service.py
+/Users/yunjinqi/opt/anaconda3/bin/conda run --no-capture-output -n base python -m ruff format --check [同一目标文件]
+/Users/yunjinqi/opt/anaconda3/bin/conda run --no-capture-output -n base python -m alembic heads
+git diff --check
+```
+
+结果：Ruff 检查与格式检查均通过；Alembic 唯一 head 为 `20260911_market_data_semantic_record_keys`；差异检查通过。
+
+## 审查结论
+
+独立代码审查和迁移/ORM 专项审查均为 `PASS`，没有 Critical 或 Important 阻断项。审查覆盖 semantic record identity、PIT/revision 坐标、MySQL current-read locking SQL、SQLite 重建、MySQL 中断恢复路径、空表 downgrade 保护、internal reader 的 `local_only + strict`、PIT anchor、source-filter containment 与 cursor expiry 绑定。
+
+## 本记录的范围和未运行项
+
+本记录只证明本地持久化与只读基础。四个 B2 family（`futures.inventory`、`option.derivative`、`option.risk_surface`、`crypto.cme_position`）仍为 `DATA_FAMILY_UNCONFIGURED`，没有 public route、provider、前端、scheduler 或网络获取接线。
+
+未运行：真实 AkShare/OpenBB/provider、真实 MySQL/PostgreSQL/MariaDB 迁移与并发、durable zero-record receipt、从 `MarketDataAccessGrant` 派生的 public authorization、浏览器/API/数据库三方和生产验收。本地 allowlist 仅为来源过滤约束，不能作为 public authorization 证据。

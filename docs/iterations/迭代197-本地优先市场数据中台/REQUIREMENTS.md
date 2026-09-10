@@ -24,9 +24,17 @@
 | `fx` | 汇率行情 | `1d` / 快照 |
 | `crypto` | 交易对行情 | `1d` / 分钟 / 快照 |
 
-公开 DTO 识别 `bars`、`quote_snapshot`、`option_chain`、`position_report` 和 `reference_series`，但“被识别”不等于已经可以读取。当前候选有十个 `ready` 家族：六个 `*.realtime` 的 `market.bars` 家族（股票、期货、债券、基金、期权精确合约、外汇），以及四个候选 B1 产品：`stock.liquidity`、`fund.liquidity`、`fund.nav`（`market.fund_nav + reference_series + 1d`）和 `fx.range` 的完整 OHLC 日线产品。这四个产品只有在页面明确选择同一 family、服务端签发精确 contract 且来源策略匹配时才可执行；它们不改变默认 realtime 家族，也不扩展策略页的严格 bars/PIT 预检。`fund.nav` 还只接受冻结主数据同时为 `product_type=ETF` 和 `fund_identity_kind=LISTING` 的沪深挂牌基金。其余页面数据家族保持明确的 `unconfigured` 状态。尤其是期权链、风险曲面、持仓/库存报告和快照尚未具备同一 snapshot/report date 多行的安全事实身份、覆盖或分页模型，不能作为已支持能力启用。
+公开 DTO 识别 `bars`、`quote_snapshot`、`option_chain`、`position_report` 和 `reference_series`，但“被识别”不等于已经可以读取。当前候选有十个 `ready` 家族：六个 `*.realtime` 的 `market.bars` 家族（股票、期货、债券、基金、期权精确合约、外汇），以及四个候选 B1 产品：`stock.liquidity`、`fund.liquidity`、`fund.nav`（`market.fund_nav + reference_series + 1d`）和 `fx.range` 的完整 OHLC 日线产品。这四个产品只有在页面明确选择同一 family、服务端签发精确 contract 且来源策略匹配时才可执行；它们不改变默认 realtime 家族，也不扩展策略页的严格 bars/PIT 预检。`fund.nav` 还只接受冻结主数据同时为 `product_type=ETF` 和 `fund_identity_kind=LISTING` 的沪深挂牌基金。其余页面数据家族保持明确的 `unconfigured` 状态。
 
-在这些多记录产品具有稳定的维度/record key、修订唯一性与读取/分页/provenance 语义、slice/report 完整性规划器，以及同一时间点多行的端到端回归以前，它们只能返回明确机器码，不能通过变更标的、频率或来源来伪造结果。
+`futures.inventory`、`option.derivative`、`option.risk_surface` 与 `crypto.cme_position` 已具本地 B2 事实基础：服务端 semantic record key、事实坐标唯一性、V3 revision seal、slice/report completeness 和仅本地 PIT reader 已实现。四个 family 仅有 `unconfigured` registry entry，仍没有可执行的 public family binding、source policy、provider route、HTTP contract、页面、scheduler、capability permit 或 durable zero-record receipt；它们不能由基础表结构或内部 reader 自动升级为可执行产品，公共路径继续返回明确机器码。
+
+### 2.1.1 B2 多记录事实要求
+
+- `REQ-197-B2-01`：每条同 snapshot/report date 的事实必须由服务端从 exact family/version 和审核后的 dimensions 生成 canonical semantic record key；`source_record_key` 只保存上游 trace，不能作为 identity。键比较必须保留 JSON 标量类型和 signed zero，不做产品语义猜测。
+- `REQ-197-B2-02`：存储唯一性、revision ordinal、PIT latest selection、V3 revision identity、稳定排序和 cursor 都必须以 `(event_at, semantic_record_key_sha256)` 为坐标；V1/V2 legacy identity 只能对应 fixed singleton，不能重新解释为 B2 行。
+- `REQ-197-B2-03`：一个 B2 slice/report 只能在已签发 selector 和 expected record-key manifest 完整匹配时返回完整；缺失、重复、额外、未声明或空观察均不得由观测行数量推断。零记录还须有绑定 selector digest 和 event 的 durable receipt；当前没有此 receipt 时必须保持 incomplete。
+- `REQ-197-B2-04`：内部 reader 只允许 `local_only + strict`，以精确 event SQL 和冻结 visibility anchor 读取；cursor 必须绑定 selector、series、event、PIT、访问绑定和原始 expiry。它不能调用 provider、lease 或网络，也不能返回 partial observations。
+- `REQ-197-B2-05`：未来 public activation 必须从 `MarketDataAccessGrant` 派生 current verified-source allowlist，并将 policy/access-grant descriptor 一并绑定；当前内部 allowlist 不是授权器。任何 public route、source adapter、真实 source policy、family contract、页面或 scheduler 都应在独立验收后启用。
 
 ### 2.2 页面与服务边界
 
