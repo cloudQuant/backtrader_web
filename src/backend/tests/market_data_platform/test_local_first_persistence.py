@@ -11,15 +11,26 @@ from datetime import datetime, timedelta, timezone
 from typing import Final
 
 import pytest
+from fastapi import Depends
+from httpx import AsyncClient
 from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.database import async_session_maker
+from app.api.data.queries import (
+    get_market_data_capability_evaluation,
+    get_market_data_query_service,
+)
+from app.db.database import async_session_maker, get_db
+from app.main import app
 from app.models.asset_research import AssetDataSourceRegistry
 from app.models.market_data_platform import MdObservationRevision, MdSourceSnapshot
 from app.models.permission import Role, user_roles
 from app.models.user import User
 from app.schemas.asset_research import InstrumentIdentity
-from app.schemas.market_data_platform import MarketDataQueryRequest
+from app.schemas.market_data_platform import (
+    MarketDataCapabilitiesResponse,
+    MarketDataQueryRequest,
+)
 from app.services.market_data.access import MarketDataAccessAuthorizer, MarketDataQueryAccess
 from app.services.market_data.bootstrap import (
     CanonicalStorageSpec,
@@ -30,6 +41,7 @@ from app.services.market_data.calendar_importer import (
     MANIFEST_VERSION,
     MarketDataCalendarImporter,
 )
+from app.services.market_data.capability_ledger import MarketDataCapabilityEvaluation
 from app.services.market_data.catalog import DataCatalogResolver
 from app.services.market_data.identity import MarketDataIdentityResolver
 from app.services.market_data.master_data import MarketDataIdentityWriter
@@ -102,6 +114,46 @@ class _RecordingProvider:
         )
 
 
+class _RangeRecordingProvider:
+    """Return only the exact requested fixture events and record every fetch."""
+
+    def __init__(self) -> None:
+        self.calls: list[MarketDataProviderRequest] = []
+
+    async def fetch(self, request: MarketDataProviderRequest) -> ProviderFetchResult:
+        self.calls.append(request)
+        rows = tuple(
+            ProviderMarketObservation(
+                event_at=event_at,
+                available_at=event_at + timedelta(hours=6),
+                fields={
+                    field_name: {"close": 10.0}.get(field_name, 1000)
+                    for field_name in request.required_fields
+                },
+            )
+            for event_at in (WINDOW_START, WINDOW_START + timedelta(days=1))
+            if request.start_at <= event_at < request.end_at
+        )
+        return ProviderFetchResult(
+            provider_id="akshare",
+            source_revision=f"range-fixture-{len(self.calls)}",
+            retrieved_at=RECEIPT_AT,
+            observations=rows,
+            raw_payload={
+                "fixture": "local-first-http-persistence",
+                "request_number": len(self.calls),
+                "records": [
+                    {
+                        "event_at": row.event_at.isoformat(),
+                        "fields": dict(row.fields),
+                    }
+                    for row in rows
+                ],
+            },
+            request=request,
+        )
+
+
 def _request(
     *,
     required_fields: list[str],
@@ -124,6 +176,34 @@ def _request(
             "mode": mode,
         }
     )
+
+
+def _public_bars_payload(
+    *,
+    start: datetime,
+    end: datetime,
+    mode: str,
+) -> dict[str, object]:
+    """Return the exact public stock-realtime request used by the HTTP acceptance flow."""
+    return {
+        "identity": {"canonical_id": CANONICAL_ID},
+        "family_id": "stock.realtime",
+        "family_contract_version": "market-data-family-v1",
+        "dataset_code": "market.bars",
+        "data_kind": "bars",
+        "frequency": "1d",
+        "start": start.isoformat(),
+        "end": end.isoformat(),
+        "required_fields": ["close"],
+        "adjustment": "qfq",
+        "price_basis": "close",
+        "currency": "CNY",
+        "unit": "share",
+        "source_policy_id": "market-default-v1",
+        "consistency": "display",
+        "purpose": "display",
+        "mode": mode,
+    }
 
 
 def _liquidity_request() -> MarketDataQueryRequest:
@@ -222,15 +302,16 @@ def _service(
     *,
     now: datetime = RECEIPT_AT,
     source_policies: MarketDataSourcePolicyRegistry | None = None,
+    allow_unbound_internal_requests: bool = True,
 ) -> MarketDataQueryService:
     return MarketDataQueryService(
         resolver=MarketDataQueryResolver(
             catalog=DataCatalogResolver(session),
             identities=MarketDataIdentityResolver(session),
-            # This lower-level revision test deliberately exercises a broad
-            # internal field projection. Public v2 routes retain the default
-            # fail-closed family binding requirement.
-            allow_unbound_internal_requests=True,
+            # Lower-level revision tests deliberately exercise a broad
+            # internal field projection. HTTP acceptance keeps this disabled
+            # so the public route preserves its family-binding requirement.
+            allow_unbound_internal_requests=allow_unbound_internal_requests,
         ),
         store=MarketDataStore(session, clock=lambda: now),
         source_policies=source_policies or _policy(provider),
@@ -245,6 +326,7 @@ async def _seed_authoritative_prerequisites(
     calendar_data_kind: str = "bars",
     identity: InstrumentIdentity | None = None,
     calendar_code: str = "CN-SSE",
+    user_id: str | None = None,
 ) -> str:
     """Create only operator-owned prerequisites before a public query begins."""
     identity = identity or InstrumentIdentity.model_validate(
@@ -306,13 +388,17 @@ async def _seed_authoritative_prerequisites(
         await MarketDataPlatformBootstrapper(session).bootstrap(spec)
         await session.commit()
 
-        user = User(
-            username="market-data-local-first-fixture",
-            email="market-data-local-first-fixture@example.test",
-            hashed_password="not-used",
-            is_active=True,
-        )
-        session.add(user)
+        if user_id is None:
+            user = User(
+                username="market-data-local-first-fixture",
+                email="market-data-local-first-fixture@example.test",
+                hashed_password="not-used",
+                is_active=True,
+            )
+            session.add(user)
+        else:
+            user = await session.get(User, user_id)
+            assert user is not None
         session.add(
             AssetDataSourceRegistry(
                 source_id="akshare",
@@ -329,8 +415,15 @@ async def _seed_authoritative_prerequisites(
             )
         )
         await session.flush()
-        await session.execute(user_roles.insert().values(user_id=user.id, role=Role.USER.value))
-        user_id = str(user.id)
+        has_user_role = await session.scalar(
+            select(user_roles.c.user_id).where(
+                user_roles.c.user_id == user.id,
+                user_roles.c.role == Role.USER.value,
+            )
+        )
+        if has_user_role is None:
+            await session.execute(user_roles.insert().values(user_id=user.id, role=Role.USER.value))
+        seeded_user_id = str(user.id)
         await session.commit()
 
         identity_writer = MarketDataIdentityWriter(session)
@@ -345,7 +438,7 @@ async def _seed_authoritative_prerequisites(
             dry_run=False,
         )
         await session.commit()
-        return user_id
+        return seeded_user_id
 
 
 async def _access_for_session(
@@ -425,6 +518,189 @@ async def test_local_first_persists_once_then_reuses_complete_older_revision_wit
     assert all({"close", "volume"} <= set(row.fields) for row in reused.observations)
     assert source_snapshot_count == 2
     assert revision_count == 4
+
+
+@pytest.mark.asyncio
+async def test_public_http_local_first_persists_exact_gap_then_independent_local_only_rereads(
+    client: AsyncClient,
+    auth_user: tuple[dict[str, str], dict[str, str]],
+) -> None:
+    """Exercise the public route, real Store, and fresh request sessions without network I/O.
+
+    The narrow local result is seeded through the normal service so the first
+    HTTP read proves a completed local cache is not fetched again. The wider
+    HTTP request then fills only its missing event with a deterministic
+    provider fixture. Its following HTTP ``local_only`` request must enter a
+    new FastAPI database session and return the persisted revisions, rather
+    than reusing the prior provider result in memory.
+    """
+    user_data, auth_headers = auth_user
+    async with async_session_maker() as session:
+        user = (
+            await session.execute(select(User).where(User.username == user_data["username"]))
+        ).scalar_one()
+        authenticated_user_id = str(user.id)
+
+    user_id = await _seed_authoritative_prerequisites(user_id=authenticated_user_id)
+    provider = _RangeRecordingProvider()
+    route_id = "fixture-http-stock-realtime-v1"
+    source_policies = _policy(
+        provider,
+        route_id=route_id,
+        family_id="stock.realtime",
+        family_contract_version="market-data-family-v1",
+    )
+
+    async with async_session_maker() as seed_session:
+        seed_service = _service(
+            seed_session,
+            provider,
+            now=RECEIPT_AT,
+            source_policies=source_policies,
+            allow_unbound_internal_requests=False,
+        )
+        seeded = await seed_service.execute(
+            MarketDataQueryRequest.model_validate(
+                _public_bars_payload(
+                    start=WINDOW_START,
+                    end=WINDOW_START + timedelta(days=1),
+                    mode="local_first",
+                )
+            ),
+            access=await _access_for_session(
+                seed_session,
+                user_id=user_id,
+                now=RECEIPT_AT,
+            ),
+        )
+        await seed_session.commit()
+
+    assert seeded.coverage.status.value == "complete"
+    assert len(seeded.fetches) == 1
+    assert len(provider.calls) == 1
+    assert provider.calls[0].route_id == route_id
+    assert provider.calls[0].family_id == "stock.realtime"
+    assert provider.calls[0].family_contract_version == "market-data-family-v1"
+
+    capabilities = MarketDataCapabilityEvaluation(
+        response=MarketDataCapabilitiesResponse(
+            query_v2_enabled=True,
+            online_fetch_enabled=True,
+            research_cache_fill_enabled=False,
+            research_backtest_bridge_enabled=False,
+        ),
+        effective_source_policies=source_policies,
+        effective_route_ids=frozenset({route_id}),
+    )
+    # Publication allocation deliberately advances the visibility instant
+    # beyond receipt time. Give each HTTP request a new deterministic clock
+    # value so the final independent local-only read can see the prior
+    # request's post-commit publication receipt.
+    request_times = iter(
+        (
+            RECEIPT_AT + timedelta(microseconds=2),
+            RECEIPT_AT + timedelta(microseconds=4),
+            RECEIPT_AT + timedelta(microseconds=6),
+        )
+    )
+
+    async def request_db():
+        async with async_session_maker() as session:
+            yield session
+
+    async def request_service(
+        db: AsyncSession = Depends(get_db),
+    ) -> MarketDataQueryService:
+        return _service(
+            db,
+            provider,
+            now=next(request_times),
+            source_policies=source_policies,
+            allow_unbound_internal_requests=False,
+        )
+
+    original_dependency_overrides = dict(app.dependency_overrides)
+    app.dependency_overrides[get_db] = request_db
+    app.dependency_overrides[get_market_data_capability_evaluation] = lambda: capabilities
+    app.dependency_overrides[get_market_data_query_service] = request_service
+    try:
+        local_hit = await client.post(
+            "/api/v1/data/queries",
+            json=_public_bars_payload(
+                start=WINDOW_START,
+                end=WINDOW_START + timedelta(days=1),
+                mode="local_only",
+            ),
+            headers=auth_headers,
+        )
+        assert local_hit.status_code == 200, local_hit.text
+        local_hit_body = local_hit.json()
+        assert local_hit_body["coverage"]["status"] == "complete"
+        assert local_hit_body["fetches"] == []
+        assert len(local_hit_body["observations"]) == 1
+        assert len(provider.calls) == 1
+
+        filled = await client.post(
+            "/api/v1/data/queries",
+            json=_public_bars_payload(
+                start=WINDOW_START,
+                end=WINDOW_END,
+                mode="local_first",
+            ),
+            headers=auth_headers,
+        )
+        assert filled.status_code == 200, filled.text
+        filled_body = filled.json()
+        assert filled_body["coverage"]["status"] == "complete"
+        assert len(filled_body["fetches"]) == 1
+        assert len(provider.calls) == 2
+        fill_receipt = filled_body["fetches"][0]
+        assert fill_receipt["route_id"] == route_id
+        assert fill_receipt["provider_id"] == "akshare"
+        assert fill_receipt["passing_observation_count"] == 1
+        assert fill_receipt["failed_observation_count"] == 0
+        assert len(fill_receipt["observation_revision_ids"]) == 1
+        filled_provider_request = provider.calls[1]
+        assert filled_provider_request.route_id == route_id
+        assert filled_provider_request.family_id == "stock.realtime"
+        assert filled_provider_request.family_contract_version == "market-data-family-v1"
+        assert filled_provider_request.start_at == WINDOW_START + timedelta(days=1)
+        assert filled_provider_request.end_at == WINDOW_END
+        assert filled_provider_request.required_fields == frozenset({"close"})
+        filled_pairs = {
+            (observation["revision_id"], observation["source_snapshot_id"])
+            for observation in filled_body["observations"]
+        }
+        assert len(filled_pairs) == 2
+        assert set(fill_receipt["observation_revision_ids"]) <= {
+            revision_id for revision_id, _snapshot_id in filled_pairs
+        }
+        assert fill_receipt["source_snapshot_id"] in {
+            snapshot_id for _revision_id, snapshot_id in filled_pairs
+        }
+
+        reread = await client.post(
+            "/api/v1/data/queries",
+            json=_public_bars_payload(
+                start=WINDOW_START,
+                end=WINDOW_END,
+                mode="local_only",
+            ),
+            headers=auth_headers,
+        )
+        assert reread.status_code == 200, reread.text
+        reread_body = reread.json()
+        assert reread_body["coverage"]["status"] == "complete"
+        assert reread_body["fetches"] == []
+        assert len(provider.calls) == 2
+        reread_pairs = {
+            (observation["revision_id"], observation["source_snapshot_id"])
+            for observation in reread_body["observations"]
+        }
+        assert reread_pairs == filled_pairs
+    finally:
+        app.dependency_overrides.clear()
+        app.dependency_overrides.update(original_dependency_overrides)
 
 
 @pytest.mark.asyncio
@@ -569,7 +845,8 @@ async def test_imported_etf_nav_grid_persists_then_rereads_the_source_reported_f
     assert reread.fetches == ()
     assert len(provider.calls) == 1
     assert all(
-        observation.fields == {
+        observation.fields
+        == {
             "nav": 1.2345,
             "cumulative_nav": 1.4567,
             "daily_growth_rate": 0.98,
