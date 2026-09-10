@@ -9631,6 +9631,51 @@ describe('StrategyPage', () => {
   })
 
   it.each([
+    ['daily', '1d'],
+    ['weekly', '1w'],
+    ['monthly', '1mo'],
+  ])('uses crypto.range for crypto %s research bars and fails closed while it is unconfigured', async (
+    period,
+    timeframe,
+  ) => {
+    enableMarketDataBridge()
+    const wrapper = doMount()
+    try {
+      const vm = wrapper.vm as any
+      await flushPromises()
+      getQueryContract.mockClear()
+      queryLocalFirst.mockClear()
+      lookupInstrument.mockClear()
+      getQueryContract.mockRejectedValue({
+        response: { status: 422, data: { details: { code: 'DATA_FAMILY_UNCONFIGURED' } } },
+      })
+      vm.aiResearchForm.symbol = 'BTCUSDT'
+      vm.aiResearchForm.market_data_asset_type = 'crypto'
+      vm.aiResearchForm.timeframe = timeframe
+      await nextTick()
+
+      await vm.runAIResearchDataPrecheck({ interactive: false })
+      await flushPromises()
+
+      expect(getQueryContract).toHaveBeenCalledWith({
+        asset_type: 'crypto',
+        symbol: 'BTCUSDT',
+        period,
+        family_id: 'crypto.range',
+      })
+      expect(queryLocalFirst).not.toHaveBeenCalled()
+      expect(lookupInstrument).not.toHaveBeenCalled()
+      expect(vm.aiResearchPrecheckResult?.passed).toBe(true)
+      expect(vm.aiResearchMarketDataPlatformStatus).toMatchObject({
+        path: 'unsupported',
+        detail: 'DATA_FAMILY_UNCONFIGURED',
+      })
+    } finally {
+      wrapper.unmount()
+    }
+  })
+
+  it.each([
     ['family binding', { family_id: 'stock.valuation' }],
     ['semantic data kind', { data_kind: 'quote_snapshot' }],
   ])('rejects a stale or mixed-deployment v2 response with a mismatched %s', async (

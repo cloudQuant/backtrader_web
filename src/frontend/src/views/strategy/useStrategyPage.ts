@@ -70,6 +70,51 @@ function isAIResearchMarketDataCacheFillEnabled(
     && capabilities.research_cache_fill_enabled === true
 }
 
+/**
+ * Research needs a time-series bars contract. The browser uses this only to
+ * verify the family returned by the server-owned control plane; the server
+ * still resolves and issues the concrete contract for the selected symbol.
+ *
+ * Crypto's ``realtime`` family is a quote snapshot, so it cannot be used as
+ * research bars. ``crypto.range`` is its dedicated bars family and remains
+ * fail-closed until the server marks that product executable.
+ */
+const AI_RESEARCH_STRICT_BARS_FAMILY_IDS: Record<MarketAssetType, string> = {
+  stock: 'stock.realtime',
+  futures: 'futures.realtime',
+  bond: 'bond.realtime',
+  fund: 'fund.realtime',
+  option: 'option.realtime',
+  fx: 'fx.realtime',
+  crypto: 'crypto.range',
+}
+
+function aiResearchStrictBarsFamilyId(assetType: MarketAssetType): string {
+  return AI_RESEARCH_STRICT_BARS_FAMILY_IDS[assetType]
+}
+
+/**
+ * Keep an explicit family lifecycle rejection separate from a transport or
+ * rollout outage. A rejected unconfigured product must neither call the v2
+ * query endpoint nor take a legacy fallback path.
+ */
+function isAIResearchMarketDataFamilyUnconfiguredError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false
+  const response = (error as { response?: { data?: unknown } }).response
+  const data = response?.data
+  if (!data || typeof data !== 'object') return false
+  const record = data as Record<string, unknown>
+  const detail = record.detail
+  const details = record.details
+  const detailCode = detail && typeof detail === 'object'
+    ? (detail as Record<string, unknown>).code
+    : undefined
+  const detailsCode = details && typeof details === 'object'
+    ? (details as Record<string, unknown>).code
+    : undefined
+  return [record.code, detailCode, detailsCode].some(code => code === 'DATA_FAMILY_UNCONFIGURED')
+}
+
 export function useStrategyPage() {
   const { t } = useI18n()
   const route = useRoute()
@@ -1411,7 +1456,7 @@ export function useStrategyPage() {
     const expectedFrequency = period === 'daily' ? '1d' : period === 'weekly' ? '1w' : '1mo'
     return contract.request.data_kind === 'bars'
       && contract.request.frequency === expectedFrequency
-      && contract.request.family_id === `${assetType}.realtime`
+      && contract.request.family_id === aiResearchStrictBarsFamilyId(assetType)
       && contract.request.family_contract_version === 'market-data-family-v1'
   }
 
@@ -1454,7 +1499,7 @@ export function useStrategyPage() {
     if (cached && isAIResearchMarketDataContractCompatible(cached, assetType, period)) return cached
     if (cached) aiResearchMarketDataQueryContracts.delete(key)
 
-    const expectedFamilyId = `${assetType}.realtime`
+    const expectedFamilyId = aiResearchStrictBarsFamilyId(assetType)
     const contract = await marketDataApi.getQueryContract({
       asset_type: assetType,
       symbol,
@@ -1563,6 +1608,10 @@ export function useStrategyPage() {
       })
     } catch (error) {
       if (controller.signal.aborted) return
+      if (!contractIssued && isAIResearchMarketDataFamilyUnconfiguredError(error)) {
+        setAIResearchMarketDataPlatformStatus({ path: 'unsupported', detail: 'DATA_FAMILY_UNCONFIGURED' })
+        return
+      }
       if (!contractIssued && isMarketDataQueryV2FallbackError(error)) {
         setAIResearchMarketDataPlatformStatus({ path: 'legacy_fallback', detail: 'MARKET_DATA_QUERY_V2_UNAVAILABLE' })
         return
