@@ -18,7 +18,11 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.services.market_data import openbb_runtime
+from app.services.market_data import (
+    openbb_runner,
+    openbb_runtime,
+    openbb_subprocess_provider,
+)
 from app.services.market_data.providers import (
     MarketDataProviderRequest,
     OpenBBProviderError,
@@ -343,9 +347,11 @@ async def test_openbb_subprocess_provider_rejects_process_wide_overload_before_l
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A full gate rejects the second instance without starting another child process."""
-    import app.services.market_data.providers as providers
-
-    monkeypatch.setattr(providers, "_PROCESS_OPENBB_RUNNER_GATE", providers._OpenBBRunnerGate())
+    monkeypatch.setattr(
+        openbb_subprocess_provider,
+        "_PROCESS_OPENBB_RUNNER_GATE",
+        openbb_subprocess_provider._OpenBBRunnerGate(),
+    )
     launches = tmp_path / "runner-launches"
     script = _runner_script(
         tmp_path,
@@ -410,9 +416,11 @@ async def test_openbb_subprocess_provider_rejects_a_cross_instance_cap_change_be
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The first admitted cap stays process-wide instead of being raised later."""
-    import app.services.market_data.providers as providers
-
-    monkeypatch.setattr(providers, "_PROCESS_OPENBB_RUNNER_GATE", providers._OpenBBRunnerGate())
+    monkeypatch.setattr(
+        openbb_subprocess_provider,
+        "_PROCESS_OPENBB_RUNNER_GATE",
+        openbb_subprocess_provider._OpenBBRunnerGate(),
+    )
     launches = tmp_path / "runner-launches"
     script = _runner_script(
         tmp_path,
@@ -616,8 +624,6 @@ async def test_openbb_subprocess_provider_rejects_missing_or_non_v2_protocol_dec
     declared_protocol: str | None,
 ) -> None:
     """The operator declaration is exact and prevents any runner subprocess launch."""
-    import app.services.market_data.providers as providers
-
     script = _runner_script(tmp_path, "raise SystemExit(0)\n")
     command = _isolated_runner_command(script)
     launches = 0
@@ -632,7 +638,7 @@ async def test_openbb_subprocess_provider_rejects_missing_or_non_v2_protocol_dec
         monkeypatch.delenv("OPENBB_MARKET_DATA_RUNNER_PROTOCOL", raising=False)
     else:
         monkeypatch.setenv("OPENBB_MARKET_DATA_RUNNER_PROTOCOL", declared_protocol)
-    monkeypatch.setattr(providers.subprocess, "Popen", unexpected_popen)
+    monkeypatch.setattr(openbb_runner.subprocess, "Popen", unexpected_popen)
 
     with pytest.raises(OpenBBProviderError) as rejected:
         await OpenBBSubprocessProvider.from_environment().fetch(_request())
@@ -647,8 +653,6 @@ async def test_openbb_subprocess_provider_runs_a_v2_declared_runner_after_fixed_
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A v2 declaration still requires, then passes, the fixed transport preflight."""
-    import app.services.market_data.providers as providers
-
     script = _runner_script(
         tmp_path,
         """
@@ -690,7 +694,7 @@ json.dump(
 
     monkeypatch.setenv("OPENBB_MARKET_DATA_RUNNER", shlex.join(command))
     monkeypatch.setenv("OPENBB_MARKET_DATA_RUNNER_PROTOCOL", "openbb-market-data-v2")
-    monkeypatch.setattr(providers.subprocess, "Popen", observed_popen)
+    monkeypatch.setattr(openbb_runner.subprocess, "Popen", observed_popen)
 
     result = await OpenBBSubprocessProvider.from_environment().fetch(_request())
 
@@ -705,8 +709,6 @@ async def test_openbb_subprocess_provider_rejects_a_v1_runner_falsely_declared_a
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """EOF preflight rejects an old json.load peer even if an operator mislabels it."""
-    import app.services.market_data.providers as providers
-
     preflight_started = tmp_path / "old-v1-preflight-started"
     request_started = tmp_path / "old-v1-request-started"
     script = tmp_path / "old_v1_runner.py"
@@ -736,7 +738,7 @@ json.load(sys.stdin)
 
     monkeypatch.setenv("OPENBB_MARKET_DATA_RUNNER", shlex.join(command))
     monkeypatch.setenv("OPENBB_MARKET_DATA_RUNNER_PROTOCOL", "openbb-market-data-v2")
-    monkeypatch.setattr(providers.subprocess, "Popen", observed_popen)
+    monkeypatch.setattr(openbb_runner.subprocess, "Popen", observed_popen)
 
     with pytest.raises(OpenBBProviderError) as rejected:
         await OpenBBSubprocessProvider.from_environment().fetch(_request())
@@ -753,8 +755,6 @@ async def test_openbb_subprocess_provider_rejects_ack_pipe_creation_failure_befo
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A parent-side preflight pipe failure cannot fall through to a request runner."""
-    import app.services.market_data.providers as providers
-
     script = _runner_script(tmp_path, "raise SystemExit(0)\n")
     launches = 0
 
@@ -766,8 +766,8 @@ async def test_openbb_subprocess_provider_rejects_ack_pipe_creation_failure_befo
         launches += 1
         raise AssertionError("a failed preflight pipe must prevent every runner spawn")
 
-    monkeypatch.setattr(providers.os, "pipe", unavailable_pipe)
-    monkeypatch.setattr(providers.subprocess, "Popen", unexpected_popen)
+    monkeypatch.setattr(openbb_runner.os, "pipe", unavailable_pipe)
+    monkeypatch.setattr(openbb_runner.subprocess, "Popen", unexpected_popen)
 
     with pytest.raises(OpenBBProviderError) as rejected:
         await OpenBBSubprocessProvider(command=_isolated_runner_command(script)).fetch(_request())
@@ -856,12 +856,10 @@ def test_openbb_runner_directory_rejects_a_no_git_parent_of_the_application_cwd(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A packaged deployment cannot use a parent directory that contains its app cwd."""
-    import app.services.market_data.providers as providers
-
     synthetic_module = tmp_path / "wheel" / "app" / "services" / "market_data" / "providers.py"
     synthetic_module.parent.mkdir(parents=True)
     synthetic_module.write_text("# package fixture\n", encoding="utf-8")
-    monkeypatch.setattr(providers, "__file__", str(synthetic_module))
+    monkeypatch.setattr(openbb_subprocess_provider, "__file__", str(synthetic_module))
     for unsafe_directory in (
         synthetic_module.parents[2],
         Path.cwd().resolve().parent,
@@ -898,9 +896,7 @@ async def test_openbb_subprocess_provider_bounds_every_runner_output_stream(
     stream_name: str,
 ) -> None:
     """A noisy isolated runner cannot force unbounded web-process buffering."""
-    import app.services.market_data.providers as providers
-
-    monkeypatch.setattr(providers, "_MAX_RUNNER_OUTPUT_BYTES", 1024)
+    monkeypatch.setattr(openbb_runner, "_MAX_RUNNER_OUTPUT_BYTES", 1024)
     script = _runner_script(
         tmp_path,
         f"""
@@ -1001,10 +997,8 @@ os._exit(0)
 
 def test_openbb_runner_cleanup_orders_group_kill_before_direct_child_reap() -> None:
     """The adapter cannot signal a numeric PGID after the leader was reaped."""
-    import app.services.market_data.providers as providers
-
-    cleanup_source = inspect.getsource(providers._cleanup_owned_openbb_runner_group)
-    runner_source = inspect.getsource(providers._OpenBBSubprocessRunner.execute)
+    cleanup_source = inspect.getsource(openbb_runner._cleanup_owned_openbb_runner_group)
+    runner_source = inspect.getsource(openbb_subprocess_provider._OpenBBSubprocessRunner.execute)
 
     assert cleanup_source.index("_kill_owned_openbb_runner_group") < cleanup_source.index(
         "_reap_owned_openbb_runner_process"
@@ -1089,8 +1083,6 @@ async def test_openbb_success_reaps_closed_pipe_descendant_after_the_leader_imme
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A valid v2 receipt cannot orphan a child when its leader exits immediately."""
-    import app.services.market_data.providers as providers
-
     child_ready = tmp_path / "immediate-exit-child-ready"
     child_survived = tmp_path / "immediate-exit-child-survived"
     child_pid = tmp_path / "immediate-exit-child-pid"
@@ -1172,8 +1164,8 @@ os._exit(0)
         lifecycle.append(("waitpid", process_id, options))
         return actual_waitpid(process_id, options)
 
-    monkeypatch.setattr(providers.os, "killpg", observed_killpg)
-    monkeypatch.setattr(providers.os, "waitpid", observed_waitpid)
+    monkeypatch.setattr(openbb_runner.os, "killpg", observed_killpg)
+    monkeypatch.setattr(openbb_runner.os, "waitpid", observed_waitpid)
 
     result = await OpenBBSubprocessProvider(command=_isolated_runner_command(script)).fetch(
         _request()
@@ -1203,9 +1195,11 @@ async def test_openbb_drain_failure_confirms_group_before_releasing_its_admissio
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A failed drain cannot release the gate before a closed-pipe child is gone."""
-    import app.services.market_data.providers as providers
-
-    monkeypatch.setattr(providers, "_PROCESS_OPENBB_RUNNER_GATE", providers._OpenBBRunnerGate())
+    monkeypatch.setattr(
+        openbb_subprocess_provider,
+        "_PROCESS_OPENBB_RUNNER_GATE",
+        openbb_subprocess_provider._OpenBBRunnerGate(),
+    )
     child_ready = tmp_path / "drain-error-child-ready"
     child_survived = tmp_path / "drain-error-child-survived"
     child_pid = tmp_path / "drain-error-child-pid"
@@ -1263,9 +1257,9 @@ sys.stdin.buffer.read(1)
     confirmation_entered = asyncio.Event()
     confirmation_completed = asyncio.Event()
     allow_confirmation = asyncio.Event()
-    original_attest = providers._OpenBBSubprocessRunner.attest_protocol
-    original_stream_reader = providers._read_openbb_runner_stream_bounded
-    original_confirmation = providers._confirm_openbb_runner_group_terminated
+    original_attest = openbb_subprocess_provider._OpenBBSubprocessRunner.attest_protocol
+    original_stream_reader = openbb_runner._read_openbb_runner_stream_bounded
+    original_confirmation = openbb_runner._confirm_openbb_runner_group_terminated
     actual_popen = subprocess.Popen
     launched_commands: list[tuple[str, ...]] = []
 
@@ -1303,18 +1297,20 @@ sys.stdin.buffer.read(1)
         launched_commands.append(tuple(command_value))
         return actual_popen(command_value, *args, **kwargs)
 
-    monkeypatch.setattr(providers._OpenBBSubprocessRunner, "attest_protocol", observed_attest)
     monkeypatch.setattr(
-        providers,
+        openbb_subprocess_provider._OpenBBSubprocessRunner, "attest_protocol", observed_attest
+    )
+    monkeypatch.setattr(
+        openbb_runner,
         "_read_openbb_runner_stream_bounded",
         failing_request_stderr_reader,
     )
     monkeypatch.setattr(
-        providers,
+        openbb_runner,
         "_confirm_openbb_runner_group_terminated",
         delayed_request_confirmation,
     )
-    monkeypatch.setattr(providers.subprocess, "Popen", observed_popen)
+    monkeypatch.setattr(openbb_runner.subprocess, "Popen", observed_popen)
     provider = OpenBBSubprocessProvider(command=command, max_concurrent_runs=1)
     first_fetch = asyncio.create_task(provider.fetch(_request()))
 
@@ -1347,8 +1343,6 @@ async def test_openbb_permission_denied_cleanup_fails_closed_after_group_confirm
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A denied group signal cannot become a successful OpenBB receipt."""
-    import app.services.market_data.providers as providers
-
     permission_denied = asyncio.Event()
     group_was_live = asyncio.Event()
     group_confirmed = asyncio.Event()
@@ -1385,7 +1379,7 @@ async def test_openbb_permission_denied_cleanup_fails_closed_after_group_confirm
         await asyncio.sleep(0.05)
         actual_killpg(process_group_id, signal.SIGKILL)
 
-    monkeypatch.setattr(providers.os, "killpg", signal_with_audited_denial)
+    monkeypatch.setattr(openbb_runner.os, "killpg", signal_with_audited_denial)
     child_ready = tmp_path / "permission-child-ready"
     script = _runner_script(
         tmp_path,
@@ -1452,15 +1446,13 @@ async def test_openbb_double_cancellation_waits_for_kill_reap_and_drain(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A repeated cancellation cannot release the OpenBB runner slot early."""
-    import app.services.market_data.providers as providers
-
     ready = tmp_path / "double-cancel-child-ready"
     survived = tmp_path / "double-cancel-child-survived"
     runner_pid = tmp_path / "double-cancel-runner-pid"
     cleanup_started = asyncio.Event()
     cleanup_finished = asyncio.Event()
-    original_cleanup = providers._cleanup_owned_openbb_runner_group
-    original_confirmation = providers._confirm_openbb_runner_group_terminated
+    original_cleanup = openbb_runner._cleanup_owned_openbb_runner_group
+    original_confirmation = openbb_runner._confirm_openbb_runner_group_terminated
 
     async def delayed_confirmation(process_group_id: int) -> None:
         await original_confirmation(process_group_id)
@@ -1472,8 +1464,10 @@ async def test_openbb_double_cancellation_waits_for_kill_reap_and_drain(
         cleanup_finished.set()
         return result
 
-    monkeypatch.setattr(providers, "_confirm_openbb_runner_group_terminated", delayed_confirmation)
-    monkeypatch.setattr(providers, "_cleanup_owned_openbb_runner_group", observed_cleanup)
+    monkeypatch.setattr(
+        openbb_runner, "_confirm_openbb_runner_group_terminated", delayed_confirmation
+    )
+    monkeypatch.setattr(openbb_runner, "_cleanup_owned_openbb_runner_group", observed_cleanup)
     script = _runner_script(
         tmp_path,
         f"""
