@@ -114,7 +114,7 @@
     "schema_version": "iter196-market-data-baseline-v1",
     "status": "frozen"
   },
-  "manifest_sha256": "2950d1ac6f05d3a468060d07d4b2289363f21413d026e20ef844f9c8018961df",
+  "manifest_sha256": "dff451d94623c86a44805d59ead0be51ccebec49a09b4652d1e5a6f57c0e0f0a",
   "rows": [
     {
       "api": {
@@ -306,7 +306,8 @@
         "dimension_fields": [
           "report_date",
           "reporting_entity",
-          "rank"
+          "rank",
+          "report_type"
         ],
         "field_profile_id": "crypto-cme-position-v1",
         "optional_fields": [],
@@ -339,7 +340,7 @@
         "v2_query_periods": []
       },
       "reason_code": "DATASET_CONTRACT_UNCONFIGURED",
-      "row_sha256": "864e50387fd690cd1c148303fbc203cb59d5b074f58f0c66ac304e13f04591a0",
+      "row_sha256": "7a334bcbaf3be34ec6b14668018ea20981894d292a2e633332fc5ad7509380cb",
       "source_policy_id": null,
       "strategy_page_production_status": "not_enabled_by_scope_manifest"
     },
@@ -1119,7 +1120,8 @@
         "dimension_fields": [
           "underlying_canonical_id",
           "expiry",
-          "moneyness"
+          "moneyness",
+          "model_version"
         ],
         "field_profile_id": "option-risk-surface-v1",
         "optional_fields": [],
@@ -1128,8 +1130,7 @@
           "delta",
           "gamma",
           "theta",
-          "vega",
-          "model_version"
+          "vega"
         ]
       },
       "frequencies": [
@@ -1150,7 +1151,7 @@
         "v2_query_periods": []
       },
       "reason_code": "DATASET_CONTRACT_UNCONFIGURED",
-      "row_sha256": "440372a0b16aace2c5dada58ac9b8f42e8ea8cb3b42dc48987172e960fc15001",
+      "row_sha256": "297abe08414b00057ff7212220039f4ddae2180d004faaf4c999ad327c2556c5",
       "source_policy_id": null,
       "strategy_page_production_status": "not_enabled_by_scope_manifest"
     },
@@ -1353,7 +1354,7 @@
     {
       "path": "src/backend/app/services/market_data/dataset_contracts.py",
       "role": "backend_contract_registry",
-      "sha256": "033e11413947f7c1cf4618edd83a503caf503604597eb50e4bcc5abfefaed274"
+      "sha256": "78b68efdd740437b6cbc79975cd2163dd76c1e015e7a009d6a8c3f758b806c35"
     },
     {
       "path": "src/backend/app/schemas/market_data_platform.py",
