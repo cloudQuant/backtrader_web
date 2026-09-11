@@ -45,6 +45,7 @@ from app.services.market_data.fetch_lease import (
 from app.services.market_data.multi_record_evidence import (
     B2CompletenessEvidenceError,
     assert_b2_completeness_receipt_integrity,
+    assert_b2_source_event_manifest_integrity,
 )
 
 UTC = timezone.utc
@@ -377,6 +378,7 @@ class MarketDataPublicationManager:
                 fetch_lease=fetch_lease,
                 pre_publish_guard=pre_publish_guard,
             )
+            await self._assert_pending_entity_integrity(rows)
             published_at = await self._publish_locked_rows(rows, lower_bound=lower_bound)
             await self._db.commit()
             return published_at
@@ -1074,9 +1076,16 @@ class MarketDataPublicationManager:
             entries_by_receipt[receipt_id].append(semantic_record_key_sha256)
         try:
             for receipt in evidence_rows:
-                assert_b2_completeness_receipt_integrity(
+                selector = assert_b2_completeness_receipt_integrity(
                     receipt,
                     entries_by_receipt[receipt.id],
+                )
+                await assert_b2_source_event_manifest_integrity(
+                    self._db,
+                    series_id=receipt.series_id,
+                    source_snapshot_id=receipt.source_snapshot_id,
+                    event_at=_stored_utc(receipt.event_at),
+                    expected_hashes=selector.expected_record_key_sha256s,
                 )
         except (B2CompletenessEvidenceError, TypeError, ValueError) as exc:
             raise MarketDataPublicationError("PUBLICATION_ENTITY_INTEGRITY") from exc

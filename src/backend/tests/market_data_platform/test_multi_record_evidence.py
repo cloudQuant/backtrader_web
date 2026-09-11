@@ -6,12 +6,13 @@ import hashlib
 from datetime import datetime
 
 import pytest
-from sqlalchemy import func, select, update
+from sqlalchemy import delete, func, select, update
 
 from app.db.database import async_session_maker
 from app.models.market_data_platform import (
     MdB2CompletenessManifestEntry,
     MdB2CompletenessReceipt,
+    MdObservationRevision,
     MdPublication,
 )
 from app.services.market_data.multi_record_evidence import (
@@ -229,3 +230,66 @@ async def test_pending_receipt_publication_rejects_a_raw_sql_parent_semantic_tam
 
         with pytest.raises(MarketDataPublicationError, match="PUBLICATION_ENTITY_INTEGRITY"):
             await MarketDataPublicationManager(db).recover_pending()
+
+
+@pytest.mark.asyncio
+async def test_direct_receipt_publication_rejects_a_raw_sql_manifest_tamper() -> None:
+    """The normal publish path has the same deep B2 integrity guard as recovery."""
+    series_id, source_snapshot_id = await _persist_b2_source()
+
+    async with async_session_maker() as db:
+        staged = await B2CompletenessEvidenceIssuer(db).stage(
+            _request(series_id=series_id, source_snapshot_id=source_snapshot_id)
+        )
+        await db.commit()
+        db.add(
+            MdB2CompletenessManifestEntry(
+                receipt_id=staged.receipt_id,
+                semantic_record_key_sha256="f" * 64,
+            )
+        )
+        await db.commit()
+
+        with pytest.raises(MarketDataPublicationError, match="PUBLICATION_ENTITY_INTEGRITY"):
+            await MarketDataPublicationManager(db).publish_staged((staged.publication_id,))
+
+
+@pytest.mark.asyncio
+async def test_direct_receipt_publication_rejects_a_raw_sql_source_event_tamper() -> None:
+    """A manifest cannot publish after its exact source-event set was changed."""
+    series_id, source_snapshot_id = await _persist_b2_source()
+
+    async with async_session_maker() as db:
+        staged = await B2CompletenessEvidenceIssuer(db).stage(
+            _request(series_id=series_id, source_snapshot_id=source_snapshot_id)
+        )
+        await db.commit()
+        await db.execute(
+            delete(MdObservationRevision).where(
+                MdObservationRevision.series_id == series_id,
+                MdObservationRevision.source_snapshot_id == source_snapshot_id,
+                MdObservationRevision.event_time == _at(10),
+            )
+        )
+        await db.commit()
+
+        with pytest.raises(MarketDataPublicationError, match="PUBLICATION_ENTITY_INTEGRITY"):
+            await MarketDataPublicationManager(db).publish_staged((staged.publication_id,))
+
+
+@pytest.mark.asyncio
+async def test_direct_receipt_publication_seals_intact_exact_source_evidence() -> None:
+    """An intact receipt can pass the same source-event proof and become visible."""
+    series_id, source_snapshot_id = await _persist_b2_source()
+
+    async with async_session_maker() as db:
+        staged = await B2CompletenessEvidenceIssuer(db).stage(
+            _request(series_id=series_id, source_snapshot_id=source_snapshot_id)
+        )
+        await db.commit()
+        await MarketDataPublicationManager(db).publish_staged((staged.publication_id,))
+        publication = await db.get(MdPublication, staged.publication_id)
+
+    assert publication is not None
+    assert publication.published_at is not None
+    assert publication.visibility_sequence is not None

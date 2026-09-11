@@ -146,7 +146,8 @@ class B2CompletenessEvidenceIssuer:
             family_id=contract.family_id,
             family_contract_version=contract.family_contract_version,
         )
-        await self._assert_source_event_matches_manifest(
+        await assert_b2_source_event_manifest_integrity(
+            self._db,
             series_id=series_id,
             source_snapshot_id=source_snapshot_id,
             event_at=event_at,
@@ -229,31 +230,6 @@ class B2CompletenessEvidenceIssuer:
         )
         if source_snapshot is None:
             raise B2CompletenessEvidenceError("B2_COMPLETENESS_SOURCE_NOT_FOUND")
-
-    async def _assert_source_event_matches_manifest(
-        self,
-        *,
-        series_id: str,
-        source_snapshot_id: str,
-        event_at: datetime,
-        expected_hashes: Sequence[str],
-    ) -> None:
-        rows = tuple(
-            (
-                await self._db.execute(
-                    select(MdObservationRevision.semantic_record_key_sha256)
-                    .where(
-                        MdObservationRevision.series_id == series_id,
-                        MdObservationRevision.source_snapshot_id == source_snapshot_id,
-                        MdObservationRevision.event_time == event_at,
-                    )
-                    .order_by(MdObservationRevision.semantic_record_key_sha256)
-                    .with_for_update()
-                )
-            ).scalars()
-        )
-        if rows != tuple(expected_hashes):
-            raise B2CompletenessEvidenceError("B2_COMPLETENESS_SOURCE_RECORDS_MISMATCH")
 
     async def _create_or_reuse_receipt(
         self,
@@ -447,6 +423,51 @@ def assert_b2_completeness_receipt_integrity(
         raise B2CompletenessEvidenceError("B2_COMPLETENESS_RECEIPT_INVALID") from exc
     except (TypeError, ValueError) as exc:
         raise B2CompletenessEvidenceError("B2_COMPLETENESS_RECEIPT_INVALID") from exc
+
+
+async def assert_b2_source_event_manifest_integrity(
+    db: AsyncSession,
+    *,
+    series_id: str,
+    source_snapshot_id: str,
+    event_at: datetime,
+    expected_hashes: Iterable[str],
+) -> None:
+    """Require the current exact source-event key set to equal a B2 manifest.
+
+    Issuance checks this before creating a receipt, while publication and
+    strict readers repeat it before trusting durable evidence.  The source
+    snapshot boundary is mandatory: revisions from a later receipt must never
+    complete, replace, or invalidate an earlier selector manifest.
+    """
+    if not isinstance(db, AsyncSession):
+        raise TypeError("db must be an AsyncSession")
+    normalized_series_id = _require_identifier(
+        series_id,
+        code="B2_COMPLETENESS_RECEIPT_INVALID",
+    )
+    normalized_source_snapshot_id = _require_identifier(
+        source_snapshot_id,
+        code="B2_COMPLETENESS_RECEIPT_INVALID",
+    )
+    normalized_event_at = _require_event_at(event_at)
+    normalized_expected_hashes = _normalize_entry_hashes(expected_hashes)
+    rows = tuple(
+        (
+            await db.execute(
+                select(MdObservationRevision.semantic_record_key_sha256)
+                .where(
+                    MdObservationRevision.series_id == normalized_series_id,
+                    MdObservationRevision.source_snapshot_id == normalized_source_snapshot_id,
+                    MdObservationRevision.event_time == normalized_event_at,
+                )
+                .order_by(MdObservationRevision.semantic_record_key_sha256)
+                .with_for_update()
+            )
+        ).scalars()
+    )
+    if rows != normalized_expected_hashes:
+        raise B2CompletenessEvidenceError("B2_COMPLETENESS_SOURCE_RECORDS_MISMATCH")
 
 
 def _assert_series_family_binding(
