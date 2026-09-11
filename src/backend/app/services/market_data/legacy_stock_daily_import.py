@@ -59,14 +59,25 @@ _MAX_SAFE_JSON_INTEGER = 9_007_199_254_740_991
 _ISO_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _ALLOWED_MARKETS = frozenset({"CN-SSE", "CN-SZSE"})
+# ``STOCK_ZH_A_HIST`` has historically accepted AkShare/Eastmoney records,
+# Tencent fallbacks, and trends-derived rows.  Its table name therefore cannot
+# prove an AkShare route.  The protocol labels it as an explicit legacy
+# warehouse source until a separately reviewed per-row provenance migration
+# exists.  Keep these identifiers public because every concrete gate/reader
+# must reject an attempt to relabel the mixed table as an AkShare receipt.
+LEGACY_STOCK_DAILY_SOURCE_REGISTRY_ID = "legacy-stock-zh-a-hist-warehouse"
+LEGACY_STOCK_DAILY_PROVIDER_ID = LEGACY_STOCK_DAILY_SOURCE_REGISTRY_ID
+LEGACY_STOCK_DAILY_ROUTE_ID = "legacy-stock-zh-a-hist-offline-import-v1"
+LEGACY_STOCK_DAILY_PROVENANCE_CLASS = "mixed_legacy_warehouse"
+
 _REQUIRED_ATTESTATION = {
-    "source_id": "akshare",
+    "source_id": LEGACY_STOCK_DAILY_SOURCE_REGISTRY_ID,
     "adjustment": "qfq",
     "source_timezone": "Asia/Shanghai",
     "schema_version": LEGACY_STOCK_DAILY_SCHEMA_VERSION,
 }
-_REQUIRED_PROVIDER_ID = "akshare"
-_REQUIRED_ROUTE_ID = "akshare-stock-kline-legacy-v1"
+_REQUIRED_PROVIDER_ID = LEGACY_STOCK_DAILY_PROVIDER_ID
+_REQUIRED_ROUTE_ID = LEGACY_STOCK_DAILY_ROUTE_ID
 
 
 class LegacyStockDailyImportError(ValueError):
