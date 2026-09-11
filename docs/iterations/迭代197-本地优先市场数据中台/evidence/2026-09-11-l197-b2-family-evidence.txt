@@ -1,0 +1,86 @@
+# L-197-37：B2 多记录 durable completeness evidence 冻结收据
+
+日期：2026-09-11
+实现候选：`e2bfc19e20ecb5f130d898ae3f1615b5118e031b`
+实现提交范围：`b4f5905f..e2bfc19e`
+工作树：`/Users/yunjinqi/Downloads/backtrader_web/.worktrees/codex/iteration-197-b2-family-evidence`
+
+## 已实现的内部机制
+
+- 四个内部 versioned B2 family contract：`futures.inventory`、`option.derivative`、`option.risk_surface`、`crypto.cme_position`；每个 contract 固定 exact dimensions、selector kind 和 type-sensitive semantic record key 派生。
+- `20260911_market_data_b2_completeness_evidence` 新增 append-only `md_b2_completeness_receipts` 和 `md_b2_completeness_manifest_entries`，用 `b2_completeness_receipt` publication 控制可见性。
+- issuer 从 reviewed dimensions 重新派生 selector、expected semantic-key manifest、zero evidence、manifest digest 与 receipt digest；它在持久化前核对同一 source snapshot、精确 event 的事实 key 集合。
+- recovery、直接发布和 strict reader 都重新验证 parent digest、child manifest、zero state 与 exact source-event manifest；source receipt 与 B2 receipt 必须同时位于同一 frozen visibility anchor。
+- strict reader 将请求 selector 限为 receipt lookup coordinate；只从 durable receipt 重建 selector/manifest/zero certificate，只查询 receipt-bound source snapshot。证据缺失返回 `DURABLE_SELECTOR_EVIDENCE_MISSING`，不读取事实或返回 partial；cursor 还绑定 receipt ID/hash 和 source snapshot ID。
+- 全部 B2 family 仍保持 `DATA_FAMILY_UNCONFIGURED`。本实现没有 public route、provider adapter、AkShare/OpenBB 调用、scheduler、capability permit 或前端入口。
+
+## 本地开发验证
+
+完整候选矩阵：
+
+```text
+/Users/yunjinqi/opt/anaconda3/bin/conda run -n base python -m pytest -q \
+  tests/market_data_platform tests/test_config.py -p no:cacheprovider --tb=short
+```
+
+结果：`1030 passed, 137 warnings in 347.87s`。
+
+B2 evidence 聚焦矩阵：
+
+```text
+/Users/yunjinqi/opt/anaconda3/bin/conda run --no-capture-output -n base python -m pytest -q \
+  tests/market_data_platform/test_multi_record_contracts.py \
+  tests/market_data_platform/test_multi_record_evidence.py \
+  tests/market_data_platform/test_multi_record_evidence_models.py \
+  tests/market_data_platform/test_multi_record_evidence_migration.py \
+  tests/market_data_platform/test_multi_record_durable_reader.py \
+  tests/market_data_platform/test_multi_record_query_service.py \
+  tests/market_data_platform/test_multi_record_store.py \
+  tests/market_data_platform/test_multi_record_completeness.py \
+  tests/market_data_platform/test_publication_recovery.py \
+  tests/market_data_platform/test_deferred_publication.py \
+  -p no:cacheprovider --tb=short
+```
+
+结果：`91 passed, 14 warnings in 29.76s`。
+
+迁移和跨域 head 合同：最初完整 platform matrix 发现 `test_multi_record_migration.py` 仍把 semantic-record-key revision 当作 head；独立审查随后发现四个 AI-research/asset-research migration test 和 acceptance runner 仍固定在旧 head。修复所有断言与 required ancestry 后，执行：
+
+```text
+/Users/yunjinqi/opt/anaconda3/bin/conda run --no-capture-output -n base python -m pytest -q \
+  tests/test_ai_research_approval_migration.py::test_approval_authority_revision_has_an_integrated_successor \
+  tests/test_ai_research_holdout_execution_migration.py::test_holdout_execution_revision_has_an_approval_successor_in_the_integrated_graph \
+  tests/asset_research/test_migration.py::test_asset_research_graph_has_one_integrated_head \
+  tests/test_ai_research_v2_migration.py::test_protocol_v2_migration_is_a_linear_expand_only_revision \
+  tests/test_iteration197_acceptance_runner.py \
+  -p no:cacheprovider --tb=short
+```
+
+结果：`33 passed, 17 warnings in 12.89s`。另有 B2 migration/storage 聚焦矩阵 `78 passed, 81 warnings in 61.29s`。
+
+静态检查：B2 implementation、models、migration tests、跨域 migration tests 和 acceptance runner 均通过 `ruff check`；B2 新增/修改模块和测试通过 `ruff format --check`。acceptance runner 在本轮变更前已有 formatter drift；为避免无关的 148 行格式化重排，仅保留其 5 行 sealed-head/ancestry 的功能改动，并以 `ruff check` 和 `git diff --check` 验证。
+
+Alembic 与空 SQLite：
+
+```text
+/Users/yunjinqi/opt/anaconda3/bin/conda run --no-capture-output -n base alembic -c alembic.ini heads
+# 输出：20260911_market_data_b2_completeness_evidence (head)
+
+DATABASE_URL=sqlite+aiosqlite:///tmp/<temporary-db> \
+  /Users/yunjinqi/opt/anaconda3/bin/conda run --no-capture-output -n base \
+  alembic -c alembic.ini upgrade head
+```
+
+对临时空 SQLite 的 table check 输出：
+
+```text
+B2_SQLITE_UPGRADE_TABLES=md_b2_completeness_manifest_entries,md_b2_completeness_receipts
+```
+
+临时数据库已在检查结束后删除。
+
+## 审查与边界
+
+独立代码审查先指出跨域 stale Alembic-head 断言这一 Important 问题；修复后，B2 startup-schema、receipt/manifest integrity、publication/recovery、strict local reader、exact source filtering 和 cursor evidence binding 未发现其它 Critical 或 Important 问题。
+
+本记录只支持 SQLite/local-development 候选结论，不能替代下列尚未运行的验收：真实 AkShare/OpenBB/provider、真实 provider-backed source completeness 或 zero assertion、来源许可证和 source policy、`MarketDataAccessGrant` 派生的 public authorization、public B2 route/provider/frontend/scheduler、MySQL/PostgreSQL/MariaDB 实际 migration/writer drain/concurrency/scale/PIT/recovery、浏览器/API/数据库三方和生产验收。上述状态保持 `NOT_RUN / NO-GO`。
