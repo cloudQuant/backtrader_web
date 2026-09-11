@@ -181,7 +181,7 @@ def test_registry_covers_all_named_acceptance_cases_and_formal_matrix_ids() -> N
     ]
     assert set(runner._CASE_BY_FORMAL_ID) == {case.formal_case_id for case in runner._CASES}
     assert runner._CASE_BY_FORMAL_ID["AC-197-MATRIX-001"] is runner._CASE_BY_ID["AC-01"]
-    assert runner.CASE_MAPPING_VERSION == "iteration197-unified-matrix-id-v3-ac17-openbb-runner-g1"
+    assert runner.CASE_MAPPING_VERSION == "iteration197-unified-matrix-id-v4-offline-g1-coverage"
     assert set(runner.VALID_MODES) == {
         "offline",
         "integration",

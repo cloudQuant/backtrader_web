@@ -69,7 +69,7 @@ ACCEPTANCE_SPEC_ID = "iteration197-unified-data-platform-openbb-matrix-v1"
 ACCEPTANCE_SPEC_PATH = (
     "docs/iterations/迭代197-统一数据中台与OpenBB本地优先集成/ACCEPTANCE.md"
 )
-CASE_MAPPING_VERSION = "iteration197-unified-matrix-id-v3-ac17-openbb-runner-g1"
+CASE_MAPPING_VERSION = "iteration197-unified-matrix-id-v4-offline-g1-coverage"
 ENVIRONMENT_SCHEMA_VERSION = "iteration197-acceptance-environment-v1"
 SOURCE_MANIFEST_SCHEMA_VERSION = "iteration197-approved-source-manifest-v2"
 
@@ -211,6 +211,118 @@ _OFFLINE_TESTS_BY_CASE_ASSET: dict[tuple[str, str], tuple[str, ...]] = {
         "test_imported_etf_nav_grid_persists_then_rereads_the_source_reported_facts",
     ),
     (
+        "AC-03",
+        "stock",
+    ): (
+        "tests/market_data_platform/test_coverage.py::"
+        "test_planner_returns_precise_head_middle_and_tail_gaps",
+        "tests/market_data_platform/test_query_service.py::"
+        "test_fetch_lease_key_is_stable_for_one_resolved_gap_and_changes_with_semantics",
+    ),
+    (
+        "AC-03",
+        "fund",
+    ): (
+        "tests/market_data_platform/test_coverage.py::"
+        "test_planner_accepts_only_identity_fields_quality_and_pit_eligible_observations",
+        "tests/market_data_platform/test_calendar_importer.py::"
+        "test_calendar_import_reads_reference_series_daily_grid_for_local_first_coverage",
+    ),
+    (
+        "AC-04",
+        "stock",
+    ): (
+        "tests/market_data_platform/test_coverage.py::"
+        "test_planner_does_not_count_a_legacy_pass_placeholder_as_complete_coverage[--]",
+        "tests/market_data_platform/test_query_service.py::"
+        "test_first_and_continuation_pages_share_one_identity_pit_boundary",
+    ),
+    (
+        "AC-04",
+        "fund",
+    ): (
+        "tests/market_data_platform/test_query_service.py::"
+        "test_cursor_keeps_identity_cutoff_when_current_fetch_advances_observation_cutoff",
+        "tests/market_data_platform/test_coverage.py::"
+        "test_naive_time_is_rejected_at_the_coverage_boundary",
+    ),
+    (
+        "AC-05",
+        "stock",
+    ): (
+        "tests/market_data_platform/test_coverage.py::"
+        "test_unknown_calendar_returns_a_typed_unknown_status_instead_of_complete",
+        "tests/market_data_platform/test_calendar_importer.py::"
+        "test_calendar_import_keeps_independent_explicit_grids_per_bar_frequency",
+        "tests/market_data_platform/test_calendar_trading_day_events.py::"
+        "test_calendar_trading_day_events_returns_sorted_one_to_one_daily_event_keys",
+    ),
+    (
+        "AC-05",
+        "crypto",
+    ): (
+        "tests/market_data_platform/test_coverage.py::"
+        "test_empty_default_calendar_cannot_prove_complete_coverage",
+        "tests/market_data_platform/test_coverage.py::"
+        "test_known_calendar_outside_its_evidence_window_is_unknown",
+    ),
+    (
+        "AC-06",
+        "stock",
+    ): (
+        "tests/market_data_platform/test_query_service.py::"
+        "test_known_empty_calendar_window_does_not_trigger_a_provider_fetch",
+        "tests/market_data_platform/test_calendar_importer.py::"
+        "test_calendar_read_limits_event_grid_to_the_requested_window_intersection",
+    ),
+    (
+        "AC-06",
+        "fund",
+    ): (
+        "tests/market_data_platform/test_query_service.py::"
+        "test_historical_quote_snapshot_miss_never_fetches_a_present_value",
+        "tests/market_data_platform/test_calendar_importer.py::"
+        "test_calendar_read_keeps_a_declared_grid_known_when_window_has_no_event",
+    ),
+    (
+        "AC-07",
+        "stock",
+    ): (
+        "tests/market_data_platform/test_snapshot_coverage.py::"
+        "test_snapshot_coverage_returns_one_full_window_gap_for_a_stale_quote",
+        "tests/market_data_platform/test_query_service.py::"
+        "test_stale_quote_snapshot_fetches_one_current_replacement",
+        "tests/market_data_platform/test_query_service.py::"
+        "test_quote_refresh_uses_the_same_injected_freshness_policy",
+    ),
+    (
+        "AC-07",
+        "fund",
+    ): (
+        "tests/market_data_platform/test_snapshot_coverage.py::"
+        "test_snapshot_coverage_accepts_a_recent_exact_local_observation",
+        "tests/market_data_platform/test_query_service.py::"
+        "test_quote_response_hides_stale_local_snapshots_from_the_display",
+    ),
+    (
+        "AC-08",
+        "stock",
+    ): (
+        "tests/market_data_platform/test_store.py::"
+        "test_store_marks_akshare_bar_placeholders_failed_under_the_typed_policy[--]",
+        "tests/market_data_platform/test_query_service.py::"
+        "test_mismatched_provider_receipt_is_not_persisted_and_next_route_can_fill_gap",
+    ),
+    (
+        "AC-08",
+        "fund",
+    ): (
+        "tests/market_data_platform/test_query_service.py::"
+        "test_response_excludes_legacy_pass_placeholders_but_coverage_retains_rejection",
+        "tests/market_data_platform/test_query_service.py::"
+        "test_unknown_calendar_triggers_one_bounded_fetch_but_never_claims_complete",
+    ),
+    (
         "AC-09",
         "stock",
     ): (
@@ -223,6 +335,102 @@ _OFFLINE_TESTS_BY_CASE_ASSET: dict[tuple[str, str], tuple[str, ...]] = {
     ): (
         "tests/market_data_platform/test_identity.py::"
         "test_resolver_binds_stock_and_futures_to_validated_master_versions",
+    ),
+    (
+        "AC-10",
+        "stock",
+    ): (
+        "tests/market_data_platform/test_identity.py::"
+        "test_resolver_uses_the_complete_exact_tuple_and_never_substitutes_nearby_symbols",
+        "tests/market_data_platform/test_akshare_provider.py::"
+        "test_akshare_provider_rejects_a_response_for_a_different_symbol",
+    ),
+    (
+        "AC-10",
+        "futures",
+    ): (
+        "tests/market_data_platform/test_identity.py::"
+        "test_resolver_binds_stock_and_futures_to_validated_master_versions",
+        "tests/market_data_platform/test_akshare_provider.py::"
+        "test_akshare_provider_rejects_a_symbol_that_contradicts_its_market",
+    ),
+    (
+        "AC-11",
+        "stock",
+    ): (
+        "tests/market_data_platform/test_akshare_provider.py::"
+        "test_akshare_provider_passes_the_explicit_adjustment_and_price_basis",
+        "tests/market_data_platform/test_store.py::"
+        "test_store_appends_source_provenance_and_normalized_revisions",
+        "tests/market_data_platform/test_store.py::"
+        "test_local_read_keeps_an_older_complete_revision_visible_after_a_narrower_revision",
+    ),
+    (
+        "AC-11",
+        "fund",
+    ): (
+        "tests/market_data_platform/test_akshare_provider.py::"
+        "test_akshare_provider_passes_the_explicit_adjustment_and_price_basis",
+        "tests/market_data_platform/test_store.py::"
+        "test_series_identity_reuses_one_series_across_windows_and_projection_fields",
+    ),
+    (
+        "AC-12",
+        "stock",
+    ): (
+        "tests/market_data_platform/test_query_contract.py::"
+        "test_query_requires_aware_half_open_time_range_and_unambiguous_bar_frequency",
+        "tests/market_data_platform/test_dataset_contracts.py::"
+        "test_query_dto_rejects_unsupported_data_kind_frequency_combinations"
+        "[changes0-bars queries cannot use the snapshot frequency]",
+    ),
+    (
+        "AC-12",
+        "fund",
+    ): (
+        "tests/market_data_platform/test_calendar_importer.py::"
+        "test_calendar_import_keeps_independent_explicit_grids_per_bar_frequency",
+        "tests/market_data_platform/test_calendar_importer.py::"
+        "test_calendar_import_rejects_unsupported_reference_series_frequency",
+    ),
+    (
+        "AC-13",
+        "option",
+    ): (
+        "tests/market_data_platform/test_query_service.py::"
+        "test_unconfigured_multi_record_shape_fails_before_local_or_provider_work",
+        "tests/market_data_platform/test_multi_record_contracts.py::"
+        "test_option_contract_rejects_missing_extra_and_wrong_typed_dimensions",
+    ),
+    (
+        "AC-13",
+        "crypto",
+    ): (
+        "tests/market_data_platform/test_query_service.py::"
+        "test_unconfigured_multi_record_shape_fails_before_local_or_provider_work",
+        "tests/market_data_platform/test_multi_record_contracts.py::"
+        "test_report_contract_requires_positive_integer_rank_and_issues_a_report_selector",
+    ),
+    (
+        "AC-14",
+        "stock",
+    ): (
+        "tests/market_data_platform/test_field_quality.py::"
+        "test_known_numeric_fields_reject_placeholders_and_non_numeric_values[nan]",
+        "tests/market_data_platform/test_field_quality.py::"
+        "test_known_numeric_fields_reject_placeholders_and_non_numeric_values[inf]",
+        "tests/market_data_platform/test_akshare_provider.py::"
+        "test_akshare_provider_rejects_unmapped_query_semantics"
+        "[changes3-AKSHARE_UNIT_UNSUPPORTED]",
+    ),
+    (
+        "AC-14",
+        "fund",
+    ): (
+        "tests/market_data_platform/test_field_quality.py::"
+        "test_known_numeric_fields_have_one_json_safe_canonical_form[10.25-10.25]",
+        "tests/market_data_platform/test_field_quality.py::"
+        "test_known_date_fields_reject_placeholders_and_invalid_dates[not-a-date]",
     ),
     (
         "AC-15",
@@ -270,6 +478,29 @@ _OFFLINE_TESTS_BY_CASE_ASSET: dict[tuple[str, str], tuple[str, ...]] = {
         "test_registry_declares_all_twenty_one_current_market_page_families",
         "tests/market_data_platform/test_akshare_provider.py::"
         "test_akshare_provider_fetches_the_exact_fx_range_ohlc_shape",
+    ),
+    (
+        "AC-16",
+        "stock",
+    ): (
+        "tests/market_data_platform/test_query_service.py::"
+        "test_fallback_provider_starts_after_prior_route_transaction_is_closed",
+        "tests/market_data_platform/test_query_service.py::"
+        "test_inactive_provider_is_rejected_before_external_fetch",
+    ),
+    (
+        "AC-16",
+        "fund",
+    ): (
+        "tests/market_data_platform/test_access_authorization.py::"
+        "test_policy_preflight_can_select_only_currently_authorized_fallback_routes",
+    ),
+    (
+        "AC-16",
+        "fx",
+    ): (
+        "tests/market_data_platform/test_access_authorization.py::"
+        "test_policy_preflight_can_select_only_currently_authorized_fallback_routes",
     ),
     (
         "AC-17",
@@ -328,6 +559,65 @@ _OFFLINE_TESTS_BY_CASE_ASSET: dict[tuple[str, str], tuple[str, ...]] = {
         _OPENBB_RUNNER_SOCKET_G1_TARGET,
     ),
     (
+        "AC-18",
+        "stock",
+    ): (
+        "tests/market_data_platform/test_akshare_provider.py::"
+        "test_akshare_provider_times_out_bounded_worker_calls",
+        "tests/market_data_platform/test_akshare_provider.py::"
+        "test_akshare_provider_rejects_oversized_dataframe_before_materializing_rows",
+    ),
+    (
+        "AC-18",
+        "fund",
+    ): (
+        "tests/market_data_platform/test_akshare_provider.py::"
+        "test_akshare_provider_times_out_while_all_worker_slots_are_held",
+    ),
+    (
+        "AC-18",
+        "fx",
+    ): (
+        "tests/market_data_platform/test_akshare_runner_provider.py::"
+        "test_akshare_runner_bounds_every_output_pipe",
+    ),
+    (
+        "AC-22",
+        "stock",
+    ): (
+        "tests/market_data_platform/test_field_quality.py::"
+        "test_provider_field_normalization_quarantines_only_invalid_known_numeric_values",
+        "tests/market_data_platform/test_store.py::"
+        "test_store_rejects_unregistered_out_of_window_and_duplicate_provider_events",
+        "tests/market_data_platform/test_store.py::"
+        "test_store_bounds_inline_raw_payload_before_writing_source_evidence",
+    ),
+    (
+        "AC-22",
+        "fund",
+    ): (
+        "tests/market_data_platform/test_field_quality.py::"
+        "test_provider_field_normalization_quarantines_only_invalid_known_numeric_values",
+        "tests/market_data_platform/test_store.py::"
+        "test_store_rejects_invalid_shared_payload_segment_before_writing_evidence",
+    ),
+    (
+        "AC-30",
+        "stock",
+    ): (
+        "tests/market_data_platform/test_query_api.py::"
+        "test_equivalent_current_local_first_misses_share_one_fetch_and_commit",
+        "tests/market_data_platform/test_query_api.py::"
+        "test_refresh_queries_do_not_reuse_local_first_singleflight_followers",
+    ),
+    (
+        "AC-30",
+        "fund",
+    ): (
+        "tests/market_data_platform/test_query_api.py::"
+        "test_singleflight_follower_revalidates_access_after_its_snapshot_rollback",
+    ),
+    (
         "AC-32",
         "stock",
     ): (
@@ -354,11 +644,36 @@ _OFFLINE_TESTS_BY_CASE_ASSET: dict[tuple[str, str], tuple[str, ...]] = {
     # tuple absent makes every offline AC-36 asset slice fail closed as
     # ``NOT_RUN`` without starting a child pytest process.
     (
+        "AC-37",
+        "stock",
+    ): (
+        "tests/market_data_platform/test_store.py::"
+        "test_store_uses_local_receipt_time_not_provider_claim_for_pit_visibility",
+        "tests/market_data_platform/test_store.py::"
+        "test_store_uses_visibility_sequence_to_exclude_later_receipts_at_or_before_cutoff",
+    ),
+    (
+        "AC-37",
+        "fund",
+    ): (
+        "tests/market_data_platform/test_identity.py::"
+        "test_strict_cutoff_rejects_a_master_identity_backfilled_after_the_cutoff",
+    ),
+    (
         "AC-39",
         "stock",
     ): (
         "tests/market_data_platform/test_access_authorization.py::"
         "test_local_read_rechecks_current_source_and_entitlement_after_collection",
+    ),
+    (
+        "AC-40",
+        "stock",
+    ): (
+        "tests/market_data_platform/test_akshare_runner_provider.py::"
+        "test_akshare_runner_environment_never_forwards_application_secrets",
+        "tests/market_data_platform/test_query_api.py::"
+        "test_v2_query_endpoint_maps_stable_service_code_without_traceback",
     ),
 }
 
