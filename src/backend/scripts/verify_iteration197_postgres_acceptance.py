@@ -35,9 +35,10 @@ import multiprocessing
 import os
 import queue
 import re
+import signal
 import sys
 import uuid
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -143,8 +144,21 @@ WINDOW_END = datetime(2026, 9, 3, tzinfo=UTC)
 RECEIPT_AT = datetime(2026, 9, 3, 7, tzinfo=UTC)
 _PROCESS_EVENT_TIMEOUT_SECONDS = 20.0
 _PROCESS_RESULT_TIMEOUT_SECONDS = 30.0
+_FAULT_LEASE_TTL = timedelta(seconds=4)
+_FAULT_TAKEOVER_TIMEOUT_SECONDS = 12.0
+_FAULT_TERMINATED_LEADER_BLOCK_TIMEOUT_SECONDS = (
+    _PROCESS_EVENT_TIMEOUT_SECONDS
+    + _PROCESS_RESULT_TIMEOUT_SECONDS
+    + _FAULT_TAKEOVER_TIMEOUT_SECONDS
+)
 _PORTABILITY_PREDECESSOR_REVISION = "20260909_market_data_exact_identity_collation"
 _POSTGRES_IDENTIFIER_LIMIT = 63
+
+_FAULT_PHASE_RUNNER_STARTED = "runner_started"
+_FAULT_PHASE_RUNNER_RECEIPT_READY = "runner_receipt_ready"
+_FAULT_PHASE_STORE_BEFORE_PERSIST = "store_before_persist"
+_FAULT_PHASE_STORE_AFTER_PERSIST = "store_after_persist"
+_FAULT_PHASE_LEASE_RELEASE_STARTED = "lease_release_started"
 
 
 class PostgresAcceptanceHarnessError(RuntimeError):
@@ -262,6 +276,161 @@ class _TwoProcessExactGapEvidence:
 
 
 @dataclass(frozen=True, slots=True)
+class _FaultPhaseSpec:
+    """One deterministic interruption boundary for a fresh logical coverage gap.
+
+    ``receipt_durable_before_fault`` describes the source receipt rather than
+    the fake runner's in-memory response: the runner response is never called
+    durable until ``MarketDataStore.persist_provider_result`` has returned.
+    """
+
+    phase: str
+    canonical_id: str
+    receipt_durable_before_fault: bool
+    release_expected_after_cancellation: bool
+
+
+_FAULT_PHASE_SPECS = (
+    _FaultPhaseSpec(
+        phase=_FAULT_PHASE_RUNNER_STARTED,
+        canonical_id="instrument:stock:CN-SSE:600001",
+        receipt_durable_before_fault=False,
+        release_expected_after_cancellation=True,
+    ),
+    _FaultPhaseSpec(
+        phase=_FAULT_PHASE_RUNNER_RECEIPT_READY,
+        canonical_id="instrument:stock:CN-SSE:600002",
+        receipt_durable_before_fault=False,
+        release_expected_after_cancellation=True,
+    ),
+    _FaultPhaseSpec(
+        phase=_FAULT_PHASE_STORE_BEFORE_PERSIST,
+        canonical_id="instrument:stock:CN-SSE:600003",
+        receipt_durable_before_fault=False,
+        release_expected_after_cancellation=True,
+    ),
+    _FaultPhaseSpec(
+        phase=_FAULT_PHASE_STORE_AFTER_PERSIST,
+        canonical_id="instrument:stock:CN-SSE:600004",
+        receipt_durable_before_fault=True,
+        release_expected_after_cancellation=True,
+    ),
+    _FaultPhaseSpec(
+        phase=_FAULT_PHASE_LEASE_RELEASE_STARTED,
+        canonical_id="instrument:stock:CN-SSE:600005",
+        receipt_durable_before_fault=True,
+        release_expected_after_cancellation=False,
+    ),
+)
+_TERMINATED_RUNNER_CANONICAL_ID = "instrument:stock:CN-SSE:600006"
+_STALE_RUNNER_CANONICAL_ID = "instrument:stock:CN-SSE:600007"
+_FAULT_PHASE_ORDER = tuple(spec.phase for spec in _FAULT_PHASE_SPECS)
+_ALL_HARNESS_CANONICAL_IDS = (
+    CANONICAL_ID,
+    *(spec.canonical_id for spec in _FAULT_PHASE_SPECS),
+    _TERMINATED_RUNNER_CANONICAL_ID,
+    _STALE_RUNNER_CANONICAL_ID,
+)
+
+
+@dataclass(frozen=True, slots=True)
+class _CancelledFaultPhaseEvidence:
+    """One cancellation observation and its separate-process recovery facts."""
+
+    phase: str
+    leader_process_id: int
+    leader_provider_call_count: int
+    release_completed_after_cancellation: bool
+    follower_process_id: int
+    follower_provider_call_count: int
+    follower_local_only_complete: bool
+    source_snapshot_delta: int
+    observation_revision_delta: int
+    expired_lease_takeover_fence_token: int | None
+
+    def as_dict(self) -> dict[str, object]:
+        return {
+            "phase": self.phase,
+            "leader_process_id": self.leader_process_id,
+            "leader_provider_call_count": self.leader_provider_call_count,
+            "lease_release_completed_after_cancellation": self.release_completed_after_cancellation,
+            "follower_process_id": self.follower_process_id,
+            "follower_provider_call_count": self.follower_provider_call_count,
+            "follower_local_only_complete": self.follower_local_only_complete,
+            "source_snapshot_delta": self.source_snapshot_delta,
+            "observation_revision_delta": self.observation_revision_delta,
+            "expired_lease_takeover_fence_token": self.expired_lease_takeover_fence_token,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class _TerminatedRunnerTakeoverEvidence:
+    """A killed owner after runner start, its blocked follower, and expiry takeover."""
+
+    leader_process_id: int
+    blocked_follower_process_id: int
+    takeover_process_id: int
+    provider_attempt_count: int
+    blocked_follower_provider_call_count: int
+    takeover_provider_call_count: int
+    source_snapshot_delta: int
+    observation_revision_delta: int
+
+    def as_dict(self) -> dict[str, object]:
+        return {
+            "leader_process_id": self.leader_process_id,
+            "blocked_follower_process_id": self.blocked_follower_process_id,
+            "takeover_process_id": self.takeover_process_id,
+            "provider_attempt_count": self.provider_attempt_count,
+            "blocked_follower_provider_call_count": self.blocked_follower_provider_call_count,
+            "takeover_provider_call_count": self.takeover_provider_call_count,
+            "source_snapshot_delta": self.source_snapshot_delta,
+            "observation_revision_delta": self.observation_revision_delta,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class _StaleRunnerTakeoverEvidence:
+    """A resumed stale owner whose fenced write is rejected after takeover."""
+
+    leader_process_id: int
+    blocked_follower_process_id: int
+    takeover_process_id: int
+    provider_attempt_count: int
+    stale_leader_warning_codes: tuple[str, ...]
+    source_snapshot_delta: int
+    observation_revision_delta: int
+
+    def as_dict(self) -> dict[str, object]:
+        return {
+            "leader_process_id": self.leader_process_id,
+            "blocked_follower_process_id": self.blocked_follower_process_id,
+            "takeover_process_id": self.takeover_process_id,
+            "provider_attempt_count": self.provider_attempt_count,
+            "stale_leader_warning_codes": list(self.stale_leader_warning_codes),
+            "source_snapshot_delta": self.source_snapshot_delta,
+            "observation_revision_delta": self.observation_revision_delta,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class _FaultTakeoverEvidence:
+    """Bounded fixture-only proof of cancellation and owner-death recovery."""
+
+    cancelled_phases: tuple[_CancelledFaultPhaseEvidence, ...]
+    stale_runner_start: _StaleRunnerTakeoverEvidence
+    terminated_runner_start: _TerminatedRunnerTakeoverEvidence
+
+    def as_dict(self) -> dict[str, object]:
+        return {
+            "fixture": "deterministic_fake_runner_no_network",
+            "cancelled_phases": [item.as_dict() for item in self.cancelled_phases],
+            "stale_runner_start": self.stale_runner_start.as_dict(),
+            "terminated_runner_start": self.terminated_runner_start.as_dict(),
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class _HarnessResult:
     """Safe operator evidence produced after an accepted temporary-db run."""
 
@@ -275,6 +444,7 @@ class _HarnessResult:
     lease_successful_contender_count: int
     lease_fence_token: int
     two_process_exact_gap: _TwoProcessExactGapEvidence
+    fault_takeover: _FaultTakeoverEvidence
 
     def as_dict(self) -> dict[str, object]:
         return {
@@ -289,7 +459,114 @@ class _HarnessResult:
                 "winner_fence_token": self.lease_fence_token,
             },
             "two_process_exact_gap": self.two_process_exact_gap.as_dict(),
+            "fault_takeover": self.fault_takeover.as_dict(),
         }
+
+
+class _FaultCheckpointController:
+    """Inject one harness-only cancellation or wait point without provider I/O.
+
+    This object is instantiated only inside spawned acceptance workers.  It is
+    deliberately not a production adapter seam: the application providers and
+    runtime configuration cannot construct or receive it.
+    """
+
+    def __init__(
+        self,
+        *,
+        cancellation_phase: str | None = None,
+        blocked_phase: str | None = None,
+        reached_event: Any | None = None,
+        unblock_event: Any | None = None,
+        continue_after_unblock: bool = False,
+        event_wait_timeout_seconds: float = _PROCESS_EVENT_TIMEOUT_SECONDS,
+    ) -> None:
+        if (cancellation_phase is None) == (blocked_phase is None):
+            raise ValueError("exactly one fault checkpoint action is required")
+        if cancellation_phase is not None:
+            _fault_phase_spec(cancellation_phase)
+        if blocked_phase is not None:
+            _fault_phase_spec(blocked_phase)
+        self._cancellation_phase = cancellation_phase
+        self._blocked_phase = blocked_phase
+        self._reached_event = reached_event
+        self._unblock_event = unblock_event
+        self._continue_after_unblock = continue_after_unblock
+        self._event_wait_timeout_seconds = event_wait_timeout_seconds
+        self.reached_phases: list[str] = []
+
+    async def checkpoint(self, phase: str) -> None:
+        """Record one boundary, then inject only the reviewed selected fault."""
+        self.reached_phases.append(phase)
+        if phase == self._cancellation_phase:
+            raise asyncio.CancelledError
+        if phase != self._blocked_phase:
+            return
+        if self._reached_event is not None:
+            self._reached_event.set()
+        if self._unblock_event is None:
+            raise PostgresAcceptanceHarnessError(
+                "POSTGRES_ACCEPTANCE_FAULT_BLOCK_CONFIGURATION_INVALID"
+            )
+        unblocked = await asyncio.to_thread(
+            self._unblock_event.wait,
+            self._event_wait_timeout_seconds,
+        )
+        if not unblocked:
+            raise PostgresAcceptanceHarnessError("POSTGRES_ACCEPTANCE_FAULT_BLOCK_TIMEOUT")
+        if self._continue_after_unblock:
+            return
+        # The parent only sets this event while cleaning up an unhappy child.
+        # Never let that cleanup accidentally continue to receipt persistence.
+        raise PostgresAcceptanceHarnessError("POSTGRES_ACCEPTANCE_FAULT_BLOCK_UNEXPECTED_UNBLOCK")
+
+
+class _CheckpointingMarketDataStore(MarketDataStore):
+    """Real store behavior with two explicit fixture-only interruption points."""
+
+    def __init__(self, db: AsyncSession, *, checkpoints: _FaultCheckpointController) -> None:
+        super().__init__(db)
+        self._checkpoints = checkpoints
+
+    async def persist_provider_result(self, *args: Any, **kwargs: Any) -> Any:
+        """Expose before/after durable receipt boundaries without replacing storage."""
+        await self._checkpoints.checkpoint(_FAULT_PHASE_STORE_BEFORE_PERSIST)
+        persisted = await super().persist_provider_result(*args, **kwargs)
+        await self._checkpoints.checkpoint(_FAULT_PHASE_STORE_AFTER_PERSIST)
+        return persisted
+
+
+class _CheckpointingFetchLeases:
+    """Delegate real PostgreSQL leases while exposing only harness release timing."""
+
+    def __init__(
+        self,
+        leases: MarketDataFetchLeaseManager,
+        *,
+        checkpoints: _FaultCheckpointController,
+    ) -> None:
+        self._leases = leases
+        self._checkpoints = checkpoints
+        self.lease_key_sha256: str | None = None
+        self.fence_token: int | None = None
+        self.release_started = False
+        self.release_completed = False
+
+    async def acquire(self, lease_key_sha256: str) -> Any:
+        """Delegate exact durable acquisition and retain non-secret evidence fields."""
+        handle = await self._leases.acquire(lease_key_sha256)
+        if handle is not None:
+            self.lease_key_sha256 = handle.lease_key_sha256
+            self.fence_token = handle.fence_token
+        return handle
+
+    async def release(self, handle: Any) -> bool:
+        """Reach the release boundary before delegating the real release mutation."""
+        self.release_started = True
+        await self._checkpoints.checkpoint(_FAULT_PHASE_LEASE_RELEASE_STARTED)
+        released = await self._leases.release(handle)
+        self.release_completed = True
+        return released
 
 
 class _DeterministicProvider:
@@ -300,17 +577,26 @@ class _DeterministicProvider:
         *,
         provider_started_event: Any | None = None,
         provider_release_event: Any | None = None,
+        checkpoints: _FaultCheckpointController | None = None,
+        provider_attempt_counter: Any | None = None,
         event_wait_timeout_seconds: float = _PROCESS_EVENT_TIMEOUT_SECONDS,
     ) -> None:
         self.calls: list[MarketDataProviderRequest] = []
         self._provider_started_event = provider_started_event
         self._provider_release_event = provider_release_event
+        self._checkpoints = checkpoints
+        self._provider_attempt_counter = provider_attempt_counter
         self._event_wait_timeout_seconds = event_wait_timeout_seconds
 
     async def fetch(self, request: MarketDataProviderRequest) -> ProviderFetchResult:
         self.calls.append(request)
+        if self._provider_attempt_counter is not None:
+            with self._provider_attempt_counter.get_lock():
+                self._provider_attempt_counter.value += 1
         if self._provider_started_event is not None:
             self._provider_started_event.set()
+        if self._checkpoints is not None:
+            await self._checkpoints.checkpoint(_FAULT_PHASE_RUNNER_STARTED)
         if self._provider_release_event is not None:
             released = await asyncio.to_thread(
                 self._provider_release_event.wait,
@@ -320,6 +606,10 @@ class _DeterministicProvider:
                 raise PostgresAcceptanceHarnessError(
                     "POSTGRES_ACCEPTANCE_TWO_PROCESS_PROVIDER_RELEASE_TIMEOUT"
                 )
+        if self._checkpoints is not None:
+            # This is a bounded in-memory fixture result. It is intentionally
+            # not called a durable receipt until the real Store returns below.
+            await self._checkpoints.checkpoint(_FAULT_PHASE_RUNNER_RECEIPT_READY)
         observations = tuple(
             ProviderMarketObservation(
                 event_at=event_at,
@@ -449,8 +739,13 @@ def _target_engine(target_url: URL) -> AsyncEngine:
     )
 
 
-async def _create_temporary_database(admin_url: URL, database_name: str) -> None:
-    """Create one generated database only after proving the name is safe."""
+async def _create_temporary_database(
+    admin_url: URL,
+    database_name: str,
+    *,
+    on_created: Callable[[str], None] | None = None,
+) -> None:
+    """Create one generated database and register cleanup immediately after CREATE."""
     quoted_name = _quoted_temporary_database(database_name)
     engine = _admin_engine(admin_url)
     try:
@@ -462,6 +757,12 @@ async def _create_temporary_database(admin_url: URL, database_name: str) -> None
             if exists is not None:
                 raise PostgresAcceptanceHarnessError("POSTGRES_ACCEPTANCE_DATABASE_COLLISION")
             await connection.execute(text(f"CREATE DATABASE {quoted_name}"))
+            # Register the owned cleanup obligation before the connection
+            # context or engine disposal can fail.  The callback only runs
+            # after PostgreSQL accepted CREATE, so a collision can never
+            # cause cleanup to target a database this harness did not create.
+            if on_created is not None:
+                on_created(database_name)
     except PostgresAcceptanceHarnessError:
         raise
     except Exception as exc:
@@ -817,11 +1118,13 @@ def _run_legacy_constraint_portability_stage(
         ) from exc
 
 
-def _request(*, mode: str) -> MarketDataQueryRequest:
+def _request(*, mode: str, canonical_id: str = CANONICAL_ID) -> MarketDataQueryRequest:
     """Build a deterministic bars request accepted by the real internal resolver."""
+    if canonical_id not in _ALL_HARNESS_CANONICAL_IDS:
+        raise PostgresAcceptanceHarnessError("POSTGRES_ACCEPTANCE_FAULT_IDENTITY_INVALID")
     return MarketDataQueryRequest.model_validate(
         {
-            "identity": {"canonical_id": CANONICAL_ID},
+            "identity": {"canonical_id": canonical_id},
             "dataset_code": "market.bars",
             "data_kind": "bars",
             "frequency": "1d",
@@ -871,7 +1174,8 @@ def _service(
     *,
     now: datetime,
     allow_online_fetch: bool,
-    fetch_leases: MarketDataFetchLeaseManager | None = None,
+    fetch_leases: Any | None = None,
+    store: MarketDataStore | None = None,
 ) -> MarketDataQueryService:
     """Construct the production service graph around a disposable session."""
     return MarketDataQueryService(
@@ -882,7 +1186,7 @@ def _service(
             # semantics. Public HTTP requests retain the v2 family-binding gate.
             allow_unbound_internal_requests=True,
         ),
-        store=MarketDataStore(session, clock=lambda: now),
+        store=store if store is not None else MarketDataStore(session, clock=lambda: now),
         source_policies=_policy(provider),
         allow_online_fetch=allow_online_fetch,
         clock=lambda: now,
@@ -895,8 +1199,15 @@ async def _seed_prerequisites(
     session: AsyncSession,
     *,
     target_url: URL,
+    canonical_ids: tuple[str, ...] = (CANONICAL_ID,),
 ) -> str:
     """Seed reviewed control-plane prerequisites before any local-first request."""
+    if (
+        not canonical_ids
+        or len(set(canonical_ids)) != len(canonical_ids)
+        or any(canonical_id not in _ALL_HARNESS_CANONICAL_IDS for canonical_id in canonical_ids)
+    ):
+        raise PostgresAcceptanceHarnessError("POSTGRES_ACCEPTANCE_FAULT_IDENTITY_INVALID")
     spec = MarketDataBootstrapSpec(
         storage=CanonicalStorageSpec.from_database_url(_url_text(target_url)),
     )
@@ -930,26 +1241,31 @@ async def _seed_prerequisites(
     user_id = str(user.id)
     await session.commit()
 
-    identity = InstrumentIdentity.model_validate(
-        {
-            "asset_type": "stock",
-            "identity_level": "ASSET",
-            "canonical_id": CANONICAL_ID,
-            "display_symbol": "600000",
-            "name": "PostgreSQL验收股票",
-            "venue": "CN-SSE",
-            "currency": "CNY",
-            "timezone": "Asia/Shanghai",
-            "identifier_type": "EXCHANGE_SYMBOL",
-            "identifier_value": "600000.SH",
-            "product_type": "EQUITY",
-            "metadata_version": "market-v1",
-            "details": {"kind": "STOCK", "exchange_symbol": "600000.SH"},
-        }
-    )
     writer = MarketDataIdentityWriter(session)
-    await writer.persist_identity(identity, valid_from=datetime(2026, 8, 1, tzinfo=UTC))
-    await session.commit()
+    for canonical_id in canonical_ids:
+        display_symbol = canonical_id.rsplit(":", maxsplit=1)[-1]
+        identity = InstrumentIdentity.model_validate(
+            {
+                "asset_type": "stock",
+                "identity_level": "ASSET",
+                "canonical_id": canonical_id,
+                "display_symbol": display_symbol,
+                "name": "PostgreSQL验收股票",
+                "venue": "CN-SSE",
+                "currency": "CNY",
+                "timezone": "Asia/Shanghai",
+                "identifier_type": "EXCHANGE_SYMBOL",
+                "identifier_value": f"{display_symbol}.SH",
+                "product_type": "EQUITY",
+                "metadata_version": "market-v1",
+                "details": {
+                    "kind": "STOCK",
+                    "exchange_symbol": f"{display_symbol}.SH",
+                },
+            }
+        )
+        await writer.persist_identity(identity, valid_from=datetime(2026, 8, 1, tzinfo=UTC))
+        await session.commit()
     await writer.publish_staged()
     await MarketDataCalendarImporter(session).import_payload(
         payload={
@@ -1005,6 +1321,124 @@ async def _access_for_session(
     authorizer = MarketDataAccessAuthorizer(session, clock=lambda: now)
     principal = await authorizer.principal_for_user(user)
     return MarketDataQueryAccess(principal=principal, authorizer=authorizer)
+
+
+def _fault_phase_spec(phase: object) -> _FaultPhaseSpec:
+    """Return one reviewed fixture boundary; arbitrary phase injection is forbidden."""
+    if not isinstance(phase, str):
+        raise PostgresAcceptanceHarnessError("POSTGRES_ACCEPTANCE_FAULT_PHASE_INVALID")
+    for spec in _FAULT_PHASE_SPECS:
+        if spec.phase == phase:
+            return spec
+    raise PostgresAcceptanceHarnessError("POSTGRES_ACCEPTANCE_FAULT_PHASE_INVALID")
+
+
+def _fault_reached_phases(spec: _FaultPhaseSpec) -> tuple[str, ...]:
+    """Return the exact checkpoints the real service must pass before one fault."""
+    phase_index = _FAULT_PHASE_ORDER.index(spec.phase)
+    return _FAULT_PHASE_ORDER[: phase_index + 1]
+
+
+async def _fault_persistence_counts(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> tuple[int, int]:
+    """Read only aggregate counts needed to prove one scenario's durable delta."""
+    async with session_factory() as session:
+        source_snapshot_count = int(
+            await session.scalar(select(func.count()).select_from(MdSourceSnapshot)) or 0
+        )
+        observation_revision_count = int(
+            await session.scalar(select(func.count()).select_from(MdObservationRevision)) or 0
+        )
+    return source_snapshot_count, observation_revision_count
+
+
+def _fault_count_delta(
+    before: tuple[int, int],
+    after: tuple[int, int],
+) -> tuple[int, int]:
+    """Compute a small monotonic persistence delta and reject impossible removals."""
+    source_snapshot_delta = after[0] - before[0]
+    observation_revision_delta = after[1] - before[1]
+    if source_snapshot_delta < 0 or observation_revision_delta < 0:
+        raise PostgresAcceptanceHarnessError("POSTGRES_ACCEPTANCE_FAULT_PERSISTENCE_REGRESSED")
+    return source_snapshot_delta, observation_revision_delta
+
+
+def _fault_report_bool(report: Mapping[str, object], field_name: str) -> bool:
+    """Read one exact boolean from internal IPC without truthiness coercion."""
+    value = report.get(field_name)
+    if type(value) is not bool:
+        raise PostgresAcceptanceHarnessError("POSTGRES_ACCEPTANCE_FAULT_REPORT_INVALID")
+    return value
+
+
+def _fault_report_texts(report: Mapping[str, object], field_name: str) -> tuple[str, ...]:
+    """Read a bounded list of checkpoint names from an internal worker report."""
+    value = report.get(field_name)
+    if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+        raise PostgresAcceptanceHarnessError("POSTGRES_ACCEPTANCE_FAULT_REPORT_INVALID")
+    return tuple(value)
+
+
+def _validate_cancelled_fault_report(
+    report: Mapping[str, object],
+    *,
+    spec: _FaultPhaseSpec,
+) -> tuple[str, int]:
+    """Reject any cancellation report that overstates release or receipt state."""
+    if (
+        _process_report_text(report, "kind") != "fault_cancellation"
+        or _process_report_text(report, "status") != "cancelled"
+        or _process_report_text(report, "phase") != spec.phase
+    ):
+        raise PostgresAcceptanceHarnessError("POSTGRES_ACCEPTANCE_FAULT_REPORT_INVALID")
+    process_id = _process_report_int(report, "pid")
+    provider_call_count = _process_report_int(report, "provider_call_count")
+    fence_token = _process_report_int(report, "fence_token")
+    lease_key_sha256 = _process_report_text(report, "lease_key_sha256")
+    if (
+        process_id <= 0
+        or provider_call_count != 1
+        or fence_token < 1
+        or not re.fullmatch(r"[0-9a-f]{64}", lease_key_sha256)
+        or _fault_report_texts(report, "reached_phases") != _fault_reached_phases(spec)
+        or not _fault_report_bool(report, "release_started")
+        or _fault_report_bool(report, "release_completed")
+        != spec.release_expected_after_cancellation
+    ):
+        raise PostgresAcceptanceHarnessError("POSTGRES_ACCEPTANCE_FAULT_REPORT_INVALID")
+    return lease_key_sha256, fence_token
+
+
+def _validate_fault_follower_report(
+    report: Mapping[str, object],
+    *,
+    mode: str,
+    provider_call_count: int,
+    coverage_status: str,
+    lease_held: bool = False,
+) -> int:
+    """Validate one independent follower without treating its report as trusted input."""
+    if (
+        _process_report_text(report, "kind") != "fault_follower"
+        or _process_report_text(report, "status") != "ok"
+        or _process_report_text(report, "mode") != mode
+        or _process_report_int(report, "provider_call_count") != provider_call_count
+        or _process_report_int(report, "fetch_count") != provider_call_count
+        or _process_report_text(report, "coverage_status") != coverage_status
+        or _process_report_text(report, "session_timezone").upper() not in {"UTC", "ETC/UTC"}
+    ):
+        raise PostgresAcceptanceHarnessError("POSTGRES_ACCEPTANCE_FAULT_FOLLOWER_INVALID")
+    warning_codes = _fault_report_texts(report, "warning_codes")
+    if ("FETCH_LEASE_HELD" in warning_codes) != lease_held:
+        raise PostgresAcceptanceHarnessError("POSTGRES_ACCEPTANCE_FAULT_FOLLOWER_INVALID")
+    process_id = _process_report_int(report, "pid")
+    if process_id <= 0:
+        raise PostgresAcceptanceHarnessError("POSTGRES_ACCEPTANCE_FAULT_FOLLOWER_INVALID")
+    if mode == "local_only" and _process_report_int(report, "observation_count") != 2:
+        raise PostgresAcceptanceHarnessError("POSTGRES_ACCEPTANCE_FAULT_FOLLOWER_INVALID")
+    return process_id
 
 
 async def _wait_for_process_event(event: Any, *, code: str) -> None:
@@ -1272,13 +1706,40 @@ async def _join_two_process_workers(processes: tuple[Any, ...]) -> None:
 
 
 async def _stop_two_process_workers(processes: tuple[Any, ...]) -> None:
-    """Terminate any remaining children before the temporary database cleanup path."""
-    for process in processes:
-        if process.is_alive():
-            process.terminate()
-    for process in processes:
-        if process.pid is not None:
+    """Reap every harness-owned worker before any generated database is dropped.
+
+    A finite ``join`` alone is not cleanup evidence: a process can ignore
+    SIGTERM and retain a database connection after this helper returns.  This
+    harness owns every supplied child, so it may escalate exactly those live
+    processes to ``kill``.  If they still survive, fail closed instead of
+    reporting an acceptance result or attempting to hide the leak with a DB
+    drop.
+    """
+    try:
+        for process in processes:
+            if process.pid is not None and process.is_alive():
+                process.terminate()
+        for process in processes:
+            if process.pid is not None:
+                await asyncio.to_thread(process.join, _PROCESS_EVENT_TIMEOUT_SECONDS)
+
+        survivors = [
+            process for process in processes if process.pid is not None and process.is_alive()
+        ]
+        for process in survivors:
+            kill = getattr(process, "kill", None)
+            if not callable(kill):
+                raise PostgresAcceptanceHarnessError("POSTGRES_ACCEPTANCE_WORKER_CLEANUP_FAILED")
+            kill()
+        for process in survivors:
             await asyncio.to_thread(process.join, _PROCESS_EVENT_TIMEOUT_SECONDS)
+    except PostgresAcceptanceHarnessError:
+        raise
+    except Exception as exc:
+        raise PostgresAcceptanceHarnessError("POSTGRES_ACCEPTANCE_WORKER_CLEANUP_FAILED") from exc
+
+    if any(process.pid is not None and process.is_alive() for process in processes):
+        raise PostgresAcceptanceHarnessError("POSTGRES_ACCEPTANCE_WORKER_CLEANUP_FAILED")
 
 
 def _close_process_queue(channel: Any) -> None:
@@ -1288,6 +1749,221 @@ def _close_process_queue(channel: Any) -> None:
         channel.join_thread()
     except (AttributeError, OSError, ValueError):
         return
+
+
+async def _run_fault_cancellation_worker(
+    target_url_text: str,
+    user_id: str,
+    canonical_id: str,
+    phase: str,
+    result_queue: Any,
+) -> None:
+    """Cancel one owned request at a reviewed boundary and report only safe facts."""
+    target_url = make_url(target_url_text)
+    _require_own_temporary_database(target_url.database)
+    spec = _fault_phase_spec(phase)
+    if canonical_id != spec.canonical_id:
+        raise PostgresAcceptanceHarnessError("POSTGRES_ACCEPTANCE_FAULT_IDENTITY_INVALID")
+    engine = _target_engine(target_url)
+    session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    checkpoints = _FaultCheckpointController(cancellation_phase=phase)
+    try:
+        async with session_factory() as session:
+            query_now = datetime.now(UTC) + timedelta(minutes=10)
+            provider = _DeterministicProvider(checkpoints=checkpoints)
+            leases = _CheckpointingFetchLeases(
+                MarketDataFetchLeaseManager(session, lease_ttl=_FAULT_LEASE_TTL),
+                checkpoints=checkpoints,
+            )
+            try:
+                await _service(
+                    session,
+                    provider,
+                    now=query_now,
+                    allow_online_fetch=True,
+                    # The fault stage intentionally uses a production-clock
+                    # Store. A tiny lease TTL must not be compared to the
+                    # synthetic query cutoff used by the legacy harness path.
+                    store=_CheckpointingMarketDataStore(session, checkpoints=checkpoints),
+                    fetch_leases=leases,
+                ).execute(
+                    _request(mode="local_first", canonical_id=canonical_id),
+                    access=await _access_for_session(
+                        session,
+                        user_id=user_id,
+                        now=query_now,
+                    ),
+                )
+            except asyncio.CancelledError:
+                if session.in_transaction():
+                    await session.rollback()
+            else:
+                raise PostgresAcceptanceHarnessError(
+                    "POSTGRES_ACCEPTANCE_FAULT_CANCELLATION_NOT_DELIVERED"
+                )
+            if leases.lease_key_sha256 is None or leases.fence_token is None:
+                raise PostgresAcceptanceHarnessError("POSTGRES_ACCEPTANCE_FAULT_LEASE_MISSING")
+            result_queue.put(
+                {
+                    "kind": "fault_cancellation",
+                    "status": "cancelled",
+                    "phase": phase,
+                    "pid": os.getpid(),
+                    "provider_call_count": len(provider.calls),
+                    "reached_phases": list(checkpoints.reached_phases),
+                    "lease_key_sha256": leases.lease_key_sha256,
+                    "fence_token": leases.fence_token,
+                    "release_started": leases.release_started,
+                    "release_completed": leases.release_completed,
+                }
+            )
+    finally:
+        await engine.dispose()
+
+
+def _fault_cancellation_worker(
+    target_url_text: str,
+    user_id: str,
+    canonical_id: str,
+    phase: str,
+    result_queue: Any,
+) -> None:
+    """Keep spawned failure output stable and free from connection details."""
+    try:
+        asyncio.run(
+            _run_fault_cancellation_worker(
+                target_url_text,
+                user_id,
+                canonical_id,
+                phase,
+                result_queue,
+            )
+        )
+    except BaseException:
+        result_queue.put(
+            {
+                "kind": "fault_cancellation",
+                "status": "error",
+                "pid": os.getpid(),
+                "code": "POSTGRES_ACCEPTANCE_FAULT_CANCELLATION_WORKER_FAILED",
+            }
+        )
+
+
+async def _run_fault_follower_worker(
+    target_url_text: str,
+    user_id: str,
+    canonical_id: str,
+    mode: str,
+    result_queue: Any,
+    provider_attempt_counter: Any | None = None,
+) -> None:
+    """Use a fresh process/session for one follower or post-expiry takeover read."""
+    if mode not in {"local_first", "local_only"}:
+        raise PostgresAcceptanceHarnessError("POSTGRES_ACCEPTANCE_FAULT_MODE_INVALID")
+    if canonical_id not in _ALL_HARNESS_CANONICAL_IDS:
+        raise PostgresAcceptanceHarnessError("POSTGRES_ACCEPTANCE_FAULT_IDENTITY_INVALID")
+    target_url = make_url(target_url_text)
+    _require_own_temporary_database(target_url.database)
+    engine = _target_engine(target_url)
+    session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    try:
+        async with session_factory() as session:
+            query_now = datetime.now(UTC) + timedelta(minutes=10)
+            provider = _DeterministicProvider(provider_attempt_counter=provider_attempt_counter)
+            execution = await _service(
+                session,
+                provider,
+                now=query_now,
+                allow_online_fetch=mode == "local_first",
+                # This is a real Store and real lease manager against the
+                # generated database; the only fixture is the no-I/O provider.
+                store=MarketDataStore(session),
+                fetch_leases=(
+                    MarketDataFetchLeaseManager(session, lease_ttl=_FAULT_LEASE_TTL)
+                    if mode == "local_first"
+                    else None
+                ),
+            ).execute(
+                _request(mode=mode, canonical_id=canonical_id),
+                access=await _access_for_session(
+                    session,
+                    user_id=user_id,
+                    now=query_now,
+                ),
+            )
+            await session.commit()
+            result_queue.put(
+                {
+                    "kind": "fault_follower",
+                    "status": "ok",
+                    "mode": mode,
+                    "pid": os.getpid(),
+                    "provider_call_count": len(provider.calls),
+                    "fetch_count": len(execution.fetches),
+                    "coverage_status": execution.coverage.status.value,
+                    "warning_codes": [warning.code for warning in execution.warnings],
+                    "observation_count": len(execution.observations),
+                    "session_timezone": await _assert_utc_session_timezone(session),
+                }
+            )
+    finally:
+        await engine.dispose()
+
+
+def _fault_follower_worker(
+    target_url_text: str,
+    user_id: str,
+    canonical_id: str,
+    mode: str,
+    result_queue: Any,
+    provider_attempt_counter: Any | None = None,
+) -> None:
+    """Return one compact follower result rather than a child traceback."""
+    try:
+        asyncio.run(
+            _run_fault_follower_worker(
+                target_url_text,
+                user_id,
+                canonical_id,
+                mode,
+                result_queue,
+                provider_attempt_counter,
+            )
+        )
+    except BaseException:
+        result_queue.put(
+            {
+                "kind": "fault_follower",
+                "status": "error",
+                "pid": os.getpid(),
+                "code": "POSTGRES_ACCEPTANCE_FAULT_FOLLOWER_WORKER_FAILED",
+            }
+        )
+
+
+async def _run_fault_worker_for_report(
+    context: Any,
+    *,
+    target: Any,
+    args: tuple[Any, ...],
+    timeout_code: str,
+) -> Mapping[str, object]:
+    """Start, reap, and drain one short-lived fault worker before returning its IPC fact."""
+    result_queue = context.Queue()
+    process = context.Process(target=target, args=(*args, result_queue))
+    try:
+        process.start()
+        report = await _receive_process_message(
+            result_queue,
+            timeout_seconds=_PROCESS_RESULT_TIMEOUT_SECONDS,
+            timeout_code=timeout_code,
+        )
+        await _join_two_process_workers((process,))
+        return report
+    finally:
+        await _stop_two_process_workers((process,))
+        _close_process_queue(result_queue)
 
 
 async def _verify_two_process_exact_gap(
@@ -1411,6 +2087,720 @@ async def _verify_two_process_exact_gap(
         _close_process_queue(result_queue)
 
 
+async def _fault_lease_state(
+    session_factory: async_sessionmaker[AsyncSession],
+    *,
+    lease_key_sha256: str,
+) -> tuple[bool, int]:
+    """Return whether one exact fault lease is released and its current fence."""
+    async with session_factory() as session:
+        stored = await session.scalar(
+            select(MdFetchLease).where(MdFetchLease.lease_key_sha256 == lease_key_sha256)
+        )
+    if stored is None or int(stored.fence_token) < 1:
+        raise PostgresAcceptanceHarnessError("POSTGRES_ACCEPTANCE_FAULT_LEASE_STATE_INVALID")
+    released = (
+        stored.owner_token is None and stored.expires_at is None and stored.released_at is not None
+    )
+    active = (
+        stored.owner_token is not None
+        and stored.expires_at is not None
+        and stored.released_at is None
+    )
+    if not released and not active:
+        raise PostgresAcceptanceHarnessError("POSTGRES_ACCEPTANCE_FAULT_LEASE_STATE_INVALID")
+    return released, int(stored.fence_token)
+
+
+async def _take_over_expired_fault_lease(
+    session_factory: async_sessionmaker[AsyncSession],
+    *,
+    lease_key_sha256: str,
+    prior_fence_token: int,
+) -> int:
+    """Require a fresh session to advance an unreleased fixture lease only after expiry."""
+    deadline = asyncio.get_running_loop().time() + _FAULT_TAKEOVER_TIMEOUT_SECONDS
+    while True:
+        async with session_factory() as session:
+            manager = MarketDataFetchLeaseManager(session, lease_ttl=_FAULT_LEASE_TTL)
+            handle = await manager.acquire(lease_key_sha256)
+            if handle is not None:
+                if handle.fence_token <= prior_fence_token:
+                    raise PostgresAcceptanceHarnessError(
+                        "POSTGRES_ACCEPTANCE_FAULT_LEASE_FENCE_NOT_ADVANCED"
+                    )
+                if not await manager.release(handle):
+                    raise PostgresAcceptanceHarnessError(
+                        "POSTGRES_ACCEPTANCE_FAULT_LEASE_TAKEOVER_RELEASE_FAILED"
+                    )
+                return handle.fence_token
+        if asyncio.get_running_loop().time() >= deadline:
+            raise PostgresAcceptanceHarnessError("POSTGRES_ACCEPTANCE_FAULT_LEASE_TAKEOVER_TIMEOUT")
+        await asyncio.sleep(0.1)
+
+
+async def _verify_cancelled_fault_phase(
+    target_url: URL,
+    *,
+    user_id: str,
+    session_factory: async_sessionmaker[AsyncSession],
+    spec: _FaultPhaseSpec,
+) -> _CancelledFaultPhaseEvidence:
+    """Cancel a leader at one point, then prove the proper follower recovery path."""
+    context = multiprocessing.get_context("spawn")
+    before = await _fault_persistence_counts(session_factory)
+    leader_report = await _run_fault_worker_for_report(
+        context,
+        target=_fault_cancellation_worker,
+        args=(_url_text(target_url), user_id, spec.canonical_id, spec.phase),
+        timeout_code="POSTGRES_ACCEPTANCE_FAULT_CANCELLATION_RESULT_TIMEOUT",
+    )
+    lease_key_sha256, leader_fence_token = _validate_cancelled_fault_report(
+        leader_report,
+        spec=spec,
+    )
+    after_leader = await _fault_persistence_counts(session_factory)
+    leader_delta = _fault_count_delta(before, after_leader)
+    expected_leader_delta = (1, 2) if spec.receipt_durable_before_fault else (0, 0)
+    if leader_delta != expected_leader_delta:
+        raise PostgresAcceptanceHarnessError("POSTGRES_ACCEPTANCE_FAULT_LEADER_DURABILITY_INVALID")
+
+    released, observed_fence_token = await _fault_lease_state(
+        session_factory,
+        lease_key_sha256=lease_key_sha256,
+    )
+    if (
+        observed_fence_token != leader_fence_token
+        or released != spec.release_expected_after_cancellation
+    ):
+        raise PostgresAcceptanceHarnessError(
+            "POSTGRES_ACCEPTANCE_FAULT_LEASE_RELEASE_STATE_INVALID"
+        )
+
+    follower_mode = "local_only" if spec.receipt_durable_before_fault else "local_first"
+    follower_report = await _run_fault_worker_for_report(
+        context,
+        target=_fault_follower_worker,
+        args=(_url_text(target_url), user_id, spec.canonical_id, follower_mode),
+        timeout_code="POSTGRES_ACCEPTANCE_FAULT_FOLLOWER_RESULT_TIMEOUT",
+    )
+    follower_process_id = _validate_fault_follower_report(
+        follower_report,
+        mode=follower_mode,
+        provider_call_count=0 if spec.receipt_durable_before_fault else 1,
+        coverage_status="complete",
+    )
+    if follower_process_id == _process_report_int(leader_report, "pid"):
+        raise PostgresAcceptanceHarnessError("POSTGRES_ACCEPTANCE_FAULT_PROCESS_IDENTITY_INVALID")
+
+    after_follower = await _fault_persistence_counts(session_factory)
+    source_snapshot_delta, observation_revision_delta = _fault_count_delta(before, after_follower)
+    if (source_snapshot_delta, observation_revision_delta) != (1, 2):
+        raise PostgresAcceptanceHarnessError(
+            "POSTGRES_ACCEPTANCE_FAULT_RECOVERY_PERSISTENCE_INVALID"
+        )
+
+    expired_lease_takeover_fence_token: int | None = None
+    if not spec.release_expected_after_cancellation:
+        expired_lease_takeover_fence_token = await _take_over_expired_fault_lease(
+            session_factory,
+            lease_key_sha256=lease_key_sha256,
+            prior_fence_token=leader_fence_token,
+        )
+    return _CancelledFaultPhaseEvidence(
+        phase=spec.phase,
+        leader_process_id=_process_report_int(leader_report, "pid"),
+        leader_provider_call_count=_process_report_int(leader_report, "provider_call_count"),
+        release_completed_after_cancellation=_fault_report_bool(leader_report, "release_completed"),
+        follower_process_id=follower_process_id,
+        follower_provider_call_count=_process_report_int(follower_report, "provider_call_count"),
+        follower_local_only_complete=(
+            _process_report_text(follower_report, "coverage_status") == "complete"
+            if follower_mode == "local_only"
+            else False
+        ),
+        source_snapshot_delta=source_snapshot_delta,
+        observation_revision_delta=observation_revision_delta,
+        expired_lease_takeover_fence_token=expired_lease_takeover_fence_token,
+    )
+
+
+async def _verify_cancelled_fault_takeovers(
+    target_url: URL,
+    *,
+    user_id: str,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> tuple[_CancelledFaultPhaseEvidence, ...]:
+    """Execute all cancellation boundaries on separate seeded logical identities."""
+    evidence: list[_CancelledFaultPhaseEvidence] = []
+    for spec in _FAULT_PHASE_SPECS:
+        evidence.append(
+            await _verify_cancelled_fault_phase(
+                target_url,
+                user_id=user_id,
+                session_factory=session_factory,
+                spec=spec,
+            )
+        )
+    return tuple(evidence)
+
+
+async def _run_stale_runner_leader(
+    target_url_text: str,
+    user_id: str,
+    canonical_id: str,
+    runner_started_event: Any,
+    resume_event: Any,
+    ready_queue: Any,
+    result_queue: Any,
+    provider_attempt_counter: Any,
+) -> None:
+    """Resume a stale fake-runner owner only after another process takes its fence."""
+    if canonical_id != _STALE_RUNNER_CANONICAL_ID:
+        raise PostgresAcceptanceHarnessError("POSTGRES_ACCEPTANCE_FAULT_IDENTITY_INVALID")
+    target_url = make_url(target_url_text)
+    _require_own_temporary_database(target_url.database)
+    engine = _target_engine(target_url)
+    session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    checkpoints = _FaultCheckpointController(
+        blocked_phase=_FAULT_PHASE_RUNNER_STARTED,
+        reached_event=runner_started_event,
+        unblock_event=resume_event,
+        continue_after_unblock=True,
+    )
+    try:
+        ready_queue.put({"kind": "ready", "pid": os.getpid()})
+        async with session_factory() as session:
+            query_now = datetime.now(UTC) + timedelta(minutes=10)
+            provider = _DeterministicProvider(
+                checkpoints=checkpoints,
+                provider_attempt_counter=provider_attempt_counter,
+            )
+            execution = await _service(
+                session,
+                provider,
+                now=query_now,
+                allow_online_fetch=True,
+                store=_CheckpointingMarketDataStore(session, checkpoints=checkpoints),
+                fetch_leases=_CheckpointingFetchLeases(
+                    MarketDataFetchLeaseManager(session, lease_ttl=_FAULT_LEASE_TTL),
+                    checkpoints=checkpoints,
+                ),
+            ).execute(
+                _request(mode="local_first", canonical_id=canonical_id),
+                access=await _access_for_session(session, user_id=user_id, now=query_now),
+            )
+            await session.commit()
+            result_queue.put(
+                {
+                    "kind": "stale_runner_leader",
+                    "status": "ok",
+                    "pid": os.getpid(),
+                    "provider_call_count": len(provider.calls),
+                    "fetch_count": len(execution.fetches),
+                    "warning_codes": [warning.code for warning in execution.warnings],
+                    "session_timezone": await _assert_utc_session_timezone(session),
+                }
+            )
+    finally:
+        await engine.dispose()
+
+
+def _stale_runner_leader(
+    target_url_text: str,
+    user_id: str,
+    canonical_id: str,
+    runner_started_event: Any,
+    resume_event: Any,
+    ready_queue: Any,
+    result_queue: Any,
+    provider_attempt_counter: Any,
+) -> None:
+    """Return only a stable child failure code if the stale-owner proof cannot run."""
+    try:
+        asyncio.run(
+            _run_stale_runner_leader(
+                target_url_text,
+                user_id,
+                canonical_id,
+                runner_started_event,
+                resume_event,
+                ready_queue,
+                result_queue,
+                provider_attempt_counter,
+            )
+        )
+    except BaseException:
+        result_queue.put(
+            {
+                "kind": "stale_runner_leader",
+                "status": "error",
+                "pid": os.getpid(),
+                "code": "POSTGRES_ACCEPTANCE_FAULT_STALE_LEADER_FAILED",
+            }
+        )
+
+
+def _validate_stale_runner_leader_report(
+    report: Mapping[str, object],
+) -> tuple[int, tuple[str, ...]]:
+    """Require the original owner to return but fail its stale fenced persistence."""
+    if (
+        _process_report_text(report, "kind") != "stale_runner_leader"
+        or _process_report_text(report, "status") != "ok"
+        or _process_report_int(report, "provider_call_count") != 1
+        or _process_report_int(report, "fetch_count") != 0
+        or _process_report_text(report, "session_timezone").upper() not in {"UTC", "ETC/UTC"}
+    ):
+        raise PostgresAcceptanceHarnessError("POSTGRES_ACCEPTANCE_FAULT_STALE_LEADER_INVALID")
+    warning_codes = _fault_report_texts(report, "warning_codes")
+    if "FETCH_LEASE_FENCE_LOST" not in warning_codes:
+        raise PostgresAcceptanceHarnessError("POSTGRES_ACCEPTANCE_FAULT_STALE_LEADER_INVALID")
+    process_id = _process_report_int(report, "pid")
+    if process_id <= 0:
+        raise PostgresAcceptanceHarnessError("POSTGRES_ACCEPTANCE_FAULT_PROCESS_IDENTITY_INVALID")
+    return process_id, warning_codes
+
+
+async def _verify_stale_runner_start_takeover(
+    target_url: URL,
+    *,
+    user_id: str,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> _StaleRunnerTakeoverEvidence:
+    """Let a timed-out owner return after takeover and prove its fence rejects it."""
+    context = multiprocessing.get_context("spawn")
+    runner_started_event = context.Event()
+    resume_event = context.Event()
+    ready_queue = context.Queue()
+    result_queue = context.Queue()
+    provider_attempt_counter = context.Value("i", 0)
+    leader = context.Process(
+        target=_stale_runner_leader,
+        args=(
+            _url_text(target_url),
+            user_id,
+            _STALE_RUNNER_CANONICAL_ID,
+            runner_started_event,
+            resume_event,
+            ready_queue,
+            result_queue,
+            provider_attempt_counter,
+        ),
+    )
+    before = await _fault_persistence_counts(session_factory)
+    try:
+        leader.start()
+        ready_report = await _receive_process_message(
+            ready_queue,
+            timeout_seconds=_PROCESS_EVENT_TIMEOUT_SECONDS,
+            timeout_code="POSTGRES_ACCEPTANCE_FAULT_STALE_LEADER_READY_TIMEOUT",
+        )
+        leader_process_id = _process_report_int(ready_report, "pid")
+        if _process_report_text(ready_report, "kind") != "ready" or leader_process_id <= 0:
+            raise PostgresAcceptanceHarnessError(
+                "POSTGRES_ACCEPTANCE_FAULT_PROCESS_IDENTITY_INVALID"
+            )
+        await _wait_for_process_event(
+            runner_started_event,
+            code="POSTGRES_ACCEPTANCE_FAULT_STALE_RUNNER_START_TIMEOUT",
+        )
+
+        blocked_follower_report = await _run_fault_worker_for_report(
+            context,
+            target=_fault_follower_worker,
+            args=(
+                _url_text(target_url),
+                user_id,
+                _STALE_RUNNER_CANONICAL_ID,
+                "local_first",
+            ),
+            timeout_code="POSTGRES_ACCEPTANCE_FAULT_STALE_BLOCKED_FOLLOWER_TIMEOUT",
+        )
+        blocked_follower_process_id = _validate_fault_follower_report(
+            blocked_follower_report,
+            mode="local_first",
+            provider_call_count=0,
+            coverage_status="incomplete",
+            lease_held=True,
+        )
+        if blocked_follower_process_id == leader_process_id:
+            raise PostgresAcceptanceHarnessError(
+                "POSTGRES_ACCEPTANCE_FAULT_PROCESS_IDENTITY_INVALID"
+            )
+
+        takeover_report = await _run_follower_until_expiry_takeover(
+            context,
+            target_url=target_url,
+            user_id=user_id,
+            canonical_id=_STALE_RUNNER_CANONICAL_ID,
+            provider_attempt_counter=provider_attempt_counter,
+        )
+        takeover_process_id = _validate_fault_follower_report(
+            takeover_report,
+            mode="local_first",
+            provider_call_count=1,
+            coverage_status="complete",
+        )
+        if takeover_process_id in {leader_process_id, blocked_follower_process_id}:
+            raise PostgresAcceptanceHarnessError(
+                "POSTGRES_ACCEPTANCE_FAULT_PROCESS_IDENTITY_INVALID"
+            )
+
+        resume_event.set()
+        stale_report = await _receive_process_message(
+            result_queue,
+            timeout_seconds=_PROCESS_RESULT_TIMEOUT_SECONDS,
+            timeout_code="POSTGRES_ACCEPTANCE_FAULT_STALE_LEADER_RESULT_TIMEOUT",
+        )
+        await _join_two_process_workers((leader,))
+        stale_process_id, warning_codes = _validate_stale_runner_leader_report(stale_report)
+        if stale_process_id != leader_process_id:
+            raise PostgresAcceptanceHarnessError(
+                "POSTGRES_ACCEPTANCE_FAULT_PROCESS_IDENTITY_INVALID"
+            )
+        source_snapshot_delta, observation_revision_delta = _fault_count_delta(
+            before,
+            await _fault_persistence_counts(session_factory),
+        )
+        if (source_snapshot_delta, observation_revision_delta) != (1, 2):
+            raise PostgresAcceptanceHarnessError(
+                "POSTGRES_ACCEPTANCE_FAULT_RECOVERY_PERSISTENCE_INVALID"
+            )
+        with provider_attempt_counter.get_lock():
+            provider_attempt_count = int(provider_attempt_counter.value)
+        if provider_attempt_count != 2:
+            raise PostgresAcceptanceHarnessError(
+                "POSTGRES_ACCEPTANCE_FAULT_PROVIDER_ATTEMPTS_INVALID"
+            )
+        return _StaleRunnerTakeoverEvidence(
+            leader_process_id=leader_process_id,
+            blocked_follower_process_id=blocked_follower_process_id,
+            takeover_process_id=takeover_process_id,
+            provider_attempt_count=provider_attempt_count,
+            stale_leader_warning_codes=warning_codes,
+            source_snapshot_delta=source_snapshot_delta,
+            observation_revision_delta=observation_revision_delta,
+        )
+    finally:
+        await _stop_two_process_workers((leader,))
+        _close_process_queue(ready_queue)
+        _close_process_queue(result_queue)
+
+
+async def _run_terminated_runner_leader(
+    target_url_text: str,
+    user_id: str,
+    canonical_id: str,
+    runner_started_event: Any,
+    cleanup_unblock_event: Any,
+    ready_queue: Any,
+    provider_attempt_counter: Any,
+) -> None:
+    """Own a real lease and block exactly after fake-runner start until parent termination."""
+    if canonical_id != _TERMINATED_RUNNER_CANONICAL_ID:
+        raise PostgresAcceptanceHarnessError("POSTGRES_ACCEPTANCE_FAULT_IDENTITY_INVALID")
+    target_url = make_url(target_url_text)
+    _require_own_temporary_database(target_url.database)
+    engine = _target_engine(target_url)
+    session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    checkpoints = _FaultCheckpointController(
+        blocked_phase=_FAULT_PHASE_RUNNER_STARTED,
+        reached_event=runner_started_event,
+        unblock_event=cleanup_unblock_event,
+        # The parent intentionally terminates this worker after exercising a
+        # separate blocked follower.  Its local checkpoint must not time out
+        # first and turn an ordinary worker error into a false proof of
+        # parent-initiated termination.
+        event_wait_timeout_seconds=_FAULT_TERMINATED_LEADER_BLOCK_TIMEOUT_SECONDS,
+    )
+    try:
+        ready_queue.put({"kind": "ready", "pid": os.getpid()})
+        async with session_factory() as session:
+            query_now = datetime.now(UTC) + timedelta(minutes=10)
+            provider = _DeterministicProvider(
+                checkpoints=checkpoints,
+                provider_attempt_counter=provider_attempt_counter,
+            )
+            await _service(
+                session,
+                provider,
+                now=query_now,
+                allow_online_fetch=True,
+                store=_CheckpointingMarketDataStore(session, checkpoints=checkpoints),
+                fetch_leases=_CheckpointingFetchLeases(
+                    MarketDataFetchLeaseManager(session, lease_ttl=_FAULT_LEASE_TTL),
+                    checkpoints=checkpoints,
+                ),
+            ).execute(
+                _request(mode="local_first", canonical_id=canonical_id),
+                access=await _access_for_session(session, user_id=user_id, now=query_now),
+            )
+    finally:
+        await engine.dispose()
+
+
+def _terminated_runner_leader(
+    target_url_text: str,
+    user_id: str,
+    canonical_id: str,
+    runner_started_event: Any,
+    cleanup_unblock_event: Any,
+    ready_queue: Any,
+    provider_attempt_counter: Any,
+) -> None:
+    """Run the intentionally killable leader without a production-provider fallback."""
+    asyncio.run(
+        _run_terminated_runner_leader(
+            target_url_text,
+            user_id,
+            canonical_id,
+            runner_started_event,
+            cleanup_unblock_event,
+            ready_queue,
+            provider_attempt_counter,
+        )
+    )
+
+
+async def _join_terminated_fault_leader(process: Any) -> None:
+    """Require a parent-terminated leader to be reaped before expiry takeover starts."""
+    if os.name != "posix" or not hasattr(signal, "SIGKILL"):
+        raise PostgresAcceptanceHarnessError("POSTGRES_ACCEPTANCE_FAULT_LEADER_TERMINATION_FAILED")
+    if process.pid is None or not process.is_alive():
+        raise PostgresAcceptanceHarnessError("POSTGRES_ACCEPTANCE_FAULT_LEADER_TERMINATION_FAILED")
+    try:
+        process.terminate()
+        expected_exitcode = -signal.SIGTERM
+        await asyncio.to_thread(process.join, _PROCESS_EVENT_TIMEOUT_SECONDS)
+        if process.is_alive():
+            kill = getattr(process, "kill", None)
+            if not callable(kill):
+                raise PostgresAcceptanceHarnessError(
+                    "POSTGRES_ACCEPTANCE_FAULT_LEADER_TERMINATION_FAILED"
+                )
+            kill()
+            expected_exitcode = -signal.SIGKILL
+            await asyncio.to_thread(process.join, _PROCESS_EVENT_TIMEOUT_SECONDS)
+    except PostgresAcceptanceHarnessError:
+        raise
+    except Exception as exc:
+        raise PostgresAcceptanceHarnessError(
+            "POSTGRES_ACCEPTANCE_FAULT_LEADER_TERMINATION_FAILED"
+        ) from exc
+    # A generic nonzero exit is not evidence that the parent terminated this
+    # process: it could be a checkpoint timeout or another worker failure in
+    # the race between is_alive() and terminate().  On POSIX multiprocessing
+    # reports the signal that ended a child as the matching negative signal
+    # number, which makes the parent-issued termination auditable.
+    if process.is_alive() or process.exitcode != expected_exitcode:
+        raise PostgresAcceptanceHarnessError("POSTGRES_ACCEPTANCE_FAULT_LEADER_TERMINATION_FAILED")
+
+
+async def _run_follower_until_expiry_takeover(
+    context: Any,
+    *,
+    target_url: URL,
+    user_id: str,
+    canonical_id: str,
+    provider_attempt_counter: Any,
+) -> Mapping[str, object]:
+    """Retry only provider-free held responses until the dead owner's lease expires."""
+    deadline = asyncio.get_running_loop().time() + _FAULT_TAKEOVER_TIMEOUT_SECONDS
+    while True:
+        result_queue = context.Queue()
+        process = context.Process(
+            target=_fault_follower_worker,
+            args=(
+                _url_text(target_url),
+                user_id,
+                canonical_id,
+                "local_first",
+                result_queue,
+                provider_attempt_counter,
+            ),
+        )
+        try:
+            process.start()
+            report = await _receive_process_message(
+                result_queue,
+                timeout_seconds=_PROCESS_RESULT_TIMEOUT_SECONDS,
+                timeout_code="POSTGRES_ACCEPTANCE_FAULT_TAKEOVER_RESULT_TIMEOUT",
+            )
+            await _join_two_process_workers((process,))
+        finally:
+            await _stop_two_process_workers((process,))
+            _close_process_queue(result_queue)
+        if (
+            _process_report_text(report, "kind") == "fault_follower"
+            and _process_report_text(report, "status") == "ok"
+            and _process_report_int(report, "provider_call_count") == 1
+        ):
+            return report
+        if (
+            _process_report_text(report, "kind") != "fault_follower"
+            or _process_report_text(report, "status") != "ok"
+            or _process_report_int(report, "provider_call_count") != 0
+            or "FETCH_LEASE_HELD" not in _fault_report_texts(report, "warning_codes")
+        ):
+            raise PostgresAcceptanceHarnessError("POSTGRES_ACCEPTANCE_FAULT_TAKEOVER_INVALID")
+        if asyncio.get_running_loop().time() >= deadline:
+            raise PostgresAcceptanceHarnessError("POSTGRES_ACCEPTANCE_FAULT_TAKEOVER_TIMEOUT")
+        await asyncio.sleep(0.1)
+
+
+async def _verify_terminated_runner_start_takeover(
+    target_url: URL,
+    *,
+    user_id: str,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> _TerminatedRunnerTakeoverEvidence:
+    """Prove owner death after runner start blocks a follower until lease expiry takeover."""
+    context = multiprocessing.get_context("spawn")
+    runner_started_event = context.Event()
+    cleanup_unblock_event = context.Event()
+    ready_queue = context.Queue()
+    provider_attempt_counter = context.Value("i", 0)
+    leader = context.Process(
+        target=_terminated_runner_leader,
+        args=(
+            _url_text(target_url),
+            user_id,
+            _TERMINATED_RUNNER_CANONICAL_ID,
+            runner_started_event,
+            cleanup_unblock_event,
+            ready_queue,
+            provider_attempt_counter,
+        ),
+    )
+    before = await _fault_persistence_counts(session_factory)
+    try:
+        leader.start()
+        ready_report = await _receive_process_message(
+            ready_queue,
+            timeout_seconds=_PROCESS_EVENT_TIMEOUT_SECONDS,
+            timeout_code="POSTGRES_ACCEPTANCE_FAULT_TERMINATED_LEADER_READY_TIMEOUT",
+        )
+        leader_process_id = _process_report_int(ready_report, "pid")
+        if _process_report_text(ready_report, "kind") != "ready" or leader_process_id <= 0:
+            raise PostgresAcceptanceHarnessError(
+                "POSTGRES_ACCEPTANCE_FAULT_PROCESS_IDENTITY_INVALID"
+            )
+        await _wait_for_process_event(
+            runner_started_event,
+            code="POSTGRES_ACCEPTANCE_FAULT_TERMINATED_RUNNER_START_TIMEOUT",
+        )
+
+        blocked_follower_report = await _run_fault_worker_for_report(
+            context,
+            target=_fault_follower_worker,
+            args=(
+                _url_text(target_url),
+                user_id,
+                _TERMINATED_RUNNER_CANONICAL_ID,
+                "local_first",
+            ),
+            timeout_code="POSTGRES_ACCEPTANCE_FAULT_BLOCKED_FOLLOWER_RESULT_TIMEOUT",
+        )
+        blocked_follower_process_id = _validate_fault_follower_report(
+            blocked_follower_report,
+            mode="local_first",
+            provider_call_count=0,
+            coverage_status="incomplete",
+            lease_held=True,
+        )
+        if blocked_follower_process_id == leader_process_id:
+            raise PostgresAcceptanceHarnessError(
+                "POSTGRES_ACCEPTANCE_FAULT_PROCESS_IDENTITY_INVALID"
+            )
+        if _fault_count_delta(before, await _fault_persistence_counts(session_factory)) != (0, 0):
+            raise PostgresAcceptanceHarnessError(
+                "POSTGRES_ACCEPTANCE_FAULT_LEADER_DURABILITY_INVALID"
+            )
+
+        await _join_terminated_fault_leader(leader)
+        takeover_report = await _run_follower_until_expiry_takeover(
+            context,
+            target_url=target_url,
+            user_id=user_id,
+            canonical_id=_TERMINATED_RUNNER_CANONICAL_ID,
+            provider_attempt_counter=provider_attempt_counter,
+        )
+        takeover_process_id = _validate_fault_follower_report(
+            takeover_report,
+            mode="local_first",
+            provider_call_count=1,
+            coverage_status="complete",
+        )
+        if takeover_process_id in {leader_process_id, blocked_follower_process_id}:
+            raise PostgresAcceptanceHarnessError(
+                "POSTGRES_ACCEPTANCE_FAULT_PROCESS_IDENTITY_INVALID"
+            )
+        source_snapshot_delta, observation_revision_delta = _fault_count_delta(
+            before,
+            await _fault_persistence_counts(session_factory),
+        )
+        if (source_snapshot_delta, observation_revision_delta) != (1, 2):
+            raise PostgresAcceptanceHarnessError(
+                "POSTGRES_ACCEPTANCE_FAULT_RECOVERY_PERSISTENCE_INVALID"
+            )
+        with provider_attempt_counter.get_lock():
+            provider_attempt_count = int(provider_attempt_counter.value)
+        if provider_attempt_count != 2:
+            raise PostgresAcceptanceHarnessError(
+                "POSTGRES_ACCEPTANCE_FAULT_PROVIDER_ATTEMPTS_INVALID"
+            )
+        return _TerminatedRunnerTakeoverEvidence(
+            leader_process_id=leader_process_id,
+            blocked_follower_process_id=blocked_follower_process_id,
+            takeover_process_id=takeover_process_id,
+            provider_attempt_count=provider_attempt_count,
+            blocked_follower_provider_call_count=_process_report_int(
+                blocked_follower_report,
+                "provider_call_count",
+            ),
+            takeover_provider_call_count=_process_report_int(
+                takeover_report,
+                "provider_call_count",
+            ),
+            source_snapshot_delta=source_snapshot_delta,
+            observation_revision_delta=observation_revision_delta,
+        )
+    finally:
+        cleanup_unblock_event.set()
+        await _stop_two_process_workers((leader,))
+        _close_process_queue(ready_queue)
+
+
+async def _verify_fault_takeover_protocol(
+    target_url: URL,
+    *,
+    user_id: str,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> _FaultTakeoverEvidence:
+    """Run fixture-only cancellation and termination recovery without any network route."""
+    cancelled_phases = await _verify_cancelled_fault_takeovers(
+        target_url,
+        user_id=user_id,
+        session_factory=session_factory,
+    )
+    stale_runner_start = await _verify_stale_runner_start_takeover(
+        target_url,
+        user_id=user_id,
+        session_factory=session_factory,
+    )
+    terminated_runner_start = await _verify_terminated_runner_start_takeover(
+        target_url,
+        user_id=user_id,
+        session_factory=session_factory,
+    )
+    return _FaultTakeoverEvidence(
+        cancelled_phases=cancelled_phases,
+        stale_runner_start=stale_runner_start,
+        terminated_runner_start=terminated_runner_start,
+    )
+
+
 async def _verify_independent_connection_lease(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> tuple[int, int]:
@@ -1464,12 +2854,21 @@ async def _verify_temporary_database(target_url: URL, *, alembic_head: str) -> _
                 seed_session,
                 expected_alembic_head=alembic_head,
             )
-            user_id = await _seed_prerequisites(seed_session, target_url=target_url)
+            user_id = await _seed_prerequisites(
+                seed_session,
+                target_url=target_url,
+                canonical_ids=_ALL_HARNESS_CANONICAL_IDS,
+            )
 
         two_process_exact_gap = await _verify_two_process_exact_gap(
             target_url,
             user_id=user_id,
             query_now=query_now,
+            session_factory=session_factory,
+        )
+        fault_takeover = await _verify_fault_takeover_protocol(
+            target_url,
+            user_id=user_id,
             session_factory=session_factory,
         )
 
@@ -1503,7 +2902,12 @@ async def _verify_temporary_database(target_url: URL, *, alembic_head: str) -> _
             raise PostgresAcceptanceHarnessError("POSTGRES_ACCEPTANCE_LOCAL_ONLY_REREAD_FAILED")
         if reread_provider.calls:
             raise PostgresAcceptanceHarnessError("POSTGRES_ACCEPTANCE_LOCAL_ONLY_PROVIDER_CALLED")
-        if source_snapshot_count != 1 or observation_revision_count != 2:
+        expected_source_snapshot_count = len(_ALL_HARNESS_CANONICAL_IDS)
+        expected_observation_revision_count = expected_source_snapshot_count * 2
+        if (
+            source_snapshot_count != expected_source_snapshot_count
+            or observation_revision_count != expected_observation_revision_count
+        ):
             raise PostgresAcceptanceHarnessError("POSTGRES_ACCEPTANCE_PERSISTENCE_COUNT_INVALID")
         if len(reread.observations) != 2:
             raise PostgresAcceptanceHarnessError(
@@ -1525,6 +2929,7 @@ async def _verify_temporary_database(target_url: URL, *, alembic_head: str) -> _
             lease_successful_contender_count=lease_successful_contender_count,
             lease_fence_token=lease_fence_token,
             two_process_exact_gap=two_process_exact_gap,
+            fault_takeover=fault_takeover,
         )
     except PostgresAcceptanceHarnessError:
         raise
@@ -1559,13 +2964,23 @@ def _apply(admin_url: URL) -> tuple[int, dict[str, object]]:
         if len(set(database_names)) != len(database_names):
             raise PostgresAcceptanceHarnessError("POSTGRES_ACCEPTANCE_DATABASE_COLLISION")
 
-        asyncio.run(_create_temporary_database(admin_url, legacy_database_name))
-        created_database_names.append(legacy_database_name)
+        asyncio.run(
+            _create_temporary_database(
+                admin_url,
+                legacy_database_name,
+                on_created=created_database_names.append,
+            )
+        )
         legacy_target_url = _target_url(admin_url, legacy_database_name)
         legacy_portability_result = _run_legacy_constraint_portability_stage(legacy_target_url)
 
-        asyncio.run(_create_temporary_database(admin_url, acceptance_database_name))
-        created_database_names.append(acceptance_database_name)
+        asyncio.run(
+            _create_temporary_database(
+                admin_url,
+                acceptance_database_name,
+                on_created=created_database_names.append,
+            )
+        )
         target_url = _target_url(admin_url, acceptance_database_name)
         alembic_head = _run_alembic_upgrade(target_url)
         result = asyncio.run(_verify_temporary_database(target_url, alembic_head=alembic_head))
@@ -1596,7 +3011,10 @@ def _apply(admin_url: URL) -> tuple[int, dict[str, object]]:
         "cleanup": cleanup,
         "scope": {
             "provider": "deterministic_fixture_only",
-            "lease": "two_os_process_exact_gap_with_postgresql_durable_lease",
+            "lease": (
+                "two_os_process_exact_gap_plus_fixture_cancellation_stale_fence_and_terminated_owner_takeover"
+            ),
+            "fault_runner": "deterministic_fixture_only_no_network_or_runtime_flag_change",
             "legacy_constraint_portability": (
                 "stamped_predecessor_postgresql_truncated_check_names"
             ),
