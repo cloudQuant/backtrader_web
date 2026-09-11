@@ -3,11 +3,15 @@
 The writer has no source-fetch method and no application factory.  It receives
 only a batch that the evidence gate already sealed, stages each target under a
 durable release hold, rereads that hidden state, then promotes it through a
-fresh gate check.  A failed review quarantines every still-hidden target.
+fresh fixture-isolation check.  Every receipt remains explicitly
+``UNVERIFIED_COMPATIBILITY``; a failed review quarantines every still-hidden
+target.
 """
 
 from __future__ import annotations
 
+import hashlib
+import json
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -39,10 +43,13 @@ from app.services.market_data.providers import (
 )
 from app.services.market_data.query_resolution import ResolvedMarketDataQueryContext
 from app.services.market_data.store import (
+    UNVERIFIED_COMPATIBILITY_REASON_LEGACY_IMPORT,
     DeferredProviderFetch,
     MarketDataStore,
     MarketDataStoreError,
     _DeferredLegacyImportCandidate,
+    _LegacyStockDailyPersistedEvidence,
+    _PromotedLegacyImportCandidate,
     _PromotedLegacyImportPublicationReceipt,
 )
 
@@ -91,6 +98,10 @@ class LegacyStockDailyCanonicalWriterAdapter:
         self._store = store
         self._evidence_gate = evidence_gate
         self._clock = clock or (lambda: datetime.now(UTC))
+        # This process-local map is deliberately a fail-closed harness seam.
+        # A restarted writer cannot reinterpret an unverified promoted receipt
+        # as a product local read; it must reconstruct the isolated review.
+        self._private_promoted_staged: dict[tuple[str, ...], Mapping[str, _StagedTarget]] = {}
 
     async def write_daily_bars(
         self,
@@ -138,7 +149,10 @@ class LegacyStockDailyCanonicalWriterAdapter:
                     target.context,
                     result,
                     received_at=local_received_at,
-                    source_authorization=target.source_authorization,
+                    # The mixed legacy warehouse has no source authorization.
+                    # Store records this fixture receipt as explicitly
+                    # UNVERIFIED_COMPATIBILITY; it is never an AkShare claim.
+                    unverified_compatibility_reason=target.unverified_compatibility_reason,
                     fetch_lease=target.fetch_lease,
                     deferred_intent=self._evidence_gate.deferred_intent_for_permit(permit),
                 )
@@ -153,10 +167,16 @@ class LegacyStockDailyCanonicalWriterAdapter:
                 # staged candidate can continue through either path.
                 await self._store.close_transaction_before_provider_io()
                 _assert_staged_projection(
+                    batch=batch,
+                    attestation=attestation,
                     bars=bars,
                     source_batch_receipt=source_batch_receipt,
+                    permit=permit,
+                    context=target.context,
+                    source_provenance=self._evidence_gate.source_provenance.as_receipt_provenance(),
                     staged=staged,
                     inspection=inspection,
+                    result=result,
                 )
                 staged_targets.append(
                     _StagedTarget(permit=permit, staged=staged, inspection=inspection)
@@ -214,16 +234,21 @@ class LegacyStockDailyCanonicalWriterAdapter:
             for staged_target in staged_targets:
                 publication_receipts.append(
                     await self._store._read_promoted_legacy_import_publication(
-                        staged=staged_target.staged
+                        self._evidence_gate.target_for_permit(staged_target.permit).context,
+                        staged=staged_target.staged,
                     )
                 )
-            return _canonical_write(
+            canonical_write = _canonical_write(
                 source_batch_receipt=source_batch_receipt,
                 write_permits=write_permits,
                 staged_targets=staged_targets,
                 publication_receipts=tuple(publication_receipts),
                 local_received_at=local_received_at,
             )
+            self._private_promoted_staged[_canonical_write_key(canonical_write)] = MappingProxyType(
+                {item.permit.canonical_id: item for item in staged_targets}
+            )
+            return canonical_write
         except (MarketDataStoreError, TypeError, ValueError) as exc:
             raise LegacyStockDailyCanonicalWriterAdapterError(
                 "LEGACY_STOCK_DAILY_CANONICAL_WRITE_INVALID"
@@ -238,13 +263,27 @@ class LegacyStockDailyCanonicalWriterAdapter:
         canonical_write: LegacyStockDailyCanonicalWrite,
         knowledge_cutoff: datetime,
     ) -> LegacyStockDailyLocalReread:
-        """Perform the post-promotion local-only PIT reread required by the protocol."""
+        """Perform the harness-only post-promotion local reread required by the protocol.
+
+        The lookup deliberately does not call the ordinary Store local reader:
+        promoted mixed-warehouse snapshots remain unverified and therefore
+        cannot become a product response.  It instead uses Store's private
+        persisted-evidence reread bound to the exact staged handle retained by
+        this isolated writer instance.
+        """
         if not isinstance(calendar, FrozenLegacyStockDailyCalendar):
             raise TypeError("calendar must be a FrozenLegacyStockDailyCalendar")
         if not isinstance(canonical_write, LegacyStockDailyCanonicalWrite):
             raise TypeError("canonical_write must be a LegacyStockDailyCanonicalWrite")
         cutoff = _as_utc(knowledge_cutoff, field_name="knowledge_cutoff")
         if canonical_ids != frozenset(canonical_write.target_write_permits):
+            raise LegacyStockDailyCanonicalWriterAdapterError(
+                "LEGACY_STOCK_DAILY_LOCAL_REREAD_WRITE_MISMATCH"
+            )
+        staged_by_canonical_id = self._private_promoted_staged.get(
+            _canonical_write_key(canonical_write)
+        )
+        if staged_by_canonical_id is None or frozenset(staged_by_canonical_id) != canonical_ids:
             raise LegacyStockDailyCanonicalWriterAdapterError(
                 "LEGACY_STOCK_DAILY_LOCAL_REREAD_WRITE_MISMATCH"
             )
@@ -256,9 +295,17 @@ class LegacyStockDailyCanonicalWriterAdapter:
             (binding.canonical_id, binding.event_at): binding
             for binding in canonical_write.bar_revision_bindings
         }
+        publication_by_snapshot = {
+            receipt.source_snapshot_id: receipt for receipt in canonical_write.publication_receipts
+        }
         for canonical_id in sorted(canonical_ids):
             permit = canonical_write.target_write_permits[canonical_id]
             target = self._evidence_gate.target_for_permit(permit)
+            staged_target = staged_by_canonical_id.get(canonical_id)
+            if staged_target is None or staged_target.permit != permit:
+                raise LegacyStockDailyCanonicalWriterAdapterError(
+                    "LEGACY_STOCK_DAILY_LOCAL_REREAD_WRITE_MISMATCH"
+                )
             snapshot_ids = {
                 binding.source_snapshot_id
                 for binding in canonical_write.bar_revision_bindings
@@ -269,21 +316,26 @@ class LegacyStockDailyCanonicalWriterAdapter:
                     "LEGACY_STOCK_DAILY_LOCAL_REREAD_WRITE_MISMATCH"
                 )
             snapshot_id = next(iter(snapshot_ids))
-            revisions = await self._store.read_observation_revisions(
+            promoted = await self._store._read_promoted_legacy_import_candidate(
                 target.context,
-                knowledge_cutoff=cutoff,
-                visibility_anchor=visibility_anchor,
-                exact_source_snapshot_id=snapshot_id,
+                staged=staged_target.staged,
             )
-            for revision in revisions:
-                binding = binding_by_key.get((canonical_id, revision.event_at))
+            _assert_promoted_private_reread(
+                promoted=promoted,
+                staged_target=staged_target,
+                canonical_write=canonical_write,
+                expected_snapshot_id=snapshot_id,
+                expected_publication=publication_by_snapshot.get(snapshot_id),
+            )
+            for observation in promoted.observations:
+                binding = binding_by_key.get((canonical_id, observation.event_at))
                 if (
                     binding is None
-                    or binding.observation_revision_id != revision.revision_id
-                    or binding.source_snapshot_id != revision.source_snapshot_id
-                    or revision.quality is not ObservationQuality.PASS
-                    or revision.source_available_at is None
-                    or revision.available_at != canonical_write.local_observation_available_at
+                    or binding.observation_revision_id != observation.revision_id
+                    or binding.source_snapshot_id != observation.source_snapshot_id
+                    or observation.quality is not ObservationQuality.PASS
+                    or observation.source_available_at is None
+                    or observation.available_at != canonical_write.local_observation_available_at
                 ):
                     raise LegacyStockDailyCanonicalWriterAdapterError(
                         "LEGACY_STOCK_DAILY_LOCAL_REREAD_WRITE_MISMATCH"
@@ -295,16 +347,16 @@ class LegacyStockDailyCanonicalWriterAdapter:
                         market=target.context.identity.venue or "",
                         frequency="1d",
                         adjustment="qfq",
-                        event_at=revision.event_at,
-                        source_available_at=revision.source_available_at,
-                        available_at=revision.available_at,
-                        observation_revision_id=revision.revision_id,
-                        source_snapshot_id=revision.source_snapshot_id,
-                        fields=revision.fields,
+                        event_at=observation.event_at,
+                        source_available_at=observation.source_available_at,
+                        available_at=observation.available_at,
+                        observation_revision_id=observation.revision_id,
+                        source_snapshot_id=observation.source_snapshot_id,
+                        fields=observation.fields,
                     )
                 )
-                revision_ids.add(revision.revision_id)
-                source_snapshot_ids.add(revision.source_snapshot_id)
+                revision_ids.add(observation.revision_id)
+                source_snapshot_ids.add(observation.source_snapshot_id)
         expected_bindings = set(binding_by_key)
         if (
             {(bar.canonical_id, bar.event_at) for bar in bars} != expected_bindings
@@ -525,15 +577,32 @@ def _provider_result_for_target(
 
 def _assert_staged_projection(
     *,
+    batch: LegacyStockDailyImportBatch,
+    attestation: LegacyStockDailyImportAttestation,
     bars: Sequence[LegacyStockDailySourceBar],
     source_batch_receipt: LegacyStockDailySourceBatchReceipt,
+    permit: LegacyStockDailyCanonicalWritePermit,
+    context: ResolvedMarketDataQueryContext,
+    source_provenance: Mapping[str, object],
     staged: DeferredProviderFetch,
     inspection: _DeferredLegacyImportCandidate,
+    result: ProviderFetchResult,
 ) -> None:
     if inspection.staged != staged or len(inspection.observations) != len(bars):
         raise LegacyStockDailyCanonicalWriterAdapterError(
             "LEGACY_STOCK_DAILY_STAGED_REVIEW_UNVERIFIED"
         )
+    _assert_persisted_legacy_import_evidence(
+        evidence=inspection.evidence,
+        batch=batch,
+        attestation=attestation,
+        source_batch_receipt=source_batch_receipt,
+        permit=permit,
+        context=context,
+        source_provenance=source_provenance,
+        result=result,
+        expected_source_snapshot_id=staged.source_snapshot_id,
+    )
     expected_by_event = {bar.event_at: bar for bar in bars}
     seen_events: set[datetime] = set()
     for observation in inspection.observations:
@@ -555,6 +624,185 @@ def _assert_staged_projection(
         raise LegacyStockDailyCanonicalWriterAdapterError(
             "LEGACY_STOCK_DAILY_STAGED_REVIEW_UNVERIFIED"
         )
+
+
+def _assert_persisted_legacy_import_evidence(
+    *,
+    evidence: _LegacyStockDailyPersistedEvidence,
+    batch: LegacyStockDailyImportBatch,
+    attestation: LegacyStockDailyImportAttestation,
+    source_batch_receipt: LegacyStockDailySourceBatchReceipt,
+    permit: LegacyStockDailyCanonicalWritePermit,
+    context: ResolvedMarketDataQueryContext,
+    source_provenance: Mapping[str, object],
+    result: ProviderFetchResult,
+    expected_source_snapshot_id: str,
+) -> None:
+    """Compare Store-reread evidence with the issued fixture receipt/permit.
+
+    The comparison deliberately begins with the private Store return.  The
+    caller's batch and permit only provide expected values; they cannot replace
+    the persisted request, receipt manifest, shared bytes, or source evidence.
+    """
+    expected_attestation = {
+        "adjustment": attestation.adjustment,
+        "schema_version": attestation.schema_version,
+        "source_id": attestation.source_id,
+        "source_revision": attestation.source_revision,
+        "source_timezone": attestation.source_timezone,
+    }
+    expected_source_receipt = {
+        "authorization_receipt_id": source_batch_receipt.authorization_receipt_id,
+        "extracted_at": source_batch_receipt.extracted_at.isoformat(),
+        "provider_id": source_batch_receipt.provider_id,
+        "route_id": source_batch_receipt.route_id,
+        "source_registry_id": source_batch_receipt.source_registry_id,
+        "source_receipt_id": source_batch_receipt.source_receipt_id,
+        "source_schema_sha256": source_batch_receipt.source_schema_sha256,
+    }
+    expected_permit = {
+        "fetch_lease_fence_token": permit.fetch_lease_fence_token,
+        "fetch_lease_key_sha256": permit.fetch_lease_key_sha256,
+        "resolved_context_sha256": permit.resolved_context_sha256,
+        "write_authorization_descriptor_sha256": permit.write_authorization_descriptor_sha256,
+    }
+    legacy_import = evidence.legacy_import
+    if (
+        evidence.source_snapshot_id != expected_source_snapshot_id
+        or evidence.source_id != source_batch_receipt.provider_id
+        or evidence.endpoint_version != attestation.source_revision
+        or evidence.source_observed_at != source_batch_receipt.extracted_at
+        or evidence.source_authorization_state != "UNVERIFIED_COMPATIBILITY"
+        or evidence.unverified_compatibility
+        != {
+            "version": "market-data-unverified-source-write-v1",
+            "reason": UNVERIFIED_COMPATIBILITY_REASON_LEGACY_IMPORT,
+            "decision": "UNVERIFIED",
+        }
+        or _canonical_json_value(evidence.source_batch) != _canonical_json_value(batch.raw_payload)
+        or _canonical_json_value(evidence.provider_request)
+        != _canonical_json_value(result.request.dto_payload)
+        or _canonical_json_value(evidence.resolved_query)
+        != _canonical_json_value(context.query.semantic_payload())
+        or set(evidence.receipt_payload) != {"legacy_import"}
+        or set(legacy_import)
+        != {
+            "attestation",
+            "canonical_id",
+            "contract_version",
+            "import_scope_sha256",
+            "per_row_provider_attribution",
+            "source_batch_sha256",
+            "source_provenance",
+            "source_receipt",
+            "write_permit",
+        }
+        or legacy_import.get("canonical_id") != permit.canonical_id
+        or legacy_import.get("contract_version") != _WRITER_VERSION
+        or legacy_import.get("source_batch_sha256") != source_batch_receipt.source_batch_sha256
+        or legacy_import.get("import_scope_sha256") != source_batch_receipt.import_scope_sha256
+        or legacy_import.get("per_row_provider_attribution") != "unavailable"
+        or _canonical_json_value(legacy_import.get("attestation"))
+        != _canonical_json_value(expected_attestation)
+        or _canonical_json_value(legacy_import.get("source_receipt"))
+        != _canonical_json_value(expected_source_receipt)
+        or _canonical_json_value(legacy_import.get("write_permit"))
+        != _canonical_json_value(expected_permit)
+        or _canonical_json_value(legacy_import.get("source_provenance"))
+        != _canonical_json_value(source_provenance)
+        or source_batch_receipt.source_schema_sha256 != batch.import_scope.source_schema_sha256
+        or permit.import_scope_sha256 != batch.import_scope.import_scope_sha256
+        or permit.resolved_context_sha256 != _resolved_context_sha256_for_writer(context)
+        or evidence.fetch_lease_key_sha256 != permit.fetch_lease_key_sha256
+        or evidence.fetch_lease_fence_token != permit.fetch_lease_fence_token
+    ):
+        raise LegacyStockDailyCanonicalWriterAdapterError(
+            "LEGACY_STOCK_DAILY_STAGED_REVIEW_UNVERIFIED"
+        )
+
+
+def _assert_promoted_private_reread(
+    *,
+    promoted: _PromotedLegacyImportCandidate,
+    staged_target: _StagedTarget,
+    canonical_write: LegacyStockDailyCanonicalWrite,
+    expected_snapshot_id: str,
+    expected_publication: LegacyStockDailyPublicationReceipt | None,
+) -> None:
+    """Reject a post-promotion source/receipt mutation before local harness use."""
+    if (
+        promoted.staged != staged_target.staged
+        or promoted.evidence != staged_target.inspection.evidence
+        or promoted.observations != staged_target.inspection.observations
+        or promoted.publication.source_snapshot_id != expected_snapshot_id
+        or expected_publication is None
+        or promoted.publication.publication_id != expected_publication.publication_id
+        or promoted.publication.visible_at != expected_publication.visible_at
+        or promoted.publication.visibility_sequence != expected_publication.visibility_sequence
+        or promoted.publication.source_snapshot_id not in canonical_write.source_snapshot_ids
+    ):
+        raise LegacyStockDailyCanonicalWriterAdapterError(
+            "LEGACY_STOCK_DAILY_LOCAL_REREAD_WRITE_MISMATCH"
+        )
+
+
+def _canonical_write_key(canonical_write: LegacyStockDailyCanonicalWrite) -> tuple[str, ...]:
+    """Return an in-process key for an opaque isolated-writer staged handle."""
+    payload = {
+        "import_scope_sha256": canonical_write.import_scope_sha256,
+        "observation_revision_ids": sorted(canonical_write.observation_revision_ids),
+        "source_batch_sha256": canonical_write.source_batch_sha256,
+        "source_receipt_id": canonical_write.source_receipt_id,
+        "source_snapshot_ids": sorted(canonical_write.source_snapshot_ids),
+    }
+    digest = hashlib.sha256(
+        json.dumps(payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode(
+            "utf-8"
+        )
+    ).hexdigest()
+    return (digest,)
+
+
+def _canonical_json_value(value: object) -> str:
+    """Hash-comparable JSON serialization for persisted-evidence comparisons."""
+    return json.dumps(
+        _plain_json(value),
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+
+
+def _resolved_context_sha256_for_writer(context: ResolvedMarketDataQueryContext) -> str:
+    """Match the gate's context seal without importing its private helper."""
+    identity = context.coverage_identity
+    return hashlib.sha256(
+        _canonical_json_value(
+            {
+                "canonical_id": context.query.canonical_id,
+                "coverage_identity": {
+                    "adjustment": identity.adjustment,
+                    "asset_type": identity.asset_type,
+                    "canonical_id": identity.canonical_id,
+                    "currency": identity.currency,
+                    "data_kind": identity.data_kind,
+                    "dataset_code": identity.dataset_code,
+                    "family_contract_version": identity.family_contract_version,
+                    "family_id": identity.family_id,
+                    "frequency": identity.frequency,
+                    "instrument_metadata_version": identity.instrument_metadata_version,
+                    "market": identity.market,
+                    "price_basis": identity.price_basis,
+                    "source_policy_id": identity.source_policy_id,
+                    "unit": identity.unit,
+                },
+                "identity_metadata_version": context.identity.metadata_version,
+                "instrument_id": context.identity.instrument_id,
+                "query_fingerprint": context.query.query_fingerprint,
+                "storage_dataset_id": context.storage.dataset_id,
+            }
+        ).encode("utf-8")
+    ).hexdigest()
 
 
 def _canonical_write(
