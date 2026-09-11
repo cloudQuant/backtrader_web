@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from dataclasses import replace
 from datetime import datetime, timezone
 
@@ -128,14 +129,14 @@ def test_contract_profile_maps_reviewed_fields_and_rejects_an_unmapped_required_
 
 @pytest.mark.asyncio
 async def test_adapter_rejects_unknown_route_and_missing_mapping_before_provider_io() -> None:
-    """Neither a fake endpoint resolver nor a source callable runs for rejected contracts."""
+    """No fake runner receipt is requested for rejected static contracts."""
     calls: list[str] = []
 
-    def resolver(endpoint: str):
-        calls.append(endpoint)
-        pytest.fail("provider callable resolution must not run")
+    async def runner(_: Mapping[str, object]) -> dict[str, object]:
+        calls.append("runner")
+        pytest.fail("runner must not run for a rejected contract")
 
-    provider = AkShareMarketDataProvider(callable_resolver=resolver)
+    provider = AkShareMarketDataProvider(test_runner=runner)
 
     with pytest.raises(AkShareProviderError) as unknown:
         await provider.fetch(_request(route_id="akshare-stock-unreviewed-v1"))
@@ -191,37 +192,22 @@ def _digest_spoofed_stock_contract_registry() -> ProviderContractRegistry:
 
 def test_adapter_has_no_runtime_contract_registry_injection_seam() -> None:
     """A caller cannot replace reviewed contracts during adapter construction."""
-    resolver_calls: list[str] = []
-
-    def resolver(endpoint: str):
-        resolver_calls.append(endpoint)
-        pytest.fail("constructor must not resolve a provider callable")
-
     with pytest.raises(TypeError, match="contracts"):
         AkShareMarketDataProvider(
             contracts=_tampered_stock_contract_registry(),  # type: ignore[call-arg]
-            callable_resolver=resolver,
         )
-
-    assert resolver_calls == []
 
 
 @pytest.mark.asyncio
 async def test_adapter_ignores_digest_spoofed_private_registry_before_provider_io() -> None:
     """A spoofed private registry cannot replace the import-time reviewed table."""
-    resolver_calls: list[str] = []
-    source_calls: list[dict[str, object]] = []
+    runner_calls: list[str] = []
 
-    def resolver(endpoint: str):
-        resolver_calls.append(endpoint)
+    async def runner(_: Mapping[str, object]) -> dict[str, object]:
+        runner_calls.append("runner")
+        pytest.fail("runner must not run for a rejected contract")
 
-        def source_callable(**kwargs: object) -> list[dict[str, object]]:
-            source_calls.append(kwargs)
-            return []
-
-        return source_callable
-
-    provider = AkShareMarketDataProvider(callable_resolver=resolver)
+    provider = AkShareMarketDataProvider(test_runner=runner)
     # The public constructor has no registry seam. This unsafe in-process
     # attribute replacement must be ignored by the import-time selector.
     provider._contracts = _digest_spoofed_stock_contract_registry()
@@ -230,24 +216,17 @@ async def test_adapter_ignores_digest_spoofed_private_registry_before_provider_i
         await provider.fetch(_request(required_fields=frozenset({"unreviewed_metric"})))
 
     assert unmapped.value.code == "AKSHARE_PROVIDER_CONTRACT_FIELD_MAPPING_MISSING"
-    assert resolver_calls == []
-    assert source_calls == []
+    assert runner_calls == []
 
 
 @pytest.mark.asyncio
 async def test_adapter_rejects_postconstruction_reviewed_contract_mutation_before_provider_io() -> None:
     """The selected reviewed object must still match its import-time descriptor digest."""
-    resolver_calls: list[str] = []
-    source_calls: list[dict[str, object]] = []
+    runner_calls: list[str] = []
 
-    def resolver(endpoint: str):
-        resolver_calls.append(endpoint)
-
-        def source_callable(**kwargs: object) -> list[dict[str, object]]:
-            source_calls.append(kwargs)
-            return []
-
-        return source_callable
+    async def runner(_: Mapping[str, object]) -> dict[str, object]:
+        runner_calls.append("runner")
+        pytest.fail("runner must not run for a mutated contract")
 
     reviewed = AKSHARE_PROVIDER_CONTRACT_REGISTRY.contract_for(
         provider="akshare",
@@ -260,7 +239,7 @@ async def test_adapter_rejects_postconstruction_reviewed_contract_mutation_befor
         reviewed.field_profile,
         mapped_fields=reviewed.field_profile.mapped_fields | {"unreviewed_metric"},
     )
-    provider = AkShareMarketDataProvider(callable_resolver=resolver)
+    provider = AkShareMarketDataProvider(test_runner=runner)
 
     try:
         object.__setattr__(reviewed, "field_profile", widened_profile)
@@ -280,8 +259,49 @@ async def test_adapter_rejects_postconstruction_reviewed_contract_mutation_befor
 
     reviewed.assert_descriptor_integrity()
     assert mismatch.value.code == "AKSHARE_PROVIDER_CONTRACT_DESCRIPTOR_MISMATCH"
-    assert resolver_calls == []
-    assert source_calls == []
+    assert runner_calls == []
+
+
+@pytest.mark.asyncio
+async def test_adapter_rechecks_reviewed_contract_integrity_after_runner_receipt() -> None:
+    """A mutation during child execution cannot alter normalization after I/O."""
+    reviewed = AKSHARE_PROVIDER_CONTRACT_REGISTRY.contract_for(
+        provider="akshare",
+        route_id="akshare-stock-primary-v1",
+    )
+    original_profile = reviewed.field_profile
+    widened_profile = replace(
+        reviewed.field_profile,
+        mapped_fields=reviewed.field_profile.mapped_fields | {"unreviewed_metric"},
+    )
+    runner_calls: list[str] = []
+
+    async def runner(envelope: Mapping[str, object]) -> dict[str, object]:
+        execution = envelope["execution"]
+        assert isinstance(execution, Mapping)
+        runner_calls.append("runner")
+        object.__setattr__(reviewed, "field_profile", widened_profile)
+        return {
+            "protocol_version": "akshare-market-data-v1",
+            "request_id": envelope["request_id"],
+            "request": envelope["request"],
+            "execution": execution,
+            "source_revision": execution["source_revision"],
+            "response_rows": [
+                {"日期": "2026-01-02", "股票代码": "000001", "开盘": 10.0, "收盘": 10.5}
+            ],
+        }
+
+    provider = AkShareMarketDataProvider(test_runner=runner)
+    try:
+        with pytest.raises(AkShareProviderError) as mismatch:
+            await provider.fetch(_request())
+    finally:
+        object.__setattr__(reviewed, "field_profile", original_profile)
+
+    reviewed.assert_descriptor_integrity()
+    assert mismatch.value.code == "AKSHARE_PROVIDER_CONTRACT_DESCRIPTOR_MISMATCH"
+    assert runner_calls == ["runner"]
 
 
 @pytest.mark.asyncio
@@ -289,11 +309,11 @@ async def test_adapter_rejects_provider_endpoint_descriptor_drift_before_provide
     """The server-owned dispatch token must agree with the selected static contract."""
     calls: list[str] = []
 
-    def resolver(endpoint: str):
-        calls.append(endpoint)
-        pytest.fail("descriptor mismatch must not resolve a provider callable")
+    async def runner(_: Mapping[str, object]) -> dict[str, object]:
+        calls.append("runner")
+        pytest.fail("descriptor mismatch must not invoke the runner")
 
-    provider = AkShareMarketDataProvider(callable_resolver=resolver)
+    provider = AkShareMarketDataProvider(test_runner=runner)
 
     with pytest.raises(AkShareProviderError) as mismatch:
         await provider.fetch(_request(provider_endpoint="fund_etf_hist_em"))

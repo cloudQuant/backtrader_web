@@ -98,8 +98,8 @@ _INFLIGHT_LOCAL_FIRST_QUERIES: dict[
 
 @lru_cache(maxsize=1)
 def _shared_akshare_provider() -> AkShareMarketDataProvider:
-    """Retain one process-wide AkShare concurrency gate across HTTP requests."""
-    return AkShareMarketDataProvider()
+    """Retain one configured, reaping AkShare runner adapter across requests."""
+    return AkShareMarketDataProvider.from_environment()
 
 
 @lru_cache(maxsize=1)

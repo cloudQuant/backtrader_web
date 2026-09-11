@@ -6,22 +6,28 @@ exact provider symbol supplied by the resolved master-data identity.  A missing
 route is a typed failure: it is never replaced with a market-wide lookup,
 another asset type, or sample data.
 
-AkShare is synchronous, so every endpoint invocation and potentially large
-response normalization runs in a worker thread.  The returned payload contains
-the exact request, endpoint and source rows needed by the normalized store's
-provenance writer.
+AkShare is synchronous, so endpoint invocation happens only in an isolated,
+killable subprocess group. The parent validates its receipt before applying the
+existing normalization and provenance logic.
 """
 
 from __future__ import annotations
 
 import asyncio
-import importlib
+import inspect
 import json
 import math
+import os
+import re
+import shlex
+import signal
+import tempfile
 from collections.abc import Callable, Mapping, Sequence
+from contextlib import suppress
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from importlib import metadata
+from pathlib import Path
 from types import MappingProxyType
 from typing import Any
 
@@ -33,6 +39,7 @@ from app.services.market_data.dataset_contracts import (
 from app.services.market_data.provider_contracts import (
     AKSHARE_PROVIDER_CONTRACT_REGISTRY,
     AKSHARE_RESPONSE_FIELD_ALIASES,
+    PreparedProviderRequest,
     ProviderContract,
     ProviderContractError,
 )
@@ -45,6 +52,9 @@ from app.services.market_data.providers import (
 _UTC = timezone.utc
 _MAX_RESPONSE_ROWS = 50_000
 _MAX_PROVENANCE_BYTES = 10 * 1024 * 1024
+AKSHARE_RUNNER_PROTOCOL_VERSION = "akshare-market-data-v1"
+_MAX_RUNNER_OUTPUT_BYTES = 10 * 1024 * 1024
+_RUNNER_READ_CHUNK_BYTES = 64 * 1024
 _ALL_BAR_FREQUENCIES = frozenset({"5min", "30min", "1h", "1d", "1w", "1mo"})
 _DAILY_BAR_FREQUENCIES = frozenset({"1d", "1w", "1mo"})
 _DAILY_ONLY_FREQUENCIES = frozenset({"1d"})
@@ -116,8 +126,21 @@ _FIELD_ALIASES = AKSHARE_RESPONSE_FIELD_ALIASES
 RouteArgumentBuilder = Callable[[MarketDataProviderRequest], Mapping[str, Any]]
 RouteRequestValidator = Callable[[MarketDataProviderRequest], None]
 RouteEndpointResolver = Callable[[MarketDataProviderRequest], str]
-AkShareCallable = Callable[..., Any]
-AkShareCallableResolver = Callable[[str], AkShareCallable]
+AkShareTestRunner = Callable[[Mapping[str, Any]], Any]
+
+_RUNNER_BASE_ENVIRONMENT_KEYS = (
+    "LANG",
+    "LC_ALL",
+    "LC_CTYPE",
+    "TZ",
+    "PYTHONIOENCODING",
+    "SSL_CERT_FILE",
+    "SSL_CERT_DIR",
+)
+_RUNNER_HOME_ENVIRONMENT_KEY = "AKSHARE_RUNNER_HOME"
+_RUNNER_WORKDIR_ENVIRONMENT_KEY = "AKSHARE_RUNNER_WORKDIR"
+_RUNNER_SITE_PACKAGES_ENVIRONMENT_KEY = "AKSHARE_RUNNER_SITE_PACKAGES"
+_RUNNER_COMMAND_ENVIRONMENT_KEY = "AKSHARE_MARKET_DATA_RUNNER"
 
 
 class AkShareProviderError(RuntimeError):
@@ -848,14 +871,216 @@ AKSHARE_ROUTE_REGISTRY: tuple[AkShareRoute, ...] = (
 )
 
 
+@dataclass(frozen=True, slots=True)
+class _BoundedRunnerStream:
+    """A fully drained runner pipe with a bounded retained prefix."""
+
+    data: bytes
+    exceeded_limit: bool
+
+
+def _has_safe_akshare_process_group() -> bool:
+    """Return whether this process can create and terminate an isolated group.
+
+    The adapter deliberately has no request-process fallback.  Checking the
+    concrete primitives before spawn keeps an unusual POSIX-like platform from
+    starting AkShare work that it cannot later terminate as a group.
+    """
+    return (
+        os.name == "posix"
+        and callable(getattr(os, "setsid", None))
+        and callable(getattr(os, "killpg", None))
+        and hasattr(signal, "SIGKILL")
+    )
+
+
+async def _read_runner_stream_bounded(
+    stream: asyncio.StreamReader,
+    *,
+    maximum_bytes: int,
+) -> _BoundedRunnerStream:
+    """Drain one pipe even when its retained evidence exceeds the hard cap."""
+    retained: list[bytes] = []
+    remaining = maximum_bytes
+    exceeded_limit = False
+    while chunk := await stream.read(_RUNNER_READ_CHUNK_BYTES):
+        if remaining <= 0:
+            exceeded_limit = True
+            continue
+        if len(chunk) <= remaining:
+            retained.append(chunk)
+            remaining -= len(chunk)
+            continue
+        retained.append(chunk[:remaining])
+        remaining = 0
+        exceeded_limit = True
+    return _BoundedRunnerStream(data=b"".join(retained), exceeded_limit=exceeded_limit)
+
+
+async def _terminate_runner_group(
+    process: asyncio.subprocess.Process,
+    *,
+    process_group_id: int,
+) -> None:
+    """Kill a POSIX runner session and wait for its direct child to exit.
+
+    The known session leader PID remains usable even after the direct child
+    exits.  This is deliberate: a descendant can otherwise retain a pipe or
+    continue source I/O after the web request releases its durable fetch
+    lease.
+    """
+    try:
+        os.killpg(process_group_id, signal.SIGKILL)
+    except (ProcessLookupError, PermissionError):
+        pass
+    with suppress(ProcessLookupError):
+        await process.wait()
+
+
+async def _await_runner_cleanup(*tasks: asyncio.Future[Any]) -> None:
+    """Wait for reaping/draining even when request cancellation repeats.
+
+    ``fetch`` re-raises its original cancellation after this helper returns.
+    Suppressing a repeated cancellation here is intentionally narrow: it
+    makes cleanup a completion boundary, rather than allowing the caller to
+    release a fetch lease while an AkShare child still owns network I/O.
+    """
+    pending = [task for task in tasks if task is not None]
+    if not pending:
+        return
+    cleanup = asyncio.gather(*pending, return_exceptions=True)
+    while not cleanup.done():
+        try:
+            await asyncio.shield(cleanup)
+        except asyncio.CancelledError:
+            continue
+    await cleanup
+
+
+def _strict_json_loads(value: bytes) -> object:
+    """Decode RFC-JSON without accepting JavaScript NaN/Infinity extensions."""
+
+    def reject_constant(_: str) -> object:
+        raise ValueError("non-finite JSON token")
+
+    return json.loads(value.decode("utf-8"), parse_constant=reject_constant)
+
+
+class _AkShareSubprocessRunner:
+    """Run one exact AkShare call in a killable POSIX child session."""
+
+    def __init__(
+        self,
+        *,
+        command: tuple[str, ...] | None,
+        environment: Mapping[str, str] | None,
+        workdir: str | None,
+        configuration_error: str | None,
+    ) -> None:
+        self._command = command
+        self._environment = dict(environment) if environment is not None else None
+        self._workdir = workdir
+        self._configuration_error = configuration_error
+
+    async def execute(
+        self,
+        envelope: Mapping[str, Any],
+        *,
+        timeout_seconds: float,
+    ) -> Mapping[str, Any]:
+        """Exchange one bounded JSON receipt, reaping the group before return."""
+        if self._configuration_error is not None:
+            raise AkShareProviderError(self._configuration_error)
+        if not _has_safe_akshare_process_group():
+            raise AkShareProviderError("AKSHARE_RUNNER_PROCESS_GROUP_UNSUPPORTED")
+        if self._command is None or self._environment is None or self._workdir is None:
+            raise AkShareProviderError("AKSHARE_RUNNER_ENV_UNCONFIGURED")
+
+        try:
+            process = await asyncio.create_subprocess_exec(
+                *self._command,
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                env=self._environment,
+                cwd=self._workdir,
+                start_new_session=True,
+            )
+        except OSError as exc:
+            raise AkShareProviderError("AKSHARE_RUNNER_UNAVAILABLE", detail=_error_detail(exc)) from exc
+
+        if process.stdin is None or process.stdout is None or process.stderr is None:
+            await _terminate_runner_group(process, process_group_id=process.pid)
+            raise AkShareProviderError("AKSHARE_RUNNER_UNAVAILABLE")
+
+        stdout_task = asyncio.create_task(
+            _read_runner_stream_bounded(process.stdout, maximum_bytes=_MAX_RUNNER_OUTPUT_BYTES)
+        )
+        stderr_task = asyncio.create_task(
+            _read_runner_stream_bounded(process.stderr, maximum_bytes=_MAX_RUNNER_OUTPUT_BYTES)
+        )
+
+        async def send_and_collect() -> tuple[int, _BoundedRunnerStream, _BoundedRunnerStream]:
+            try:
+                process.stdin.write(_canonical_json(dict(envelope)).encode("utf-8"))
+                await process.stdin.drain()
+            except (BrokenPipeError, ConnectionResetError):
+                # The runner may reject input and exit. Its bounded receipt and
+                # exit status still select the fail-closed provider outcome.
+                pass
+            finally:
+                process.stdin.close()
+                with suppress(BrokenPipeError, ConnectionResetError):
+                    await process.stdin.wait_closed()
+            returncode = await process.wait()
+            stdout, stderr = await asyncio.gather(stdout_task, stderr_task)
+            return int(returncode), stdout, stderr
+
+        collector_task = asyncio.create_task(send_and_collect())
+        try:
+            returncode, stdout, stderr = await asyncio.wait_for(
+                asyncio.shield(collector_task), timeout=timeout_seconds
+            )
+        except TimeoutError as exc:
+            raise AkShareProviderError("AKSHARE_TIMEOUT") from exc
+        finally:
+            # This is intentionally also executed after a successful direct
+            # child exit. A detached descendant that no longer owns a pipe
+            # must not survive a successful fetch and outlive its lease.
+            await _terminate_runner_group(process, process_group_id=process.pid)
+            await _await_runner_cleanup(collector_task, stdout_task, stderr_task)
+
+        if stdout.exceeded_limit or stderr.exceeded_limit:
+            raise AkShareProviderError("AKSHARE_RUNNER_OUTPUT_TOO_LARGE")
+        if returncode != 0:
+            detail = stderr.data.decode("utf-8", errors="replace")[:2048] or None
+            raise AkShareProviderError("AKSHARE_RUNNER_FAILED", detail=detail)
+        try:
+            response = _strict_json_loads(stdout.data)
+        except (UnicodeDecodeError, ValueError, json.JSONDecodeError) as exc:
+            raise AkShareProviderError("AKSHARE_RUNNER_INVALID_RESPONSE") from exc
+        if not isinstance(response, Mapping):
+            raise AkShareProviderError("AKSHARE_RUNNER_INVALID_RESPONSE")
+        return response
+
+
 class AkShareMarketDataProvider:
-    """Fetch one explicitly routed AkShare request without storage side effects."""
+    """Fetch a reviewed AkShare contract through a reaped subprocess runner.
+
+    Production construction uses :meth:`from_environment`; it never imports
+    AkShare or invokes an endpoint in the FastAPI process. ``test_runner`` is
+    an explicit, non-production receipt seam for parent-side protocol tests.
+    """
 
     def __init__(
         self,
         *,
         routes: Sequence[AkShareRoute] = AKSHARE_ROUTE_REGISTRY,
-        callable_resolver: AkShareCallableResolver | None = None,
+        command: tuple[str, ...] | None = None,
+        runner_environment: Mapping[str, str] | None = None,
+        runner_workdir: str | None = None,
+        configuration_error: str | None = None,
+        test_runner: AkShareTestRunner | None = None,
         timeout_seconds: float = 30.0,
         max_concurrency: int = 4,
     ) -> None:
@@ -863,72 +1088,134 @@ class AkShareMarketDataProvider:
             raise ValueError("AkShare timeout_seconds must be positive")
         if max_concurrency < 1 or max_concurrency > 32:
             raise ValueError("AkShare max_concurrency must be between 1 and 32")
+        if command is not None and not _is_safe_akshare_runner_command(command):
+            raise ValueError(
+                "runner command must be '<absolute python> -I -S <absolute runner.py>'"
+            )
+        if configuration_error is not None and command is not None:
+            raise ValueError("configured runner command cannot carry a configuration error")
+        if test_runner is not None and (command is not None or configuration_error is not None):
+            raise ValueError("test runner seam cannot carry production runner configuration")
         self._routes = tuple(routes)
         self._validate_routes(self._routes)
-        self._callable_resolver = callable_resolver or _resolve_akshare_callable
         self._timeout_seconds = timeout_seconds
         self._semaphore = asyncio.BoundedSemaphore(max_concurrency)
+        self._test_runner = test_runner
+        self._runner = _AkShareSubprocessRunner(
+            command=command,
+            environment=runner_environment,
+            workdir=runner_workdir,
+            configuration_error=configuration_error
+            or ("AKSHARE_RUNNER_COMMAND_UNCONFIGURED" if command is None else None),
+        )
+
+    @classmethod
+    def from_environment(
+        cls,
+        *,
+        routes: Sequence[AkShareRoute] = AKSHARE_ROUTE_REGISTRY,
+        timeout_seconds: float = 30.0,
+        max_concurrency: int = 4,
+        parent_environment: Mapping[str, str] | None = None,
+    ) -> AkShareMarketDataProvider:
+        """Build the production-only subprocess adapter from operator config."""
+        source = os.environ if parent_environment is None else parent_environment
+        if not _has_safe_akshare_process_group():
+            return cls(
+                routes=routes,
+                configuration_error="AKSHARE_RUNNER_PROCESS_GROUP_UNSUPPORTED",
+                timeout_seconds=timeout_seconds,
+                max_concurrency=max_concurrency,
+            )
+        raw_command = source.get(_RUNNER_COMMAND_ENVIRONMENT_KEY, "").strip()
+        if not raw_command:
+            return cls(
+                routes=routes,
+                configuration_error="AKSHARE_RUNNER_COMMAND_UNCONFIGURED",
+                timeout_seconds=timeout_seconds,
+                max_concurrency=max_concurrency,
+            )
+        try:
+            command = tuple(shlex.split(raw_command))
+        except ValueError:
+            command = ()
+        if not _is_safe_akshare_runner_command(command):
+            return cls(
+                routes=routes,
+                configuration_error="AKSHARE_RUNNER_COMMAND_INVALID",
+                timeout_seconds=timeout_seconds,
+                max_concurrency=max_concurrency,
+            )
+        try:
+            runner_environment = _akshare_runner_environment(source)
+            runner_workdir = _akshare_runner_workdir(source)
+        except AkShareProviderError as exc:
+            return cls(
+                routes=routes,
+                configuration_error=exc.code,
+                timeout_seconds=timeout_seconds,
+                max_concurrency=max_concurrency,
+            )
+        return cls(
+            routes=routes,
+            command=command,
+            runner_environment=runner_environment,
+            runner_workdir=runner_workdir,
+            timeout_seconds=timeout_seconds,
+            max_concurrency=max_concurrency,
+        )
 
     async def fetch(self, request: MarketDataProviderRequest) -> ProviderFetchResult:
-        """Fetch and normalize an exact provider request with fail-closed validation."""
+        """Fetch only one frozen static contract after all parent checks pass."""
         if request.provider != "akshare":
             raise AkShareProviderError("AKSHARE_PROVIDER_MISMATCH")
-
         try:
             contract = _reviewed_contract_for_request(request)
             route = self._route_for(request)
             self._assert_route_contract_matches(route, contract)
             self._validate_route_request(route, request)
             prepared_request = contract.prepare_akshare_request(request)
+            _assert_reviewed_contract_integrity(contract)
             endpoint = prepared_request.endpoint
             call_kwargs = dict(prepared_request.call_kwargs)
+            _validate_call_kwargs(call_kwargs)
+            source_revision = _source_revision(endpoint)
+            execution = _akshare_execution_payload(
+                route=route,
+                contract=contract,
+                prepared_request=prepared_request,
+                endpoint=endpoint,
+                call_kwargs=call_kwargs,
+                source_revision=source_revision,
+            )
         except ProviderContractError as exc:
             raise _akshare_contract_error(exc) from exc
         except AkShareProviderError:
             raise
         except Exception as exc:
             raise AkShareProviderError("AKSHARE_ROUTE_INVALID", detail=_error_detail(exc)) from exc
-        if any(not isinstance(key, str) or not key for key in call_kwargs):
-            raise AkShareProviderError("AKSHARE_ROUTE_INVALID")
-        try:
-            source_callable = await self._run_blocking(self._callable_resolver, endpoint)
-        except TimeoutError as exc:
-            raise AkShareProviderError("AKSHARE_TIMEOUT") from exc
-        except AkShareProviderError:
-            raise
-        except Exception as exc:
-            raise AkShareProviderError("AKSHARE_UNAVAILABLE", detail=_error_detail(exc)) from exc
 
+        response_rows = await self._fetch_response_rows(
+            request=request,
+            execution=execution,
+            source_revision=source_revision,
+        )
         try:
-            response = await self._run_blocking(source_callable, **call_kwargs)
-        except TimeoutError as exc:
-            raise AkShareProviderError("AKSHARE_TIMEOUT") from exc
-        except AkShareProviderError:
-            raise
-        except Exception as exc:
-            raise AkShareProviderError("AKSHARE_FETCH_FAILED", detail=_error_detail(exc)) from exc
-
-        try:
-            response_rows = await self._run_blocking(_coerce_response_rows, response)
+            # A source child can run long enough for unsafe in-process code to
+            # mutate a frozen descriptor after spawn. Recompute integrity again
+            # before that descriptor selects aliases or persistence provenance.
+            _assert_reviewed_contract_integrity(contract)
             retrieved_at = datetime.now(_UTC)
-            observations = await self._run_blocking(
-                _normalize_observations,
-                contract,
-                request,
-                response_rows,
-                retrieved_at,
-            )
-            raw_payload = await self._run_blocking(
-                _build_raw_payload,
+            observations = _normalize_observations(contract, request, response_rows, retrieved_at)
+            raw_payload = _build_raw_payload(
                 request,
                 contract,
                 endpoint,
                 call_kwargs,
                 response_rows,
             )
-            source_revision = await self._run_blocking(_source_revision, endpoint)
-        except TimeoutError as exc:
-            raise AkShareProviderError("AKSHARE_TIMEOUT") from exc
+        except ProviderContractError as exc:
+            raise _akshare_contract_error(exc) from exc
         except AkShareProviderError:
             raise
         except Exception as exc:
@@ -937,9 +1224,6 @@ class AkShareMarketDataProvider:
             ) from exc
 
         return ProviderFetchResult(
-            # The governance catalog registers AkShare once.  The particular
-            # public endpoint remains part of source_revision and raw route
-            # provenance, rather than creating a provider row per endpoint.
             provider_id="akshare",
             source_revision=source_revision,
             retrieved_at=retrieved_at,
@@ -952,6 +1236,53 @@ class AkShareMarketDataProvider:
                 else ()
             ),
         )
+
+    async def _fetch_response_rows(
+        self,
+        *,
+        request: MarketDataProviderRequest,
+        execution: Mapping[str, Any],
+        source_revision: str,
+    ) -> list[dict[str, Any]]:
+        """Await one verified runner receipt before releasing capacity."""
+        try:
+            await asyncio.wait_for(self._semaphore.acquire(), timeout=self._timeout_seconds)
+        except TimeoutError as exc:
+            raise AkShareProviderError("AKSHARE_TIMEOUT") from exc
+        try:
+            envelope = {
+                "protocol_version": AKSHARE_RUNNER_PROTOCOL_VERSION,
+                "request_id": request.request_id,
+                "request": request.dto_payload,
+                "execution": execution,
+            }
+            if self._test_runner is not None:
+                response = self._test_runner(envelope)
+                if inspect.isawaitable(response):
+                    response = await asyncio.wait_for(response, timeout=self._timeout_seconds)
+                if not isinstance(response, Mapping):
+                    raise AkShareProviderError("AKSHARE_RUNNER_INVALID_RESPONSE")
+            else:
+                response = await self._runner.execute(
+                    envelope,
+                    timeout_seconds=self._timeout_seconds,
+                )
+            return _validate_runner_response(
+                response=response,
+                request=request,
+                execution=execution,
+                source_revision=source_revision,
+            )
+        except TimeoutError as exc:
+            raise AkShareProviderError("AKSHARE_TIMEOUT") from exc
+        except AkShareProviderError:
+            raise
+        except Exception as exc:
+            raise AkShareProviderError("AKSHARE_FETCH_FAILED", detail=_error_detail(exc)) from exc
+        finally:
+            # The production runner does not return until group kill/reap/drain
+            # finishes, so this capacity release cannot outrun its child I/O.
+            self._semaphore.release()
 
     def _route_for(self, request: MarketDataProviderRequest) -> AkShareRoute:
         type_candidates = [
@@ -1088,35 +1419,6 @@ class AkShareMarketDataProvider:
         ):
             raise AkShareProviderError("AKSHARE_PROVIDER_CONTRACT_DESCRIPTOR_MISMATCH")
 
-    async def _run_blocking(
-        self,
-        function: Callable[..., Any],
-        /,
-        *args: Any,
-        **kwargs: Any,
-    ) -> Any:
-        """Run bounded synchronous work without releasing a slot before its thread exits."""
-        await asyncio.wait_for(self._semaphore.acquire(), timeout=self._timeout_seconds)
-        task = asyncio.create_task(asyncio.to_thread(function, *args, **kwargs))
-        try:
-            result = await asyncio.wait_for(asyncio.shield(task), timeout=self._timeout_seconds)
-        except (TimeoutError, asyncio.CancelledError):
-            task.add_done_callback(self._release_background_task)
-            raise
-        except BaseException:
-            self._semaphore.release()
-            raise
-        self._semaphore.release()
-        return result
-
-    def _release_background_task(self, task: asyncio.Task[Any]) -> None:
-        """Consume a timed-out worker result and release its capacity on actual completion."""
-        try:
-            task.result()
-        except (asyncio.CancelledError, Exception):
-            pass
-        self._semaphore.release()
-
     @staticmethod
     def _validate_routes(routes: tuple[AkShareRoute, ...]) -> None:
         seen_routes: dict[tuple[str, str, str], list[AkShareRoute]] = {}
@@ -1186,16 +1488,265 @@ def _akshare_contract_error(exc: ProviderContractError) -> AkShareProviderError:
     )
 
 
-def _resolve_akshare_callable(endpoint: str) -> AkShareCallable:
-    """Load only a registry-approved public AkShare callable on first use."""
+def _canonical_json(payload: Mapping[str, Any]) -> str:
+    """Encode a runner receipt in one deterministic, strict JSON representation."""
+    return json.dumps(
+        payload,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+        allow_nan=False,
+    )
+
+
+def _is_safe_akshare_runner_file(value: object, *, executable: bool) -> bool:
+    """Accept one existing absolute runner file or Python executable only."""
+    if not isinstance(value, str) or not value or "\x00" in value:
+        return False
+    path = Path(value)
+    if not path.is_absolute():
+        return False
     try:
-        akshare = importlib.import_module("akshare")
-    except ImportError as exc:
-        raise AkShareProviderError("AKSHARE_UNAVAILABLE", detail=_error_detail(exc)) from exc
-    source_callable = getattr(akshare, endpoint, None)
-    if not callable(source_callable):
-        raise AkShareProviderError("AKSHARE_ROUTE_UNAVAILABLE")
-    return source_callable
+        resolved = path.resolve(strict=True)
+    except (OSError, RuntimeError):
+        return False
+    return resolved.is_file() and (not executable or os.access(resolved, os.X_OK))
+
+
+def _is_safe_akshare_python(value: object) -> bool:
+    """Require an absolute Python interpreter rather than a shell/wrapper."""
+    if not _is_safe_akshare_runner_file(value, executable=True):
+        return False
+    try:
+        executable_name = Path(str(value)).resolve(strict=True).name
+    except (OSError, RuntimeError, ValueError):
+        return False
+    return re.fullmatch(r"python(?:\d+(?:\.\d+)*)?", executable_name) is not None
+
+
+def _is_safe_akshare_runner_command(command: tuple[str, ...]) -> bool:
+    """Require only ``<absolute python> -I -S <absolute runner.py>``."""
+    return (
+        len(command) == 4
+        and _is_safe_akshare_python(command[0])
+        and command[1] == "-I"
+        and command[2] == "-S"
+        and _is_safe_akshare_runner_file(command[3], executable=False)
+    )
+
+
+def _runner_path_overlaps_application_checkout(path: Path) -> bool:
+    """Reject a runner directory that exposes the web checkout or its parent."""
+    try:
+        resolved = path.resolve(strict=True)
+        source_path = Path(__file__).resolve(strict=True)
+        checkout_root = next(
+            (parent for parent in source_path.parents if (parent / ".git").exists()),
+            None,
+        )
+        current_workdir = Path.cwd().resolve(strict=True)
+    except (OSError, RuntimeError, ValueError):
+        return True
+    protected_paths = [current_workdir]
+    if checkout_root is not None:
+        protected_paths.append(checkout_root)
+    return any(
+        resolved == protected
+        or resolved.is_relative_to(protected)
+        or protected.is_relative_to(resolved)
+        for protected in protected_paths
+    )
+
+
+def _dedicated_akshare_runner_directory(
+    source: Mapping[str, str],
+    *,
+    environment_key: str,
+    error_code: str,
+) -> str:
+    """Resolve a configured runner-only directory without inherited fallback."""
+    configured = source.get(environment_key, "").strip()
+    if not configured or "\x00" in configured:
+        raise AkShareProviderError(error_code)
+    candidate = Path(configured)
+    if not candidate.is_absolute():
+        raise AkShareProviderError(error_code)
+    try:
+        resolved = candidate.resolve(strict=True)
+        temporary_root = Path(tempfile.gettempdir()).resolve(strict=True)
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise AkShareProviderError(error_code) from exc
+    if (
+        not resolved.is_dir()
+        or resolved == temporary_root
+        or _runner_path_overlaps_application_checkout(resolved)
+    ):
+        raise AkShareProviderError(error_code)
+    inherited_home = source.get("HOME", "").strip()
+    if inherited_home:
+        try:
+            inherited_home_path = Path(inherited_home).resolve(strict=True)
+        except (OSError, RuntimeError, ValueError):
+            inherited_home_path = None
+        if inherited_home_path is not None and resolved == inherited_home_path:
+            raise AkShareProviderError(error_code)
+    return str(resolved)
+
+
+def _akshare_runner_site_packages(source: Mapping[str, str]) -> str:
+    """Pass one operator-selected package directory to the isolated runner."""
+    configured = source.get(_RUNNER_SITE_PACKAGES_ENVIRONMENT_KEY, "").strip()
+    if not configured or "\x00" in configured:
+        raise AkShareProviderError("AKSHARE_RUNNER_SITE_PACKAGES_INVALID")
+    candidate = Path(configured)
+    if not candidate.is_absolute():
+        raise AkShareProviderError("AKSHARE_RUNNER_SITE_PACKAGES_INVALID")
+    try:
+        resolved = candidate.resolve(strict=True)
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise AkShareProviderError("AKSHARE_RUNNER_SITE_PACKAGES_INVALID") from exc
+    if not resolved.is_dir() or _runner_path_overlaps_application_checkout(resolved):
+        raise AkShareProviderError("AKSHARE_RUNNER_SITE_PACKAGES_INVALID")
+    return str(resolved)
+
+
+def _akshare_runner_environment(parent: Mapping[str, str] | None = None) -> dict[str, str]:
+    """Build a minimal runner environment without app secrets or proxy config."""
+    source = os.environ if parent is None else parent
+    environment = {
+        key: value for key in _RUNNER_BASE_ENVIRONMENT_KEYS if (value := source.get(key))
+    }
+    environment["HOME"] = _dedicated_akshare_runner_directory(
+        source,
+        environment_key=_RUNNER_HOME_ENVIRONMENT_KEY,
+        error_code="AKSHARE_RUNNER_HOME_INVALID",
+    )
+    environment[_RUNNER_SITE_PACKAGES_ENVIRONMENT_KEY] = _akshare_runner_site_packages(source)
+    return environment
+
+
+def _akshare_runner_workdir(parent: Mapping[str, str] | None = None) -> str:
+    """Return a dedicated runner working directory, never the web checkout."""
+    source = os.environ if parent is None else parent
+    return _dedicated_akshare_runner_directory(
+        source,
+        environment_key=_RUNNER_WORKDIR_ENVIRONMENT_KEY,
+        error_code="AKSHARE_RUNNER_WORKDIR_INVALID",
+    )
+
+
+def _validate_call_kwargs(call_kwargs: Mapping[str, Any]) -> None:
+    """Reject non-JSON or unbounded parent-built endpoint arguments before spawn."""
+    if not isinstance(call_kwargs, Mapping) or len(call_kwargs) > 32:
+        raise AkShareProviderError("AKSHARE_ROUTE_INVALID")
+    if any(not isinstance(key, str) or not key.strip() for key in call_kwargs):
+        raise AkShareProviderError("AKSHARE_ROUTE_INVALID")
+    try:
+        _canonical_json(dict(call_kwargs))
+    except (TypeError, ValueError) as exc:
+        raise AkShareProviderError("AKSHARE_ROUTE_INVALID") from exc
+
+
+def _akshare_execution_payload(
+    *,
+    route: AkShareRoute,
+    contract: ProviderContract,
+    prepared_request: PreparedProviderRequest,
+    endpoint: str,
+    call_kwargs: Mapping[str, Any],
+    source_revision: str,
+) -> dict[str, Any]:
+    """Freeze parent-parsed route and static-contract facts for the runner."""
+    return {
+        "route": {
+            "asset_type": route.asset_type,
+            "data_kind": route.data_kind,
+            "frequencies": sorted(route.frequencies),
+            "allowed_markets": sorted(route.allowed_markets) if route.allowed_markets else None,
+            "timestamp_columns": list(route.timestamp_columns),
+            "symbol_columns": list(route.symbol_columns),
+            "identity_proof": route.identity_proof,
+            "client_filters_window": route.client_filters_window,
+            "route_ids": sorted(route.route_ids),
+            "family_id": route.family_id,
+            "family_contract_version": route.family_contract_version,
+        },
+        "provider_contract": _json_safe(contract.summary),
+        "prepared_request": {
+            "contract_id": prepared_request.contract_id,
+            "descriptor_sha256": prepared_request.descriptor_sha256,
+        },
+        "endpoint": endpoint,
+        "call_kwargs": _json_safe(call_kwargs),
+        "source_revision": source_revision,
+    }
+
+
+def _runner_error_code(value: object) -> str:
+    """Accept only a bounded AkShare-domain error code from the child."""
+    if not isinstance(value, str) or not re.fullmatch(r"AKSHARE_[A-Z0-9_]{1,120}", value):
+        return "AKSHARE_RUNNER_ERROR"
+    return value
+
+
+def _mapping_matches(left: object, right: Mapping[str, Any]) -> bool:
+    """Compare untrusted JSON by canonical bytes, rejecting non-object values."""
+    if not isinstance(left, Mapping):
+        return False
+    try:
+        return _canonical_json(dict(left)) == _canonical_json(dict(right))
+    except (TypeError, ValueError):
+        return False
+
+
+def _validate_runner_response(
+    *,
+    response: Mapping[str, Any],
+    request: MarketDataProviderRequest,
+    execution: Mapping[str, Any],
+    source_revision: str,
+) -> list[dict[str, Any]]:
+    """Authenticate a child receipt before reusing parent normalization logic."""
+    expected_receipt_fields = {
+        "protocol_version",
+        "request_id",
+        "request",
+        "execution",
+        "source_revision",
+    }
+    if not isinstance(response, Mapping) or not expected_receipt_fields <= set(response):
+        raise AkShareProviderError("AKSHARE_RUNNER_INVALID_RESPONSE")
+    allowed_receipt_fields = expected_receipt_fields | {"response_rows", "error"}
+    if set(response) - allowed_receipt_fields:
+        raise AkShareProviderError("AKSHARE_RUNNER_INVALID_RESPONSE")
+    if response.get("protocol_version") != AKSHARE_RUNNER_PROTOCOL_VERSION:
+        raise AkShareProviderError("AKSHARE_RUNNER_PROTOCOL_MISMATCH")
+    if response.get("request_id") != request.request_id:
+        raise AkShareProviderError("AKSHARE_RUNNER_PROTOCOL_MISMATCH")
+    if not _mapping_matches(response.get("request"), request.dto_payload):
+        raise AkShareProviderError("AKSHARE_RUNNER_PROTOCOL_MISMATCH")
+    if not _mapping_matches(response.get("execution"), execution):
+        raise AkShareProviderError("AKSHARE_RUNNER_PROTOCOL_MISMATCH")
+    if response.get("source_revision") != source_revision:
+        raise AkShareProviderError("AKSHARE_RUNNER_SOURCE_REVISION_MISMATCH")
+    error = response.get("error")
+    if error is not None:
+        if not isinstance(error, Mapping) or "response_rows" in response:
+            raise AkShareProviderError("AKSHARE_RUNNER_INVALID_RESPONSE")
+        detail = error.get("detail")
+        raise AkShareProviderError(
+            _runner_error_code(error.get("code")),
+            detail=str(detail)[:512] if detail is not None else None,
+        )
+    rows = response.get("response_rows")
+    if not isinstance(rows, list):
+        raise AkShareProviderError("AKSHARE_RUNNER_INVALID_RESPONSE")
+    try:
+        _canonical_json({"response_rows": rows})
+    except (TypeError, ValueError) as exc:
+        raise AkShareProviderError("AKSHARE_RUNNER_INVALID_RESPONSE") from exc
+    return _coerce_response_rows(rows)
+
 
 
 def _routes_overlap(left: AkShareRoute, right: AkShareRoute) -> bool:

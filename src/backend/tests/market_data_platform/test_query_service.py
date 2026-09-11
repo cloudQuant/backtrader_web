@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 from collections.abc import Callable
@@ -22,6 +23,7 @@ from app.services.market_data.access import (
     MarketDataQueryAccess,
     MarketDataSourceAuthorization,
 )
+from app.services.market_data.akshare_provider import AkShareMarketDataProvider
 from app.services.market_data.catalog import DatasetStorageResolution
 from app.services.market_data.coverage import (
     CalendarSnapshot,
@@ -31,6 +33,7 @@ from app.services.market_data.coverage import (
     QueryIdentity,
     TimeWindow,
 )
+from app.services.market_data.dataset_contracts import FAMILY_CONTRACT_VERSION
 from app.services.market_data.fetch_lease import (
     MarketDataFetchLeaseHandle,
     market_data_fetch_lease_key,
@@ -673,9 +676,11 @@ class _FetchLeases:
         handle: MarketDataFetchLeaseHandle | None,
         *,
         on_acquire: Callable[[], None] | None = None,
+        on_release: Callable[[], None] | None = None,
     ) -> None:
         self.handle = handle
         self._on_acquire = on_acquire
+        self._on_release = on_release
         self.acquired_keys: list[str] = []
         self.released_handles: list[MarketDataFetchLeaseHandle] = []
 
@@ -686,6 +691,8 @@ class _FetchLeases:
         return self.handle
 
     async def release(self, handle: MarketDataFetchLeaseHandle) -> bool:
+        if self._on_release is not None:
+            self._on_release()
         self.released_handles.append(handle)
         return True
 
@@ -875,6 +882,28 @@ def _route(provider: _Provider, *, expected: str = "akshare", request_provider: 
         currencies=frozenset({"CNY"}),
         units=frozenset({"share"}),
         adapter=provider,
+    )
+
+
+def _akshare_stock_primary_route(provider: AkShareMarketDataProvider):
+    """Build the reviewed family-bound AkShare route for runner lifecycle coverage."""
+    from app.services.market_data.source_policy import MarketDataProviderRoute
+
+    return MarketDataProviderRoute(
+        route_id="akshare-stock-primary-v1",
+        request_provider="akshare",
+        expected_result_provider_ids=frozenset({"akshare"}),
+        asset_types=frozenset({"stock"}),
+        data_kinds=frozenset({"bars"}),
+        frequencies=frozenset({"1d"}),
+        markets=frozenset({"CN-SSE"}),
+        adjustments=frozenset({"qfq"}),
+        price_bases=frozenset({"close"}),
+        currencies=frozenset({"CNY"}),
+        units=frozenset({"share"}),
+        adapter=provider,
+        family_id="stock.realtime",
+        family_contract_version=FAMILY_CONTRACT_VERSION,
     )
 
 
@@ -1336,6 +1365,70 @@ async def test_cross_worker_fetch_lease_owner_releases_only_its_exact_fence() ->
     assert owner.released_handles == [handle]
     assert len(provider.requests) == 1
     assert store.persisted_fetch_leases == [handle]
+    assert result.fetches[0].provider_id == "akshare"
+
+
+@pytest.mark.asyncio
+async def test_query_fetch_lease_release_waits_for_fake_runner_shutdown() -> None:
+    """Lease cleanup follows the actual AkShare test-runner shutdown boundary."""
+    context = _context()
+    context = replace(
+        context,
+        query=context.query.model_copy(
+            update={
+                "family_id": "stock.realtime",
+                "family_contract_version": FAMILY_CONTRACT_VERSION,
+            }
+        ),
+        coverage_identity=replace(
+            context.coverage_identity,
+            family_id="stock.realtime",
+            family_contract_version=FAMILY_CONTRACT_VERSION,
+        ),
+    )
+    store = _Store(calendar=_calendar(), revisions=[])
+    runner_shutdown_complete = asyncio.Event()
+
+    async def fake_runner(envelope: dict[str, Any]) -> dict[str, Any]:
+        await asyncio.sleep(0)
+        runner_shutdown_complete.set()
+        return {
+            "protocol_version": "akshare-market-data-v1",
+            "request_id": envelope["request_id"],
+            "request": envelope["request"],
+            "execution": envelope["execution"],
+            "source_revision": envelope["execution"]["source_revision"],
+            "response_rows": [
+                {
+                    "日期": f"2026-09-08T{hour:02d}:00:00+00:00",
+                    "股票代码": "600000",
+                    "收盘": 10.0 + hour,
+                }
+                for hour in (9, 10, 11)
+            ],
+        }
+
+    provider = AkShareMarketDataProvider(test_runner=fake_runner)
+    handle = MarketDataFetchLeaseHandle(
+        lease_key_sha256="c" * 64,
+        owner_token="owner-reaped-runner",
+        fence_token=9,
+        expires_at=_at(12) + timedelta(minutes=5),
+    )
+
+    def assert_runner_is_reaped_before_release() -> None:
+        assert runner_shutdown_complete.is_set()
+
+    owner = _FetchLeases(handle=handle, on_release=assert_runner_is_reaped_before_release)
+    result = await _service(
+        context=context,
+        store=store,
+        provider_routes=(_akshare_stock_primary_route(provider),),
+        fetch_leases=owner,
+    ).execute(_request())
+
+    assert runner_shutdown_complete.is_set()
+    assert owner.released_handles == [handle]
     assert result.fetches[0].provider_id == "akshare"
 
 
