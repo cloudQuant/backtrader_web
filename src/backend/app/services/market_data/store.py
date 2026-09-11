@@ -945,6 +945,7 @@ class MarketDataStore:
         context: ResolvedMarketDataQueryContext,
         *,
         staged: DeferredProviderFetch,
+        lock_for_promotion: bool = False,
     ) -> _DeferredLegacyImportCandidate:
         """Reread one exact held receipt before it is eligible for promotion.
 
@@ -953,11 +954,23 @@ class MarketDataStore:
         handle returned by ``stage_provider_result_for_deferred_release`` and
         requires the active legacy-import hold.  No API, coverage, cursor, or
         ordinary local reader can use this path to see unpublished facts.
+
+        ``lock_for_promotion`` is a private Tx-B-only seam for the canonical
+        writer.  When true, the exact source snapshot, payload reference,
+        shared payload, observation revisions, publication and release hold
+        are reread with ``FOR UPDATE`` in the caller's existing promotion
+        transaction.  It prevents a second writer from changing persisted
+        evidence between verification and the visibility seal.
         """
+        if not isinstance(lock_for_promotion, bool):
+            raise TypeError("lock_for_promotion must be a bool")
+        if lock_for_promotion and not self._db.in_transaction():
+            raise MarketDataStoreError("DEFERRED_LEGACY_IMPORT_PROMOTION_TRANSACTION_REQUIRED")
         reread = await self._reread_legacy_stock_daily_harness_candidate(
             context,
             staged=staged,
             expected_hold_state=PUBLICATION_RELEASE_HOLD_STATE_DEFERRED,
+            lock_for_promotion=lock_for_promotion,
         )
         if reread.publication is not None:
             raise MarketDataStoreError("DEFERRED_LEGACY_IMPORT_INTEGRITY")
@@ -1013,6 +1026,7 @@ class MarketDataStore:
         *,
         staged: DeferredProviderFetch,
         expected_hold_state: str,
+        lock_for_promotion: bool = False,
     ) -> _LegacyStockDailyReread:
         """Reload one private legacy receipt and all of its persisted evidence.
 
@@ -1028,6 +1042,10 @@ class MarketDataStore:
             PUBLICATION_RELEASE_HOLD_STATE_PROMOTED,
         }:
             raise TypeError("expected_hold_state must be a private legacy hold state")
+        if not isinstance(lock_for_promotion, bool):
+            raise TypeError("lock_for_promotion must be a bool")
+        if lock_for_promotion and expected_hold_state != PUBLICATION_RELEASE_HOLD_STATE_DEFERRED:
+            raise MarketDataStoreError("DEFERRED_LEGACY_IMPORT_PROMOTION_LOCK_INVALID")
         if (
             staged.intent.workflow_kind
             != PUBLICATION_RELEASE_HOLD_WORKFLOW_LEGACY_STOCK_DAILY_IMPORT
@@ -1084,6 +1102,13 @@ class MarketDataStore:
             .order_by(MdObservationRevision.event_time, MdObservationRevision.id)
             .execution_options(populate_existing=True)
         )
+        if lock_for_promotion:
+            # The publication manager already owns the publication/hold locks
+            # in Tx B.  Lock the remaining evidence rows in the same
+            # transaction before the writer compares request/manifest/shared
+            # bytes and permit/context bindings.  The caller must not release
+            # this transaction before guarded promotion seals visibility.
+            statement = statement.with_for_update()
         if expected_hold_state == PUBLICATION_RELEASE_HOLD_STATE_DEFERRED:
             statement = statement.where(
                 MdPublication.published_at.is_(None),

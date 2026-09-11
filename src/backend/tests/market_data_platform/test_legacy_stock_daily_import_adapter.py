@@ -564,6 +564,185 @@ async def test_persisted_evidence_tampering_quarantines_before_any_local_read(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "tamper_kind",
+    (
+        "request_context",
+        "payload_manifest",
+        "shared_payload",
+        "rebound_permit_context",
+        "cross_source_receipt",
+    ),
+)
+async def test_promotion_guard_rereads_locked_evidence_after_initial_review(
+    monkeypatch: pytest.MonkeyPatch,
+    tamper_kind: str,
+) -> None:
+    """Tx B must reject evidence changed after the first staged reread.
+
+    The patched private reread returns the intact initial inspection, mutates
+    persisted state, commits that mutation, then lets the writer continue.
+    The next call is therefore the promotion guard's Tx-B reread rather than
+    a synthetic failure injected before staging.  This specifically exercises
+    the former time-of-check/time-of-use window.
+    """
+    async with async_session_maker() as db:
+        harness = await _harness(db)
+        foreign_source_receipt_id: str | None = None
+        if tamper_kind == "cross_source_receipt":
+            foreign = await harness.importer.import_table(
+                table_name=LEGACY_STOCK_DAILY_TABLE,
+                attestation=harness.attestation,
+                calendar=harness.calendar,
+                frozen_identities=harness.frozen_identities,
+                dry_run=True,
+            )
+            foreign_source_receipt_id = foreign.source_receipt_id
+            await db.execute(
+                text(
+                    'UPDATE "STOCK_ZH_A_HIST" SET "收盘" = 10.6 '
+                    'WHERE "symbol" = "600000" AND "data_date" = "2026-09-08"'
+                )
+            )
+            await db.commit()
+
+        original_reread = harness.store._read_deferred_legacy_import_candidate
+        reread_lock_flags: list[bool] = []
+        staged_publication_id: str | None = None
+
+        async def reread_then_tamper(
+            *args: object,
+            **kwargs: object,
+        ) -> _DeferredLegacyImportCandidate:
+            nonlocal staged_publication_id
+            reread_lock_flags.append(bool(kwargs.get("lock_for_promotion", False)))
+            candidate = await original_reread(*args, **kwargs)
+            if len(reread_lock_flags) != 1:
+                return candidate
+
+            staged_publication_id = candidate.staged.publication_id
+            snapshot = await db.scalar(
+                select(MdSourceSnapshot)
+                .where(MdSourceSnapshot.id == candidate.staged.source_snapshot_id)
+                .execution_options(populate_existing=True)
+            )
+            assert snapshot is not None
+            if tamper_kind == "request_context":
+                request_json = json.loads(json.dumps(snapshot.request_json))
+                request_json["resolved_query"]["canonical_id"] = "forged-canonical-id"
+                await db.execute(
+                    update(MdSourceSnapshot)
+                    .where(MdSourceSnapshot.id == snapshot.id)
+                    .values(request_json=request_json)
+                )
+            elif tamper_kind == "payload_manifest":
+                payload_manifest = json.loads(json.dumps(snapshot.payload_manifest_json))
+                payload_manifest["format"] = "forged-content-addressed-source-batch-v1"
+                await db.execute(
+                    update(MdSourceSnapshot)
+                    .where(MdSourceSnapshot.id == snapshot.id)
+                    .values(payload_manifest_json=payload_manifest)
+                )
+            elif tamper_kind == "shared_payload":
+                source_payload = await db.scalar(select(MdSourcePayload))
+                assert source_payload is not None
+                await db.execute(
+                    update(MdSourcePayload)
+                    .where(MdSourcePayload.content_sha256 == source_payload.content_sha256)
+                    .values(canonical_payload_bytes=b'{"forged":true}')
+                )
+            else:
+                payload_manifest = json.loads(json.dumps(snapshot.payload_manifest_json))
+                legacy_import = payload_manifest["receipt_payload"]["legacy_import"]
+                if tamper_kind == "rebound_permit_context":
+                    legacy_import["write_permit"]["resolved_context_sha256"] = "0" * 64
+                else:
+                    assert foreign_source_receipt_id is not None
+                    assert (
+                        foreign_source_receipt_id
+                        != legacy_import["source_receipt"]["source_receipt_id"]
+                    )
+                    legacy_import["source_receipt"]["source_receipt_id"] = foreign_source_receipt_id
+                source_payload = await db.scalar(select(MdSourcePayload))
+                assert source_payload is not None
+                raw_payload = dict(payload_manifest["receipt_payload"])
+                raw_payload["source_batch"] = json.loads(
+                    bytes(source_payload.canonical_payload_bytes)
+                )
+                rebound_payload_sha256 = hashlib.sha256(
+                    json.dumps(
+                        raw_payload,
+                        ensure_ascii=False,
+                        separators=(",", ":"),
+                        sort_keys=True,
+                    ).encode("utf-8")
+                ).hexdigest()
+                await db.execute(
+                    update(MdSourceSnapshot)
+                    .where(MdSourceSnapshot.id == snapshot.id)
+                    .values(
+                        payload_manifest_json=payload_manifest,
+                        payload_sha256=rebound_payload_sha256,
+                    )
+                )
+                await db.execute(
+                    update(MdPublication)
+                    .where(MdPublication.id == candidate.staged.publication_id)
+                    .values(entity_sha256=rebound_payload_sha256)
+                )
+            await db.commit()
+            return candidate
+
+        monkeypatch.setattr(
+            harness.store,
+            "_read_deferred_legacy_import_candidate",
+            reread_then_tamper,
+        )
+        with pytest.raises(LegacyStockDailyImportError):
+            await harness.importer.import_table(
+                table_name=LEGACY_STOCK_DAILY_TABLE,
+                attestation=harness.attestation,
+                calendar=harness.calendar,
+                frozen_identities=harness.frozen_identities,
+                dry_run=False,
+            )
+
+        assert reread_lock_flags == [False, True]
+        assert staged_publication_id is not None
+        publication = await db.scalar(
+            select(MdPublication)
+            .where(MdPublication.id == staged_publication_id)
+            .execution_options(populate_existing=True)
+        )
+        hold = await db.scalar(
+            select(MdPublicationReleaseHold)
+            .where(MdPublicationReleaseHold.publication_id == staged_publication_id)
+            .execution_options(populate_existing=True)
+        )
+        assert publication is not None
+        assert hold is not None
+        assert hold.state == PUBLICATION_RELEASE_HOLD_STATE_QUARANTINED
+        assert publication.published_at is None
+        assert publication.visibility_sequence is None
+        assert await harness.store.read_observations(harness.context, knowledge_cutoff=_NOW) == ()
+        assert (
+            await harness.store.read_observations(
+                harness.context,
+                knowledge_cutoff=_NOW,
+                allowed_source_registry_ids=frozenset({LEGACY_STOCK_DAILY_SOURCE_REGISTRY_ID}),
+            )
+            == ()
+        )
+        assert (
+            await harness.store.read_observation_revisions(
+                harness.context,
+                knowledge_cutoff=_NOW,
+            )
+            == ()
+        )
+
+
+@pytest.mark.asyncio
 async def test_promotion_gate_failure_quarantines_the_hidden_candidate(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

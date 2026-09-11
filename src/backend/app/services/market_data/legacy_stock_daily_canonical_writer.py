@@ -65,11 +65,14 @@ class LegacyStockDailyCanonicalWriterAdapterError(LegacyStockDailyImportError):
 
 @dataclass(frozen=True, slots=True)
 class _StagedTarget:
-    """One opaque hidden receipt and the inspection that proved its contents."""
+    """One opaque hidden receipt and its immutable expected projection."""
 
     permit: LegacyStockDailyCanonicalWritePermit
     staged: DeferredProviderFetch
     inspection: _DeferredLegacyImportCandidate
+    context: ResolvedMarketDataQueryContext
+    bars: tuple[LegacyStockDailySourceBar, ...]
+    result: ProviderFetchResult
 
 
 class LegacyStockDailyCanonicalWriterAdapter:
@@ -132,6 +135,7 @@ class LegacyStockDailyCanonicalWriterAdapter:
                 _as_utc(self._clock(), field_name="local receipt timestamp"),
                 source_batch_receipt.extracted_at,
             )
+            source_provenance = self._evidence_gate.source_provenance.as_receipt_provenance()
             for canonical_id, permit in sorted(write_permits.items()):
                 target = self._evidence_gate.target_for_permit(permit)
                 bars = tuple(bar for bar in batch.bars if bar.canonical_id == canonical_id)
@@ -143,7 +147,7 @@ class LegacyStockDailyCanonicalWriterAdapter:
                     permit=permit,
                     context=target.context,
                     bars=bars,
-                    source_provenance=self._evidence_gate.source_provenance.as_receipt_provenance(),
+                    source_provenance=source_provenance,
                 )
                 staged = await self._store.stage_provider_result_for_deferred_release(
                     target.context,
@@ -161,26 +165,28 @@ class LegacyStockDailyCanonicalWriterAdapter:
                     target.context,
                     staged=staged,
                 )
-                # The private reread deliberately uses an ordinary read-only
-                # Store transaction.  Promotion and quarantine each open a
-                # fresh receipt-locking transaction, so release it before a
-                # staged candidate can continue through either path.
-                await self._store.close_transaction_before_provider_io()
-                _assert_staged_projection(
-                    batch=batch,
-                    attestation=attestation,
-                    bars=bars,
-                    source_batch_receipt=source_batch_receipt,
+                staged_target = _StagedTarget(
                     permit=permit,
-                    context=target.context,
-                    source_provenance=self._evidence_gate.source_provenance.as_receipt_provenance(),
                     staged=staged,
                     inspection=inspection,
+                    context=target.context,
+                    bars=bars,
                     result=result,
                 )
-                staged_targets.append(
-                    _StagedTarget(permit=permit, staged=staged, inspection=inspection)
+                _assert_staged_target_projection(
+                    batch=batch,
+                    attestation=attestation,
+                    source_batch_receipt=source_batch_receipt,
+                    source_provenance=source_provenance,
+                    staged_target=staged_target,
+                    inspection=inspection,
                 )
+                # This first review is deliberately pre-promotion only.  It
+                # must release its read transaction before Tx B begins; the
+                # promotion guard below performs the authoritative second
+                # reread under the publication transaction's row locks.
+                await self._store.close_transaction_before_provider_io()
+                staged_targets.append(staged_target)
                 pending_staged = None
         except LegacyStockDailyImportError:
             await self._quarantine_staged(staged_targets, pending_staged=pending_staged)
@@ -197,9 +203,39 @@ class LegacyStockDailyCanonicalWriterAdapter:
                 target = self._evidence_gate.target_for_permit(staged_target.permit)
 
                 async def pre_publish_guard(
-                    permit: LegacyStockDailyCanonicalWritePermit = staged_target.permit,
+                    staged_target: _StagedTarget = staged_target,
                 ) -> None:
-                    await self._evidence_gate.assert_promotion_allowed(permit)
+                    """Reprove held evidence while Tx B owns all source rows.
+
+                    ``promote_deferred_provider_result`` invokes this callback
+                    only after it has opened Tx B and locked the publication
+                    receipt plus release hold.  The private Store reread takes
+                    ``FOR UPDATE`` locks on the exact source snapshot, payload
+                    reference/shared bytes, and observation revisions in that
+                    same transaction.  No commit or rollback is permitted
+                    between this check and the publication seal.
+                    """
+                    await self._evidence_gate.assert_promotion_allowed(staged_target.permit)
+                    locked_inspection = await self._store._read_deferred_legacy_import_candidate(
+                        staged_target.context,
+                        staged=staged_target.staged,
+                        lock_for_promotion=True,
+                    )
+                    _assert_staged_target_projection(
+                        batch=batch,
+                        attestation=attestation,
+                        source_batch_receipt=source_batch_receipt,
+                        source_provenance=source_provenance,
+                        staged_target=staged_target,
+                        inspection=locked_inspection,
+                    )
+                    # Bind Tx B's locked reread to the original staged review
+                    # as well.  A new, internally valid receipt is never a
+                    # substitute for the one this import operation sealed.
+                    if locked_inspection != staged_target.inspection:
+                        raise LegacyStockDailyCanonicalWriterAdapterError(
+                            "LEGACY_STOCK_DAILY_STAGED_REVIEW_UNVERIFIED"
+                        )
 
                 promotion_evidence_sha256 = self._evidence_gate.promotion_evidence_sha256(
                     permit=staged_target.permit,
@@ -624,6 +660,30 @@ def _assert_staged_projection(
         raise LegacyStockDailyCanonicalWriterAdapterError(
             "LEGACY_STOCK_DAILY_STAGED_REVIEW_UNVERIFIED"
         )
+
+
+def _assert_staged_target_projection(
+    *,
+    batch: LegacyStockDailyImportBatch,
+    attestation: LegacyStockDailyImportAttestation,
+    source_batch_receipt: LegacyStockDailySourceBatchReceipt,
+    source_provenance: Mapping[str, object],
+    staged_target: _StagedTarget,
+    inspection: _DeferredLegacyImportCandidate,
+) -> None:
+    """Compare one persisted reread with the original target-bound inputs."""
+    _assert_staged_projection(
+        batch=batch,
+        attestation=attestation,
+        bars=staged_target.bars,
+        source_batch_receipt=source_batch_receipt,
+        permit=staged_target.permit,
+        context=staged_target.context,
+        source_provenance=source_provenance,
+        staged=staged_target.staged,
+        inspection=inspection,
+        result=staged_target.result,
+    )
 
 
 def _assert_persisted_legacy_import_evidence(

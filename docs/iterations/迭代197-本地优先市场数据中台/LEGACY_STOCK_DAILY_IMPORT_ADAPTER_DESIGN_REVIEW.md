@@ -15,7 +15,7 @@
 | D-197-032-01 | 不改写 `MdPublication` 的 pending/sealed 事实语义。事实事务内另写一条不可忽略的 `MdPublicationReleaseHold`，以 hold state 表达 `DEFERRED`、`QUARANTINED` 或 `PROMOTED`。 |
 | D-197-032-02 | 具有 active hold 的 receipt 即使事实事务已提交也没有 `published_at`/visibility sequence，因此所有普通本地读、PIT anchor、页面和策略链都不可见。 |
 | D-197-032-03 | `publish_staged()` 与通用 `recover_pending()` 必须锁定/拒绝或跳过 active hold。进程崩溃不能把隔离数据变成可读数据。 |
-| D-197-032-04 | 隔离数据只能通过一个显式 promotion API 发布；该 API 在发布事务中执行必需的重新授权/lease guard，并同时将 hold 标为 `PROMOTED`。它不接受页面、路由或 scheduler 的裸 receipt ID。 |
+| D-197-032-04 | 隔离数据只能通过一个显式 promotion API 发布；该 API 在发布事务中执行必需的重新授权/lease guard、锁定 source snapshot/payload ref/shared payload/revisions 的完整 persisted-evidence reread，并同时将 hold 标为 `PROMOTED`。它不接受页面、路由或 scheduler 的裸 receipt ID。 |
 | D-197-032-05 | 本增量不把隔离态本身当作真实来源证据，也不把 unit/SQLite 回归升级为 `AC-197-032 PASS`。 |
 
 ## 2. 状态机与可见性不变量
@@ -39,7 +39,7 @@ stateDiagram-v2
 1. `published_at IS NULL` 或 `visibility_sequence IS NULL` 的 receipt 从普通 `read_observations`、calendar read、coverage、cursor、页面和策略读取中排除。
 2. `DEFERRED`/`QUARANTINED` 不是普通 pending 的同义词。它必须有独立的 durable hold；不能只依赖“暂时未发布”或 fetch lease 来区分。
 3. 通用恢复仅补偿“事实事务已成功而常规发布事务中断”的无 hold receipt。它永远不得选择存在 release hold 的 receipt。
-4. promotion 只能在新事务中取得 receipt 与 hold 锁、重验 hold intent、来源 snapshot/lease binding，再分配全局 visibility sequence；任一 guard 失败必须回滚该发布事务。
+4. promotion 只能在新事务中取得 receipt 与 hold 锁、重验 hold intent、来源 snapshot/lease binding，并在**同一事务**以 `FOR UPDATE` 重读 source snapshot、payload ref/shared bytes 与 revisions；writer 必须逐 target 重验 request/resolved query、batch/scope/source receipt/schema、permit/context、lease/source-observed binding 后才可分配全局 visibility sequence。任一 guard 失败必须回滚该发布事务，随后将仍为 `DEFERRED` 的 receipt quarantine。
 5. 隔离态写入失败后，事实可以作为审计证据保留，但它不能被 v2、legacy bridge、`/data/market`、`/investment/strategies` 或研究工件读取。
 
 ## 3. 计划接口和事务边界
@@ -87,9 +87,11 @@ sequenceDiagram
     R->>G: raw batch
     G->>S: sealed batch + target permits
     S->>S: Tx A facts + DEFERRED hold, commit
-    S->>V: private staged revision reread
+    S->>V: first private staged revision reread
     V->>G: verify binding/coverage/availability
     G->>P: reauthorize + fenced guarded promotion
+    P->>S: Tx B locks + full private persisted-evidence reread
+    S->>P: exact target-bound evidence only
     P->>P: Tx B seal visibility receipts
     S->>S: standard local_only PIT reread
 ```
@@ -103,7 +105,7 @@ sequenceDiagram
 | 读前 schema/授权/identity/calendar 失败 | 零读取或零 canonical 写入。 |
 | Tx A 失败 | 没有事实或 publication receipt 落库。 |
 | Tx A 成功、验证器失败 | 事实和 `QUARANTINED` hold 保留用于审计；普通读与 generic recovery 均不可见。 |
-| guard 或 lease fence 失败 | Tx B 回滚；receipt 继续隔离。 |
+| guard、lease fence 或 Tx B locked reread 失败 | Tx B 回滚；仍为 `DEFERRED` 的 receipt 转为 `QUARANTINED`，不能获得 visibility。 |
 | 进程在 Tx A 后崩溃 | generic recovery 跳过隔离 receipt；需要后续受控 operator/adaptor 重新核验后 promotion。 |
 | 进程在 Tx B 后崩溃 | 现有 sealed receipt/PIT 语义不变。 |
 
@@ -118,7 +120,7 @@ sequenceDiagram
 | DP-197-05 | SQLite migration upgrade、ORM schema、bootstrap 必需表检查、Alembic 单 head、Ruff 与目标 pytest 通过。 | `PASS`（本地开发回归） |
 | AC-197-032 | 真实表、MySQL/PostgreSQL、来源/许可、页面、策略、真实 receipt 验收。 | `NOT_RUN / NO-GO` |
 
-本地开发回归只覆盖隔离发布控制面的 SQLite/fixture 行为。测试数据以 `UNVERIFIED_COMPATIBILITY` 写入；private staged/promoted reread 会重新读取 source snapshot 的 request、payload manifest、content-addressed shared bytes/hash，并将 batch/scope/source-receipt/schema/permit/context 与持久化 evidence 逐 target 比对。它不是普通 Store/product read；带 `allowed_source_registry_ids` 的 product local read 仍为空。没有提供该 allow-list 的 raw Store read 只能证明 receipt seal 的可见性语义，不能证明来源已获验证，更不能证明 v2、`/data/market`、`/investment/strategies` 或策略工件可读取候选事实。
+本地开发回归只覆盖隔离发布控制面的 SQLite/fixture 行为。测试数据以 `UNVERIFIED_COMPATIBILITY` 写入；首次 private staged reread 用于提前失败，而 Tx B 会在 receipt/hold 已锁之后，用同一事务的 `FOR UPDATE` 重新读取 source snapshot 的 request、payload manifest、content-addressed shared bytes/hash、payload ref 与 observation revisions，并将 batch/scope/source-receipt/schema/permit/context/lease/source-observed evidence 逐 target 比对。专门回归在第一次 reread 后篡改 request、manifest、shared bytes、permit/context 或跨 receipt source receipt，再断言 Tx B rollback、`QUARANTINED`、`published_at`/visibility sequence 仍为空和普通 Store/product allow-list read 为空。它不是普通 Store/product read；带 `allowed_source_registry_ids` 的 product local read 仍为空。没有提供该 allow-list 的 raw Store read 只能证明 receipt seal 的可见性语义，不能证明来源已获验证，更不能证明 v2、`/data/market`、`/investment/strategies` 或策略工件可读取候选事实。
 
 本次本地开发收据如下：
 

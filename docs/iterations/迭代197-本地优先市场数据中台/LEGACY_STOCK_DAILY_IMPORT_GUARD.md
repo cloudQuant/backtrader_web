@@ -24,8 +24,10 @@ flowchart LR
     E -->|任一 hash、route 或 read authorization 不匹配| Y[零 canonical 写入]
     E --> W[gate 写前重授权 + lease permit]
     W -->|permit 或 lease 不匹配| Y
-    W --> F[未来 canonical writer]
-    F --> G[future local_only PIT reread]
+    W --> F[isolated writer: Tx A + DEFERRED hold]
+    F --> H[first private staged reread]
+    H --> I[Tx B: receipt/hold/source evidence locks + full second reread]
+    I --> G[private local_only PIT reread]
 ```
 
 `app/services/market_data/legacy_stock_daily_import.py` 已定义以下只读/协议层边界。
@@ -38,7 +40,7 @@ flowchart LR
 | `LegacyStockDailyImportBatch` | `source_batch_sha256` 仅描述选定原始单元格；它与 `import_scope_sha256` 分开，前者不能代替后者。原始行按派生的 EventKey/canonical ID/provider symbol 稳定排序，scope 保存了重建这些派生排序键所需的 calendar/identity 语义。 |
 | `LegacyStockDailySourceBatchReceipt` | 必须同时重复 raw-batch hash、import-scope hash、物理 schema hash、registry/provider/route、**read-authorization receipt identity** 和 extraction time。任何不一致在 canonical writer 前拒绝。`extracted_at` 只绑定 source bar 的 `source_available_at`；调用方 `retrieved_at` 仅为描述元数据。 |
 | `LegacyStockDailyCanonicalWritePermit` | gate 在 source-batch receipt 后、writer 前按 **每个 canonical target** 签发一个 permit。每个 permit 同时锁定 canonical ID、相同 route/read identity、`source_batch_sha256`、`import_scope_sha256`、`source_receipt_id`、write descriptor、resolved-context digest 与 fetch-lease key/fence。内存 SQLite harness 的 descriptor 明确表示 `UNVERIFIED_COMPATIBILITY` fixture isolation，不是 source authorization，也不是 AkShare/provider 证明；future production adapter 才必须在同一受控写边界中用 `MarketDataAccessAuthorizer.reauthorize_route_for_write` 和真实 `MarketDataFetchLeaseHandle` 生成并复核真实授权。缺少任一 target 的 permit 或复用另一 target 的 context/lease 均在 writer 前拒绝。 |
-| 写后 reread 协议 | writer 必须回显 source-batch/scope/source-receipt digest、逐 target permit evidence、revision-to-source-snapshot map、source snapshot、observation revision、publication receipt 的 ID/visible time/sequence，及 Store 实际使用的 `local_observation_available_at`。每条 bar 还必须以 `(canonical_id,event_at) → (observation_revision_id,source_snapshot_id)` 不可变绑定，且同一 observation revision 不得被两条 bar 共用；单纯相同的 revision/source ID 集合不足以证明对应关系；一个 source snapshot 也不可证明两个 target。每个 source snapshot 对应的 publication receipt `visible_at` 都不得早于该 Store local receipt。新写入的 Store v2 revision identity（`market-data-observation-revision-v2`）必须把规范化 UTC `provider_available_at` 封入 `revision_key_sha256`；reread 重建并核验该 identity，哪怕将 provenance 改为格式合法但更早的来源时间也必须失败关闭。精确匹配的历史 v1 identity 没有封存该字段，只能返回 `source_available_at=None`；future adapter 必须拒绝该值，不能从 v1 provenance 猜测来源时间。新建 `local_only` reread 的 visibility anchor 必须可见本次每一个 publication receipt；它比较业务字段和 `source_available_at`，要求每条 canonical `available_at` 精确等于该本地 receipt 时间，并逐条核对上述 revision/snapshot binding，不能把 source extraction time 伪造成 Store 可见时间。 |
+| 写后 reread 协议 | writer 必须回显 source-batch/scope/source-receipt digest、逐 target permit evidence、revision-to-source-snapshot map、source snapshot、observation revision、publication receipt 的 ID/visible time/sequence，及 Store 实际使用的 `local_observation_available_at`。首次 staged reread 只能提前失败；真正允许 visibility 的 reread 必须在 Tx B 取得 publication/hold 锁后，在**同一事务**内以 `FOR UPDATE` 重读 source snapshot、payload ref、content-addressed shared bytes/hash 与 observation revisions，再逐 target 比对 request/resolved query、batch/scope/source receipt/schema、permit/context、lease/source-observed binding。此检查与 publication seal 之间不得 commit/rollback；任何变化都回滚 Tx B 并将仍 `DEFERRED` 的 receipt quarantine。每条 bar 还必须以 `(canonical_id,event_at) → (observation_revision_id,source_snapshot_id)` 不可变绑定，且同一 observation revision 不得被两条 bar 共用；单纯相同的 revision/source ID 集合不足以证明对应关系；一个 source snapshot 也不可证明两个 target。每个 source snapshot 对应的 publication receipt `visible_at` 都不得早于该 Store local receipt。新写入的 Store v2 revision identity（`market-data-observation-revision-v2`）必须把规范化 UTC `provider_available_at` 封入 `revision_key_sha256`；reread 重建并核验该 identity，哪怕将 provenance 改为格式合法但更早的来源时间也必须失败关闭。精确匹配的历史 v1 identity 没有封存该字段，只能返回 `source_available_at=None`；future adapter 必须拒绝该值，不能从 v1 provenance 猜测来源时间。新建 `local_only` reread 的 visibility anchor 必须可见本次每一个 publication receipt；它比较业务字段和 `source_available_at`，要求每条 canonical `available_at` 精确等于该本地 receipt 时间，并逐条核对上述 revision/snapshot binding，不能把 source extraction time 伪造成 Store 可见时间。 |
 
 候选测试替身里的 SQLite reader 也只选择固定投影，用于确认协议不会因 `SELECT *` 而在回执外带入额外列。它不连接项目数据库。
 
@@ -54,6 +56,8 @@ flowchart LR
 结果：`51 passed, 1 warning`。该组覆盖固定表/列映射、读前拒绝、未封存 batch、raw hash、物理 schema hash、scope hash、read-authorization receipt 绑定与重放拒绝、写前 permit 拒绝、permit 对 raw batch/scope/source receipt 的重放拒绝、多 target 缺 permit 拒绝、日历 PIT/事件映射、identity revision/metadata version、稳定排序、caller `retrieved_at` 早于或晚于 sealed `extracted_at`、source/local availability 分离、每条 bar 的唯一 revision/source binding、完整 local-only reread、每个 publication receipt 不早于 Store local receipt，以及 publication visibility sequence。
 
 同一增量还依赖 `test_calendar_trading_day_events.py` 的 typed calendar reader 与 `test_store.py` 对 v2 `revision_key_sha256`/provenance `provider_available_at` 的严格 Store reread；三组组合本地回归为 `104 passed, 1 warning`。本表 importer 仍没有注册为应用服务或路由。
+
+延期发布适配器回归还专门在第一次 staged reread 返回后篡改 request context、payload manifest、shared payload bytes、permit/context，以及另一个 dry-run receipt 的 source receipt ID。每个变体都要求 Tx B 的带锁 reread 失败、publication 仍为 `published_at=NULL`/`visibility_sequence=NULL`、hold 转为 `QUARANTINED`，并且普通 Store read 与 verified-source allow-list read 都为空；它只是内存 SQLite harness 的 TOCTOU 回归，不是生产锁语义或真实导入验收。
 
 ## 4. `AC-197-032` 启用前的强制条件
 
