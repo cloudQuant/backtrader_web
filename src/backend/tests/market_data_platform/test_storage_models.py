@@ -1608,7 +1608,7 @@ def test_deferred_publications_revision_extends_the_integrated_storage_graph() -
     assert semantic_record_keys_revision is not None
     assert semantic_record_keys_revision.down_revision == DEFERRED_PUBLICATIONS_REVISION
     assert integrated_head_revision is not None
-    assert integrated_head_revision.down_revision == DEFERRED_PUBLICATIONS_REVISION
+    assert integrated_head_revision.down_revision == SEMANTIC_RECORD_KEYS_REVISION
     assert script.get_heads() == [INTEGRATED_HEAD_REVISION]
 
 

@@ -10,8 +10,10 @@ from app.services.market_data.coverage import ObservationQuality
 from app.services.market_data.multi_record import (
     B2SliceSelector,
     CompletenessStatus,
+    ZeroRecordCertificate,
     normalize_semantic_record_key,
 )
+from app.services.market_data.multi_record_evidence import DurableB2CompletenessEvidence
 from app.services.market_data.multi_record_query_service import (
     MultiRecordLocalAccessBinding,
     MultiRecordLocalQueryService,
@@ -24,6 +26,7 @@ from app.services.market_data.store import LocalObservationRevision
 from tests.market_data_platform.test_store import _at, _context
 
 _CURSOR_SIGNING_KEY = "b2-local-only-test-cursor-key-material-0000000000000000000001"
+_DEFAULT_EVIDENCE = object()
 
 
 class _LocalOnlyStore:
@@ -34,12 +37,23 @@ class _LocalOnlyStore:
         *,
         revisions: tuple[LocalObservationRevision, ...],
         anchor: MarketDataVisibilityAnchor,
+        evidence: DurableB2CompletenessEvidence | None | object = _DEFAULT_EVIDENCE,
     ) -> None:
         self.revisions = revisions
         self.anchor = anchor
         self.resolve_cutoffs: list[datetime] = []
+        self.evidence = evidence
+        self.evidence_calls: list[
+            tuple[datetime, MarketDataVisibilityAnchor, frozenset[str], datetime, str]
+        ] = []
         self.read_calls: list[
-            tuple[datetime, MarketDataVisibilityAnchor, frozenset[str] | None, datetime | None]
+            tuple[
+                datetime,
+                MarketDataVisibilityAnchor,
+                frozenset[str] | None,
+                datetime | None,
+                str | None,
+            ]
         ] = []
 
     async def resolve_visibility_anchor(
@@ -50,6 +64,50 @@ class _LocalOnlyStore:
         self.resolve_cutoffs.append(knowledge_cutoff)
         return self.anchor
 
+    async def read_b2_completeness_evidence(
+        self,
+        context,
+        *,
+        selector: B2SliceSelector,
+        event_at: datetime,
+        knowledge_cutoff: datetime,
+        visibility_anchor: MarketDataVisibilityAnchor,
+        allowed_source_registry_ids: frozenset[str],
+    ) -> DurableB2CompletenessEvidence | None:
+        self.evidence_calls.append(
+            (
+                knowledge_cutoff,
+                visibility_anchor,
+                allowed_source_registry_ids,
+                event_at,
+                selector.selector_digest,
+            )
+        )
+        if self.evidence is None:
+            return None
+        if isinstance(self.evidence, DurableB2CompletenessEvidence):
+            return self.evidence
+        source_snapshot_id = (
+            self.revisions[0].source_snapshot_id if self.revisions else "source-b2-evidence"
+        )
+        certificate = (
+            ZeroRecordCertificate(
+                selector_digest=selector.selector_digest,
+                event_at=event_at,
+                evidence_sha256="e" * 64,
+            )
+            if not selector.expected_record_key_sha256s
+            else None
+        )
+        return DurableB2CompletenessEvidence(
+            receipt_id="receipt-b2-evidence",
+            receipt_sha256="d" * 64,
+            source_snapshot_id=source_snapshot_id,
+            event_at=event_at,
+            selector=selector,
+            zero_record_certificate=certificate,
+        )
+
     async def read_observation_revisions(
         self,
         context,
@@ -59,12 +117,24 @@ class _LocalOnlyStore:
         include_unusable_for_coverage: bool = False,
         allowed_source_registry_ids: frozenset[str] | None = None,
         exact_event_at: datetime | None = None,
+        exact_source_snapshot_id: str | None = None,
     ) -> tuple[LocalObservationRevision, ...]:
         assert include_unusable_for_coverage is False
         self.read_calls.append(
-            (knowledge_cutoff, visibility_anchor, allowed_source_registry_ids, exact_event_at)
+            (
+                knowledge_cutoff,
+                visibility_anchor,
+                allowed_source_registry_ids,
+                exact_event_at,
+                exact_source_snapshot_id,
+            )
         )
-        return self.revisions
+        return tuple(
+            item
+            for item in self.revisions
+            if exact_source_snapshot_id is None
+            or item.source_snapshot_id == exact_source_snapshot_id
+        )
 
 
 def _local_context(*, mode: str = "local_only"):
@@ -108,6 +178,7 @@ def _revision(
     visibility_sequence: int = 7,
     close: str = "10.00",
     family_id: str = "option.derivative",
+    source_snapshot_id: str = "source-b2-evidence",
 ) -> LocalObservationRevision:
     semantic_key = normalize_semantic_record_key(
         family_id=family_id,
@@ -122,7 +193,7 @@ def _revision(
     )
     return LocalObservationRevision(
         revision_id=f"revision-{contract}-{revision_number}",
-        source_snapshot_id=f"source-{contract}-{revision_number}",
+        source_snapshot_id=source_snapshot_id,
         event_at=event_at or _at(10),
         available_at=_at(12),
         committed_at=_at(12),
@@ -192,7 +263,18 @@ async def test_local_b2_service_reads_only_store_revisions_and_returns_complete_
     )
     assert execution.next_cursor is None
     assert store.resolve_cutoffs == [_at(14)]
-    assert store.read_calls == [(_at(14), anchor, frozenset({"akshare:stock"}), _at(10))]
+    assert store.read_calls == [
+        (_at(14), anchor, frozenset({"akshare:stock"}), _at(10), "source-b2-evidence")
+    ]
+    assert store.evidence_calls == [
+        (
+            _at(14),
+            anchor,
+            frozenset({"akshare:stock"}),
+            _at(10),
+            _selector(first, second).selector_digest,
+        )
+    ]
     assert not hasattr(store, "providers")
     assert not hasattr(store, "fetch_lease_manager")
 
@@ -229,13 +311,93 @@ async def test_empty_expected_manifest_without_durable_zero_receipt_stays_incomp
     store = _LocalOnlyStore(
         revisions=(),
         anchor=MarketDataVisibilityAnchor(visible_at=_at(14), max_visibility_sequence=7),
+        evidence=None,
     )
 
     execution = await _service(store).execute(_request(context=_local_context(), selector=selector))
 
     assert execution.completeness.status is CompletenessStatus.INCOMPLETE
-    assert execution.completeness.reason_codes == ("EMPTY_RESULT_UNDECLARED",)
+    assert execution.completeness.reason_codes == ("DURABLE_SELECTOR_EVIDENCE_MISSING",)
     assert execution.observations == ()
+    assert store.read_calls == []
+
+
+@pytest.mark.asyncio
+async def test_durable_zero_receipt_allows_only_its_exact_empty_selector_event() -> None:
+    """A Store-derived zero certificate can complete the matching empty B2 read."""
+    selector = B2SliceSelector(
+        family_id="option.derivative",
+        family_contract_version="market-data-family-v1",
+        selector_dimensions={"underlying_canonical_id": "IF", "expiry": "2026-10-30"},
+        expected_record_key_sha256s=frozenset(),
+    )
+    store = _LocalOnlyStore(
+        revisions=(),
+        anchor=MarketDataVisibilityAnchor(visible_at=_at(14), max_visibility_sequence=7),
+    )
+
+    execution = await _service(store).execute(_request(context=_local_context(), selector=selector))
+
+    assert execution.completeness.status is CompletenessStatus.COMPLETE
+    assert execution.completeness.zero_record_certificate_used is True
+    assert execution.observations == ()
+    assert store.read_calls == [
+        (_at(14), store.anchor, frozenset({"akshare:stock"}), _at(10), "source-b2-evidence")
+    ]
+
+
+@pytest.mark.asyncio
+async def test_reader_rejects_a_store_evidence_selector_mismatch_before_fact_read() -> None:
+    """A buggy Store double cannot replace the requested durable manifest."""
+    first = _revision("IF2610C100")
+    requested = _selector(first)
+    mismatched = B2SliceSelector(
+        family_id="option.derivative",
+        family_contract_version="market-data-family-v1",
+        selector_dimensions={"underlying_canonical_id": "IF", "expiry": "2026-10-30"},
+        expected_record_key_sha256s=frozenset({"f" * 64}),
+    )
+    store = _LocalOnlyStore(
+        revisions=(first,),
+        anchor=MarketDataVisibilityAnchor(visible_at=_at(14), max_visibility_sequence=7),
+        evidence=DurableB2CompletenessEvidence(
+            receipt_id="receipt-b2-evidence",
+            receipt_sha256="d" * 64,
+            source_snapshot_id="source-b2-evidence",
+            event_at=_at(10),
+            selector=mismatched,
+            zero_record_certificate=None,
+        ),
+    )
+
+    with pytest.raises(MultiRecordLocalQueryServiceError) as rejected:
+        await _service(store).execute(_request(context=_local_context(), selector=requested))
+
+    assert rejected.value.code == "B2_LOCAL_DURABLE_EVIDENCE_MISMATCH"
+    assert store.read_calls == []
+
+
+@pytest.mark.asyncio
+async def test_reader_passes_the_durable_source_scope_before_store_deduplication() -> None:
+    """A newer revision from another source cannot replace the receipt-bound fact."""
+    receipt_source = _revision("IF2610C100", source_snapshot_id="source-b2-evidence")
+    foreign_source = _revision(
+        "IF2610C100",
+        revision_number=2,
+        source_snapshot_id="source-foreign",
+    )
+    store = _LocalOnlyStore(
+        revisions=(receipt_source, foreign_source),
+        anchor=MarketDataVisibilityAnchor(visible_at=_at(14), max_visibility_sequence=7),
+    )
+
+    execution = await _service(store).execute(
+        _request(context=_local_context(), selector=_selector(receipt_source))
+    )
+
+    assert execution.completeness.status is CompletenessStatus.COMPLETE
+    assert execution.observations == (receipt_source,)
+    assert store.read_calls[-1][-1] == "source-b2-evidence"
 
 
 @pytest.mark.asyncio
@@ -269,6 +431,45 @@ async def test_cursor_replays_the_first_page_anchor_and_pages_without_duplicates
     assert store.resolve_cutoffs == [_at(14)]
     assert [call[1] for call in store.read_calls] == [anchor, anchor]
     assert [call[3] for call in store.read_calls] == [_at(10), _at(10)]
+    assert [call[4] for call in store.read_calls] == ["source-b2-evidence", "source-b2-evidence"]
+
+
+@pytest.mark.asyncio
+async def test_cursor_rejects_a_changed_durable_receipt_before_fact_read() -> None:
+    """A continuation cannot silently move to a newer receipt for the same selector."""
+    first = _revision("IF2610C100")
+    second = _revision("IF2610C105")
+    third = _revision("IF2610C110")
+    anchor = MarketDataVisibilityAnchor(visible_at=_at(14), max_visibility_sequence=7)
+    store = _LocalOnlyStore(revisions=(first, second, third), anchor=anchor)
+    service = _service(store)
+    selector = _selector(first, second, third)
+    first_page = await service.execute(
+        _request(context=_local_context(), selector=selector, page_size=1)
+    )
+    assert first_page.next_cursor is not None
+    store.evidence = DurableB2CompletenessEvidence(
+        receipt_id="receipt-b2-evidence-replaced",
+        receipt_sha256="c" * 64,
+        source_snapshot_id="source-b2-evidence",
+        event_at=_at(10),
+        selector=selector,
+        zero_record_certificate=None,
+    )
+    reads_before = len(store.read_calls)
+
+    with pytest.raises(MultiRecordLocalQueryServiceError) as rejected:
+        await service.execute(
+            _request(
+                context=_local_context(),
+                selector=selector,
+                page_size=1,
+                cursor=first_page.next_cursor,
+            )
+        )
+
+    assert rejected.value.code == "B2_LOCAL_CURSOR_EVIDENCE_MISMATCH"
+    assert len(store.read_calls) == reads_before
 
 
 @pytest.mark.asyncio

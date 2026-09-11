@@ -30,6 +30,7 @@ from app.models.market_data_platform import (
 from app.services.market_data.multi_record import (
     B2ReportSelector,
     B2SliceSelector,
+    ZeroRecordCertificate,
     normalize_record_dimensions,
 )
 from app.services.market_data.multi_record_contracts import (
@@ -86,6 +87,54 @@ class StagedB2CompletenessEvidence:
     selector: B2SliceSelector | B2ReportSelector
     event_at: datetime
     source_snapshot_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class DurableB2CompletenessEvidence:
+    """One receipt reconstructed from durable rows for a strict local read.
+
+    The selector and optional zero certificate are derived from the persisted
+    receipt and child manifest; they are never accepted from the reader's
+    request as completeness evidence.  Store is responsible for additionally
+    proving both publication receipts are visible at the frozen anchor and
+    that the source receipt remains authorized for the current access binding.
+    """
+
+    receipt_id: str
+    receipt_sha256: str
+    source_snapshot_id: str
+    event_at: datetime
+    selector: B2SliceSelector | B2ReportSelector
+    zero_record_certificate: ZeroRecordCertificate | None
+
+    def __post_init__(self) -> None:
+        receipt_id = _require_identifier(
+            self.receipt_id,
+            code="B2_COMPLETENESS_RECEIPT_INVALID",
+        )
+        source_snapshot_id = _require_identifier(
+            self.source_snapshot_id,
+            code="B2_COMPLETENESS_RECEIPT_INVALID",
+        )
+        if not _is_sha256(self.receipt_sha256):
+            raise B2CompletenessEvidenceError("B2_COMPLETENESS_RECEIPT_INVALID")
+        event_at = _require_event_at(self.event_at)
+        if not isinstance(self.selector, (B2SliceSelector, B2ReportSelector)):
+            raise TypeError("selector must be a B2SliceSelector or B2ReportSelector")
+        expected_hashes = self.selector.expected_record_key_sha256s
+        certificate = self.zero_record_certificate
+        if expected_hashes:
+            if certificate is not None:
+                raise B2CompletenessEvidenceError("B2_COMPLETENESS_RECEIPT_INVALID")
+        elif (
+            not isinstance(certificate, ZeroRecordCertificate)
+            or certificate.selector_digest != self.selector.selector_digest
+            or certificate.event_at != event_at
+        ):
+            raise B2CompletenessEvidenceError("B2_COMPLETENESS_RECEIPT_INVALID")
+        object.__setattr__(self, "receipt_id", receipt_id)
+        object.__setattr__(self, "source_snapshot_id", source_snapshot_id)
+        object.__setattr__(self, "event_at", event_at)
 
 
 class B2CompletenessEvidenceIssuer:
@@ -423,6 +472,32 @@ def assert_b2_completeness_receipt_integrity(
         raise B2CompletenessEvidenceError("B2_COMPLETENESS_RECEIPT_INVALID") from exc
     except (TypeError, ValueError) as exc:
         raise B2CompletenessEvidenceError("B2_COMPLETENESS_RECEIPT_INVALID") from exc
+
+
+def durable_b2_completeness_evidence_from_receipt(
+    receipt: MdB2CompletenessReceipt,
+    entry_hashes: Iterable[str],
+) -> DurableB2CompletenessEvidence:
+    """Rebuild strict-reader evidence from one verified immutable receipt."""
+    selector = assert_b2_completeness_receipt_integrity(receipt, entry_hashes)
+    event_at = _stored_utc(receipt.event_at)
+    certificate = (
+        ZeroRecordCertificate(
+            selector_digest=selector.selector_digest,
+            event_at=event_at,
+            evidence_sha256=receipt.zero_record_evidence_sha256,
+        )
+        if not selector.expected_record_key_sha256s
+        else None
+    )
+    return DurableB2CompletenessEvidence(
+        receipt_id=receipt.id,
+        receipt_sha256=receipt.receipt_sha256,
+        source_snapshot_id=receipt.source_snapshot_id,
+        event_at=event_at,
+        selector=selector,
+        zero_record_certificate=certificate,
+    )
 
 
 async def assert_b2_source_event_manifest_integrity(

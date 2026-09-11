@@ -131,6 +131,33 @@ async def test_issuer_derives_one_durable_manifest_receipt_and_stages_its_public
 
 
 @pytest.mark.asyncio
+async def test_issuer_reuses_an_exact_receipt_and_its_pending_publication() -> None:
+    """A retry does not create another manifest or visibility receipt for one selector."""
+    series_id, source_snapshot_id = await _persist_b2_source()
+
+    async with async_session_maker() as db:
+        issuer = B2CompletenessEvidenceIssuer(db)
+        first = await issuer.stage(
+            _request(series_id=series_id, source_snapshot_id=source_snapshot_id)
+        )
+        second = await issuer.stage(
+            _request(series_id=series_id, source_snapshot_id=source_snapshot_id)
+        )
+        await db.commit()
+        receipt_count = await db.scalar(select(func.count()).select_from(MdB2CompletenessReceipt))
+        publication_count = await db.scalar(
+            select(func.count())
+            .select_from(MdPublication)
+            .where(MdPublication.entity_type == PUBLICATION_B2_COMPLETENESS_RECEIPT)
+        )
+
+    assert second.receipt_id == first.receipt_id
+    assert second.publication_id == first.publication_id
+    assert receipt_count == 1
+    assert publication_count == 1
+
+
+@pytest.mark.asyncio
 async def test_issuer_rejects_a_manifest_that_does_not_exactly_match_its_source_event() -> None:
     """A receipt cannot hide an additional same-source record behind a smaller manifest."""
     series_id, source_snapshot_id = await _persist_b2_source(strikes=("100", "105"))

@@ -19,6 +19,7 @@ from types import MappingProxyType
 from sqlalchemy import Select, and_, func, select, tuple_
 from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from app.models.asset_research import AssetDataSourceRegistry
 from app.models.data_governance import DgProvider
@@ -26,6 +27,8 @@ from app.models.market_data_platform import (
     CALENDAR_SOURCE_GOVERNANCE_STATE_VERIFIED,
     SOURCE_AUTHORIZATION_STATE_UNVERIFIED_COMPATIBILITY,
     SOURCE_AUTHORIZATION_STATE_VERIFIED,
+    MdB2CompletenessManifestEntry,
+    MdB2CompletenessReceipt,
     MdCalendarEvent,
     MdCalendarSnapshot,
     MdDataSeries,
@@ -60,6 +63,8 @@ from app.services.market_data.field_quality import (
 from app.services.market_data.multi_record import (
     SINGLE_RECORD_SEMANTIC_KEY_CANONICAL_JSON,
     SINGLE_RECORD_SEMANTIC_KEY_SHA256,
+    B2ReportSelector,
+    B2SliceSelector,
     SemanticRecordKey,
     normalize_semantic_record_key,
     single_record_semantic_key,
@@ -68,12 +73,19 @@ from app.services.market_data.multi_record_contracts import (
     B2FamilyContractError,
     normalize_b2_record_dimensions,
 )
+from app.services.market_data.multi_record_evidence import (
+    B2CompletenessEvidenceError,
+    DurableB2CompletenessEvidence,
+    assert_b2_source_event_manifest_integrity,
+    durable_b2_completeness_evidence_from_receipt,
+)
 from app.services.market_data.providers import (
     ProviderFetchResult,
     ProviderMarketObservation,
     SharedSourcePayloadSegment,
 )
 from app.services.market_data.publication import (
+    PUBLICATION_B2_COMPLETENESS_RECEIPT,
     PUBLICATION_CALENDAR_SNAPSHOT,
     PUBLICATION_SOURCE_SNAPSHOT,
     MarketDataDeferredPublicationIntent,
@@ -882,6 +894,143 @@ class MarketDataStore:
             max_visibility_sequence=max_sequence,
         )
 
+    async def read_b2_completeness_evidence(
+        self,
+        context: ResolvedMarketDataQueryContext,
+        *,
+        selector: B2SliceSelector | B2ReportSelector,
+        event_at: datetime,
+        knowledge_cutoff: datetime,
+        visibility_anchor: MarketDataVisibilityAnchor | None = None,
+        allowed_source_registry_ids: frozenset[str] | None,
+    ) -> DurableB2CompletenessEvidence | None:
+        """Resolve one published B2 manifest bound to its exact source receipt.
+
+        ``selector`` is only an untrusted lookup coordinate.  The returned
+        selector is always reconstructed from the immutable receipt and child
+        manifest after both the B2 receipt and its source snapshot prove
+        visibility at the same frozen anchor.  Absent, pending, or currently
+        unauthorized evidence remains unavailable rather than becoming a
+        caller-declared completeness manifest.
+        """
+        _assert_context_integrity(context)
+        if not isinstance(selector, (B2SliceSelector, B2ReportSelector)):
+            raise TypeError("selector must be a B2SliceSelector or B2ReportSelector")
+        requested_event_at = _require_aware_utc(
+            event_at,
+            field_name="exact B2 completeness event time",
+        )
+        allowed_source_ids = _normalize_allowed_source_registry_ids(allowed_source_registry_ids)
+        if not allowed_source_ids:
+            return None
+        if (
+            context.query.family_id != selector.family_id
+            or context.query.family_contract_version != selector.family_contract_version
+        ):
+            raise MarketDataStoreError("B2_COMPLETENESS_SELECTOR_CONTEXT_MISMATCH")
+        if not context.query.start <= requested_event_at < context.query.end:
+            raise MarketDataStoreError("B2_COMPLETENESS_EVENT_OUT_OF_WINDOW")
+        anchor = await self._resolve_visibility_anchor(
+            knowledge_cutoff=knowledge_cutoff,
+            visibility_anchor=visibility_anchor,
+        )
+        series = await self.get_series(context)
+        if series is None:
+            return None
+
+        b2_publication = aliased(MdPublication)
+        source_publication = aliased(MdPublication)
+        rows = list(
+            (
+                await self._db.execute(
+                    select(MdB2CompletenessReceipt, MdSourceSnapshot)
+                    .join(
+                        MdSourceSnapshot,
+                        MdSourceSnapshot.id == MdB2CompletenessReceipt.source_snapshot_id,
+                    )
+                    .join(
+                        b2_publication,
+                        and_(
+                            b2_publication.entity_type == PUBLICATION_B2_COMPLETENESS_RECEIPT,
+                            b2_publication.entity_id == MdB2CompletenessReceipt.id,
+                            b2_publication.entity_sha256 == MdB2CompletenessReceipt.receipt_sha256,
+                        ),
+                    )
+                    .join(
+                        source_publication,
+                        and_(
+                            source_publication.entity_type == PUBLICATION_SOURCE_SNAPSHOT,
+                            source_publication.entity_id == MdSourceSnapshot.id,
+                            source_publication.entity_sha256 == MdSourceSnapshot.payload_sha256,
+                        ),
+                    )
+                    .where(
+                        MdB2CompletenessReceipt.series_id == series.id,
+                        MdB2CompletenessReceipt.family_id == selector.family_id,
+                        MdB2CompletenessReceipt.family_contract_version
+                        == selector.family_contract_version,
+                        MdB2CompletenessReceipt.event_at == requested_event_at,
+                        MdB2CompletenessReceipt.selector_digest == selector.selector_digest,
+                        MdSourceSnapshot.source_id.in_(sorted(allowed_source_ids)),
+                        MdSourceSnapshot.source_authorization_state
+                        == SOURCE_AUTHORIZATION_STATE_VERIFIED,
+                        b2_publication.published_at.is_not(None),
+                        b2_publication.visibility_sequence.is_not(None),
+                        b2_publication.published_at <= anchor.visible_at,
+                        b2_publication.visibility_sequence <= anchor.max_visibility_sequence,
+                        source_publication.published_at.is_not(None),
+                        source_publication.visibility_sequence.is_not(None),
+                        source_publication.published_at <= anchor.visible_at,
+                        source_publication.visibility_sequence <= anchor.max_visibility_sequence,
+                    )
+                    .execution_options(populate_existing=True)
+                    .with_for_update()
+                )
+            ).all()
+        )
+        if not rows:
+            return None
+        if len(rows) != 1:
+            raise MarketDataStoreError("B2_COMPLETENESS_EVIDENCE_INTEGRITY")
+        receipt, source_snapshot = rows[0]
+        try:
+            source_registry_id = _verified_source_authorization_registry_id(
+                source_snapshot,
+                context=context,
+            )
+        except MarketDataStoreError:
+            return None
+        if source_registry_id not in allowed_source_ids:
+            return None
+
+        entry_hashes = tuple(
+            (
+                await self._db.execute(
+                    select(MdB2CompletenessManifestEntry.semantic_record_key_sha256)
+                    .where(MdB2CompletenessManifestEntry.receipt_id == receipt.id)
+                    .order_by(MdB2CompletenessManifestEntry.semantic_record_key_sha256)
+                    .with_for_update()
+                )
+            ).scalars()
+        )
+        try:
+            evidence = durable_b2_completeness_evidence_from_receipt(receipt, entry_hashes)
+            if (
+                type(evidence.selector) is not type(selector)
+                or evidence.selector.selector_digest != selector.selector_digest
+            ):
+                raise B2CompletenessEvidenceError("B2_COMPLETENESS_RECEIPT_INVALID")
+            await assert_b2_source_event_manifest_integrity(
+                self._db,
+                series_id=receipt.series_id,
+                source_snapshot_id=receipt.source_snapshot_id,
+                event_at=evidence.event_at,
+                expected_hashes=evidence.selector.expected_record_key_sha256s,
+            )
+        except (B2CompletenessEvidenceError, TypeError, ValueError) as exc:
+            raise MarketDataStoreError("B2_COMPLETENESS_EVIDENCE_INTEGRITY") from exc
+        return evidence
+
     async def read_observation_revisions(
         self,
         context: ResolvedMarketDataQueryContext,
@@ -891,6 +1040,7 @@ class MarketDataStore:
         include_unusable_for_coverage: bool = False,
         allowed_source_registry_ids: frozenset[str] | None = None,
         exact_event_at: datetime | None = None,
+        exact_source_snapshot_id: str | None = None,
     ) -> tuple[LocalObservationRevision, ...]:
         """Select the newest response-safe revision per event/record at PIT cutoff.
 
@@ -912,6 +1062,15 @@ class MarketDataStore:
         requested_event_at = (
             _require_aware_utc(exact_event_at, field_name="exact local observation event time")
             if exact_event_at is not None
+            else None
+        )
+        requested_source_snapshot_id = (
+            _require_text(
+                exact_source_snapshot_id,
+                field_name="exact local observation source snapshot",
+                maximum=36,
+            )
+            if exact_source_snapshot_id is not None
             else None
         )
         if requested_event_at is not None and not (
@@ -979,6 +1138,10 @@ class MarketDataStore:
                 MdSourceSnapshot.source_id.in_(sorted(allowed_source_ids)),
                 MdSourceSnapshot.source_authorization_state == SOURCE_AUTHORIZATION_STATE_VERIFIED,
             ).execution_options(populate_existing=True)
+        if requested_source_snapshot_id is not None:
+            statement = statement.where(
+                MdObservationRevision.source_snapshot_id == requested_source_snapshot_id
+            )
         rows = list((await self._db.execute(statement)).all())
 
         selected_usable: dict[tuple[datetime, str], LocalObservationRevision] = {}

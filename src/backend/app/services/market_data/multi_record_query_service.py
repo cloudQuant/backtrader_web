@@ -24,18 +24,21 @@ from app.services.market_data.multi_record import (
     B2ReportSelector,
     B2SliceSelector,
     CompletenessResult,
+    CompletenessStatus,
     ReportCompletenessPlanner,
     SemanticRecordKey,
     SliceCompletenessPlanner,
+    ZeroRecordCertificate,
     _canonical_json_values_equal,
 )
+from app.services.market_data.multi_record_evidence import DurableB2CompletenessEvidence
 from app.services.market_data.publication import MarketDataVisibilityAnchor
 from app.services.market_data.query_resolution import ResolvedMarketDataQueryContext
 from app.services.market_data.store import LocalObservationRevision, MarketDataStore
 
 UTC = timezone.utc
-_CURSOR_VERSION = 1
-_CURSOR_KIND = "market-data-b2-local-cursor-v1"
+_CURSOR_VERSION = 2
+_CURSOR_KIND = "market-data-b2-local-cursor-v2"
 _CURSOR_HMAC_BYTES = hashlib.sha256().digest_size
 _MAX_CURSOR_TOKEN_LENGTH = 2048
 _MAX_CURSOR_PAYLOAD_BYTES = 1500
@@ -65,6 +68,17 @@ class _MultiRecordReadStore(Protocol):
         knowledge_cutoff: datetime,
     ) -> MarketDataVisibilityAnchor: ...
 
+    async def read_b2_completeness_evidence(
+        self,
+        context: ResolvedMarketDataQueryContext,
+        *,
+        selector: B2SliceSelector | B2ReportSelector,
+        event_at: datetime,
+        knowledge_cutoff: datetime,
+        visibility_anchor: MarketDataVisibilityAnchor,
+        allowed_source_registry_ids: frozenset[str],
+    ) -> DurableB2CompletenessEvidence | None: ...
+
     async def read_observation_revisions(
         self,
         context: ResolvedMarketDataQueryContext,
@@ -74,6 +88,7 @@ class _MultiRecordReadStore(Protocol):
         include_unusable_for_coverage: bool = False,
         allowed_source_registry_ids: frozenset[str] | None = None,
         exact_event_at: datetime | None = None,
+        exact_source_snapshot_id: str | None = None,
     ) -> tuple[LocalObservationRevision, ...]: ...
 
 
@@ -138,7 +153,12 @@ class MultiRecordLocalAccessBinding:
 
 @dataclass(frozen=True, slots=True)
 class MultiRecordLocalReadRequest:
-    """A server-constructed, one-event local-only B2 read request."""
+    """A server-constructed, one-event local-only B2 read lookup request.
+
+    ``selector`` narrows the durable receipt lookup but does not declare
+    completeness.  Execution must replace it with the selector reconstructed
+    from a published B2 receipt before selecting any observation revision.
+    """
 
     context: ResolvedMarketDataQueryContext
     selector: B2SliceSelector | B2ReportSelector
@@ -198,6 +218,9 @@ class _Cursor:
     knowledge_cutoff: datetime
     visibility_anchor: MarketDataVisibilityAnchor
     access_binding_digest: str
+    receipt_id: str
+    receipt_sha256: str
+    source_snapshot_id: str
     last_event_at: datetime
     last_semantic_record_key_sha256: str
     last_revision_number: int
@@ -221,6 +244,7 @@ class MultiRecordLocalQueryService:
             hasattr(store, method)
             for method in (
                 "resolve_visibility_anchor",
+                "read_b2_completeness_evidence",
                 "read_observation_revisions",
             )
         ):
@@ -264,20 +288,47 @@ class MultiRecordLocalQueryService:
                 knowledge_cutoff=request.knowledge_cutoff
             )
         )
+        evidence = await self._store.read_b2_completeness_evidence(
+            request.context,
+            selector=request.selector,
+            event_at=request.event_at,
+            knowledge_cutoff=request.knowledge_cutoff,
+            visibility_anchor=visibility_anchor,
+            allowed_source_registry_ids=request.access_binding.allowed_source_registry_ids,
+        )
+        if evidence is None:
+            return MultiRecordLocalQueryExecution(
+                context=request.context,
+                event_at=request.event_at,
+                knowledge_cutoff=request.knowledge_cutoff,
+                visibility_anchor=visibility_anchor,
+                selector_digest=request.selector.selector_digest,
+                completeness=_durable_evidence_missing_completeness(request.selector),
+                observations=(),
+                next_cursor=None,
+            )
+        _assert_durable_evidence_matches_request(evidence, request=request)
+        if cursor is not None:
+            _assert_cursor_matches_evidence(cursor, evidence=evidence)
         revisions = await self._store.read_observation_revisions(
             request.context,
             knowledge_cutoff=request.knowledge_cutoff,
             visibility_anchor=visibility_anchor,
             allowed_source_registry_ids=request.access_binding.allowed_source_registry_ids,
             exact_event_at=request.event_at,
+            exact_source_snapshot_id=evidence.source_snapshot_id,
         )
         matching = _matching_selector_revisions(
             revisions,
-            request=request,
+            context=request.context,
+            event_at=request.event_at,
+            selector=evidence.selector,
         )
         completeness = _plan_completeness(
-            selector=request.selector,
+            selector=evidence.selector,
             observations=matching,
+            zero_record_certificate=evidence.zero_record_certificate,
+            event_at=evidence.event_at,
         )
         if not completeness.is_complete:
             return MultiRecordLocalQueryExecution(
@@ -285,7 +336,7 @@ class MultiRecordLocalQueryService:
                 event_at=request.event_at,
                 knowledge_cutoff=request.knowledge_cutoff,
                 visibility_anchor=visibility_anchor,
-                selector_digest=request.selector.selector_digest,
+                selector_digest=evidence.selector.selector_digest,
                 completeness=completeness,
                 observations=(),
                 next_cursor=None,
@@ -298,6 +349,7 @@ class MultiRecordLocalQueryService:
             records,
             cursor=cursor,
             request=request,
+            evidence=evidence,
             series_semantic_key_sha256=series_semantic_key_sha256,
             visibility_anchor=visibility_anchor,
             issued_at=issued_at,
@@ -309,7 +361,7 @@ class MultiRecordLocalQueryService:
             event_at=request.event_at,
             knowledge_cutoff=request.knowledge_cutoff,
             visibility_anchor=visibility_anchor,
-            selector_digest=request.selector.selector_digest,
+            selector_digest=evidence.selector.selector_digest,
             completeness=completeness,
             observations=page,
             next_cursor=next_cursor,
@@ -344,21 +396,23 @@ def _validate_request_contract(request: MultiRecordLocalReadRequest) -> None:
 def _matching_selector_revisions(
     revisions: tuple[LocalObservationRevision, ...],
     *,
-    request: MultiRecordLocalReadRequest,
+    context: ResolvedMarketDataQueryContext,
+    event_at: datetime,
+    selector: B2SliceSelector | B2ReportSelector,
 ) -> tuple[LocalObservationRevision, ...]:
-    """Validate record identities and select only the requested slice/report."""
+    """Validate record identities and select only the durable slice/report."""
     selected: list[LocalObservationRevision] = []
     for revision in revisions:
-        if revision.event_at != request.event_at:
+        if revision.event_at != event_at:
             continue
         dimensions = _validated_record_dimensions(
             revision,
-            family_id=request.selector.family_id,
-            family_contract_version=request.selector.family_contract_version,
+            family_id=selector.family_id,
+            family_contract_version=selector.family_contract_version,
         )
-        if not _dimensions_match_selector(dimensions, request.selector.selector_dimensions):
+        if not _dimensions_match_selector(dimensions, selector.selector_dimensions):
             continue
-        if not _revision_is_usable_for_request(revision, request.context):
+        if not _revision_is_usable_for_request(revision, context):
             continue
         selected.append(revision)
     return tuple(selected)
@@ -421,18 +475,59 @@ def _plan_completeness(
     *,
     selector: B2SliceSelector | B2ReportSelector,
     observations: tuple[LocalObservationRevision, ...],
+    zero_record_certificate: ZeroRecordCertificate | None,
+    event_at: datetime,
 ) -> CompletenessResult:
-    """Use an explicit manifest only; zero records have no durable receipt yet."""
+    """Use only a durable manifest and its optional durable zero certificate."""
     record_key_sha256s = tuple(item.semantic_record_key_sha256 for item in observations)
     if isinstance(selector, B2SliceSelector):
         return SliceCompletenessPlanner().plan(
             selector=selector,
             observed_record_key_sha256s=record_key_sha256s,
+            zero_record_certificate=zero_record_certificate,
+            event_at=event_at,
         )
     return ReportCompletenessPlanner().plan(
         selector=selector,
         observed_record_key_sha256s=record_key_sha256s,
+        zero_record_certificate=zero_record_certificate,
+        event_at=event_at,
     )
+
+
+def _durable_evidence_missing_completeness(
+    selector: B2SliceSelector | B2ReportSelector,
+) -> CompletenessResult:
+    """Return the non-renderable result for a selector without a stored receipt."""
+    expected = selector.expected_record_key_sha256s
+    return CompletenessResult(
+        selector_digest=selector.selector_digest,
+        status=CompletenessStatus.INCOMPLETE,
+        reason_codes=("DURABLE_SELECTOR_EVIDENCE_MISSING",),
+        expected_record_key_sha256s=expected,
+        observed_record_key_sha256s=frozenset(),
+        missing_record_key_sha256s=expected or frozenset(),
+        duplicate_record_key_sha256s=frozenset(),
+        unexpected_record_key_sha256s=frozenset(),
+        zero_record_certificate_used=False,
+    )
+
+
+def _assert_durable_evidence_matches_request(
+    evidence: DurableB2CompletenessEvidence,
+    *,
+    request: MultiRecordLocalReadRequest,
+) -> None:
+    """Ensure a Store result cannot swap the request's selector or event scope."""
+    if (
+        not isinstance(evidence, DurableB2CompletenessEvidence)
+        or evidence.event_at != request.event_at
+        or type(evidence.selector) is not type(request.selector)
+        or evidence.selector.family_id != request.selector.family_id
+        or evidence.selector.family_contract_version != request.selector.family_contract_version
+        or evidence.selector.selector_digest != request.selector.selector_digest
+    ):
+        raise MultiRecordLocalQueryServiceError("B2_LOCAL_DURABLE_EVIDENCE_MISMATCH")
 
 
 def _paginate_records(
@@ -440,6 +535,7 @@ def _paginate_records(
     *,
     cursor: _Cursor | None,
     request: MultiRecordLocalReadRequest,
+    evidence: DurableB2CompletenessEvidence,
     series_semantic_key_sha256: str,
     visibility_anchor: MarketDataVisibilityAnchor,
     issued_at: datetime,
@@ -454,6 +550,7 @@ def _paginate_records(
             series_semantic_key_sha256=series_semantic_key_sha256,
             visibility_anchor=visibility_anchor,
         )
+        _assert_cursor_matches_evidence(cursor, evidence=evidence)
         last_key = (
             cursor.last_event_at,
             cursor.last_semantic_record_key_sha256,
@@ -472,6 +569,7 @@ def _paginate_records(
     return page, _encode_cursor(
         record=page[-1],
         request=request,
+        evidence=evidence,
         series_semantic_key_sha256=series_semantic_key_sha256,
         visibility_anchor=visibility_anchor,
         issued_at=issued_at,
@@ -506,6 +604,7 @@ def _encode_cursor(
     *,
     record: LocalObservationRevision,
     request: MultiRecordLocalReadRequest,
+    evidence: DurableB2CompletenessEvidence,
     series_semantic_key_sha256: str,
     visibility_anchor: MarketDataVisibilityAnchor,
     issued_at: datetime,
@@ -530,6 +629,9 @@ def _encode_cursor(
             "knowledge_cutoff": request.knowledge_cutoff.isoformat(),
             "visibility_anchor": _anchor_payload(visibility_anchor),
             "access_binding_digest": request.access_binding.digest,
+            "receipt_id": evidence.receipt_id,
+            "receipt_sha256": evidence.receipt_sha256,
+            "source_snapshot_id": evidence.source_snapshot_id,
             "last": {
                 "event_at": record.event_at.isoformat(),
                 "semantic_record_key_sha256": record.semantic_record_key_sha256,
@@ -588,6 +690,9 @@ def _decode_cursor(
         "knowledge_cutoff",
         "visibility_anchor",
         "access_binding_digest",
+        "receipt_id",
+        "receipt_sha256",
+        "source_snapshot_id",
         "last",
         "issued_at",
         "expires_at",
@@ -635,6 +740,20 @@ def _decode_cursor(
             access_binding_digest=_require_sha256(
                 payload.get("access_binding_digest"),
                 field_name="cursor access_binding_digest",
+            ),
+            receipt_id=_require_text(
+                payload.get("receipt_id"),
+                field_name="cursor receipt_id",
+                maximum=36,
+            ),
+            receipt_sha256=_require_sha256(
+                payload.get("receipt_sha256"),
+                field_name="cursor receipt_sha256",
+            ),
+            source_snapshot_id=_require_text(
+                payload.get("source_snapshot_id"),
+                field_name="cursor source_snapshot_id",
+                maximum=36,
             ),
             last_event_at=_parse_datetime(last.get("event_at"), field_name="cursor last.event_at"),
             last_semantic_record_key_sha256=_require_sha256(
@@ -687,6 +806,20 @@ def _assert_cursor_matches_request(
         or cursor.access_binding_digest != request.access_binding.digest
     ):
         raise MultiRecordLocalQueryServiceError("B2_LOCAL_CURSOR_MISMATCH")
+
+
+def _assert_cursor_matches_evidence(
+    cursor: _Cursor,
+    *,
+    evidence: DurableB2CompletenessEvidence,
+) -> None:
+    """Bind every continuation to the exact durable receipt/source pair."""
+    if (
+        cursor.receipt_id != evidence.receipt_id
+        or cursor.receipt_sha256 != evidence.receipt_sha256
+        or cursor.source_snapshot_id != evidence.source_snapshot_id
+    ):
+        raise MultiRecordLocalQueryServiceError("B2_LOCAL_CURSOR_EVIDENCE_MISMATCH")
 
 
 def _anchor_payload(anchor: MarketDataVisibilityAnchor) -> dict[str, object]:
