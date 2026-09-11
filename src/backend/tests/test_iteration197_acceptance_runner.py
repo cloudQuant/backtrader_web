@@ -181,7 +181,7 @@ def test_registry_covers_all_named_acceptance_cases_and_formal_matrix_ids() -> N
     ]
     assert set(runner._CASE_BY_FORMAL_ID) == {case.formal_case_id for case in runner._CASES}
     assert runner._CASE_BY_FORMAL_ID["AC-197-MATRIX-001"] is runner._CASE_BY_ID["AC-01"]
-    assert runner.CASE_MAPPING_VERSION == "iteration197-unified-matrix-id-v2-ac36-no-offline-driver"
+    assert runner.CASE_MAPPING_VERSION == "iteration197-unified-matrix-id-v3-ac17-openbb-runner-g1"
     assert set(runner.VALID_MODES) == {
         "offline",
         "integration",
@@ -606,6 +606,61 @@ def test_offline_case_uses_child_socket_audit_and_required_junit_evidence(
         "test_local_first_persists_once_then_reuses_complete_older_revision_without_network"
     ) in command
     assert any(str(value).startswith("--junitxml=") for value in command)
+
+
+def test_ac17_offline_driver_binds_each_asset_to_runner_and_exact_source_boundary(
+    tmp_path: Path,
+    valid_scope_manifest: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """AC-17 records G1 policy/runner proof without treating it as G3 source success."""
+    _allow_clean_candidate(monkeypatch)
+    commands_by_asset: dict[str, tuple[object, ...]] = {}
+
+    def command_runner(command, *, cwd, environment):
+        del cwd, environment
+        asset_type = _junit_path(command).stem.removeprefix("AC-17-")
+        commands_by_asset[asset_type] = tuple(command[6:-1])
+        _write_passing_junit(command)
+        return runner.CommandResult(returncode=0, elapsed_ms=13)
+
+    result = runner.run_acceptance(
+        _args(
+            tmp_path,
+            mode="offline",
+            scope_manifest=valid_scope_manifest,
+            cases=["AC-17"],
+            asset_types=["all"],
+        ),
+        command_runner=command_runner,
+    )
+
+    expected_targets = {
+        asset_type: runner._OFFLINE_TESTS_BY_CASE_ASSET[("AC-17", asset_type)]
+        for asset_type in ("stock", "futures", "bond", "fund", "option", "fx", "crypto")
+    }
+    assert result["exit_code"] == runner.EXIT_INCOMPLETE
+    assert commands_by_asset == expected_targets
+    assert all(runner._OPENBB_RUNNER_G1_TARGET in targets for targets in expected_targets.values())
+    assert all(
+        runner._OPENBB_RUNNER_SOCKET_G1_TARGET in targets for targets in expected_targets.values()
+    )
+    assert expected_targets["futures"][0].endswith("[cn-futures-rb]")
+    assert expected_targets["bond"][0].endswith("[cn-convertible-bond]")
+    assert expected_targets["fx"][0].endswith("[cnh-pair]")
+    assert all(
+        case["status"] == "PASS"
+        and case["code"] == "OFFLINE_PYTEST_PASSED"
+        and case["formal_case_id"] == "AC-197-MATRIX-017"
+        and case["required_gates"] == ["G1", "G3"]
+        and case["satisfied_gates"] == ["G1"]
+        and case["remaining_gates"] == ["G3"]
+        and case["overall_case_status"] == "NOT_RUN"
+        and case["overall_case_code"] == "ACCEPTANCE_OTHER_REQUIRED_GATES_PENDING"
+        for case in result["cases"]
+    )
+    assert result["summary"] == {"BLOCKED": 0, "FAIL": 0, "NOT_RUN": 0, "PASS": 7}
+    assert result["overall_summary"] == {"BLOCKED": 0, "FAIL": 0, "NOT_RUN": 7, "PASS": 0}
 
 
 def test_ac36_offline_is_not_run_without_research_or_b2_fixture_evidence(

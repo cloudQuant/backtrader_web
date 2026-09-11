@@ -554,10 +554,10 @@ def test_default_policy_projects_every_axis_of_a_synthetic_explicit_openbb_permi
         market="US-NYSE",
         data_kind="bars",
         frequency="1d",
-        adjustment=None,
-        price_basis=None,
-        currency=None,
-        unit=None,
+        adjustment="unadjusted",
+        price_basis="close",
+        currency="USD",
+        unit="share",
         endpoint="equity.price.historical",
     )
     monkeypatch.setattr(openbb_runtime, "OPENBB_RUNTIME_PERMIT_MATRIX", (permit,))
@@ -571,10 +571,10 @@ def test_default_policy_projects_every_axis_of_a_synthetic_explicit_openbb_permi
             family_contract_version=permit.family_contract_version,
             data_kind="bars",
             frequency="1d",
-            adjustment=None,
-            price_basis=None,
-            currency=None,
-            unit=None,
+            adjustment=permit.adjustment,
+            price_basis=permit.price_basis,
+            currency=permit.currency,
+            unit=permit.unit,
         ),
     )
 
@@ -587,20 +587,156 @@ def test_default_policy_projects_every_axis_of_a_synthetic_explicit_openbb_permi
     assert routes[0].markets == frozenset({permit.market})
     assert routes[0].data_kinds == frozenset({permit.data_kind})
     assert routes[0].frequencies == frozenset({permit.frequency})
+    assert routes[0].adjustments == frozenset({permit.adjustment})
+    assert routes[0].price_bases == frozenset({permit.price_basis})
+    assert routes[0].currencies == frozenset({permit.currency})
+    assert routes[0].units == frozenset({permit.unit})
     assert routes[0].family_id == permit.family_id
     assert routes[0].family_contract_version == permit.family_contract_version
     assert routes[0].provider_endpoint == permit.endpoint
 
-    other_family_context = SimpleNamespace(
-        identity=SimpleNamespace(asset_type="stock", venue="US-NYSE"),
-        query=SimpleNamespace(
-            family_id="stock.valuation",
-            data_kind="bars",
-            frequency="1d",
-            adjustment=None,
-            price_basis=None,
-            currency=None,
-            unit=None,
-        ),
+    def changed_context(
+        *,
+        identity_changes: dict[str, str] | None = None,
+        query_changes: dict[str, str | None] | None = None,
+    ) -> SimpleNamespace:
+        identity = vars(context.identity).copy()
+        query = vars(context.query).copy()
+        identity.update(identity_changes or {})
+        query.update(query_changes or {})
+        return SimpleNamespace(
+            identity=SimpleNamespace(**identity),
+            query=SimpleNamespace(**query),
+        )
+
+    mismatched_contexts = (
+        changed_context(identity_changes={"asset_type": "fund"}),
+        changed_context(identity_changes={"venue": "US-NASDAQ"}),
+        changed_context(query_changes={"data_kind": "reference_series"}),
+        changed_context(query_changes={"frequency": "1w"}),
+        changed_context(query_changes={"adjustment": "qfq"}),
+        changed_context(query_changes={"price_basis": "last"}),
+        changed_context(query_changes={"currency": "CNY"}),
+        changed_context(query_changes={"unit": "contract"}),
+        changed_context(query_changes={"family_id": "stock.valuation"}),
+        changed_context(query_changes={"family_contract_version": "market-data-kline-v1"}),
     )
-    assert registry.resolve("market-default-v1").routes_for(other_family_context) == ()
+    assert all(
+        registry.resolve("market-default-v1").routes_for(mismatched_context) == ()
+        for mismatched_context in mismatched_contexts
+    )
+
+
+@pytest.mark.parametrize(
+    ("permit", "context"),
+    (
+        pytest.param(
+            OpenBBRuntimeRoutePermit(
+                route_id="openbb-yfinance-futures-us-cme-1d-v1",
+                family_id="futures.realtime",
+                family_contract_version=FAMILY_CONTRACT_VERSION,
+                provider="yfinance",
+                asset_type="futures",
+                market="US-CME",
+                data_kind="bars",
+                frequency="1d",
+                adjustment="unadjusted",
+                price_basis="close",
+                currency="USD",
+                unit="contract",
+                endpoint="derivatives.futures.historical",
+            ),
+            SimpleNamespace(
+                identity=SimpleNamespace(asset_type="futures", venue="CN-SHFE"),
+                query=SimpleNamespace(
+                    family_id="futures.realtime",
+                    family_contract_version=FAMILY_CONTRACT_VERSION,
+                    data_kind="bars",
+                    frequency="1d",
+                    adjustment="unadjusted",
+                    price_basis="close",
+                    currency="CNY",
+                    unit="contract",
+                ),
+            ),
+            id="cn-futures-rb",
+        ),
+        pytest.param(
+            OpenBBRuntimeRoutePermit(
+                route_id="openbb-yfinance-bond-us-otc-1d-v1",
+                family_id="bond.realtime",
+                family_contract_version=FAMILY_CONTRACT_VERSION,
+                provider="yfinance",
+                asset_type="bond",
+                market="US-OTC",
+                data_kind="bars",
+                frequency="1d",
+                adjustment="unadjusted",
+                price_basis="close",
+                currency="USD",
+                unit="bond",
+                endpoint="fixedincome.bond.historical",
+            ),
+            SimpleNamespace(
+                identity=SimpleNamespace(asset_type="bond", venue="CN-SSE"),
+                query=SimpleNamespace(
+                    family_id="bond.realtime",
+                    family_contract_version=FAMILY_CONTRACT_VERSION,
+                    data_kind="bars",
+                    frequency="1d",
+                    adjustment="unadjusted",
+                    price_basis="close",
+                    currency="CNY",
+                    unit="bond",
+                ),
+            ),
+            id="cn-convertible-bond",
+        ),
+        pytest.param(
+            OpenBBRuntimeRoutePermit(
+                route_id="openbb-yfinance-fx-usd-jpy-1d-v1",
+                family_id="fx.realtime",
+                family_contract_version=FAMILY_CONTRACT_VERSION,
+                provider="yfinance",
+                asset_type="fx",
+                market="OTC",
+                data_kind="bars",
+                frequency="1d",
+                adjustment="unadjusted",
+                price_basis="close",
+                currency="JPY",
+                unit=None,
+                endpoint="currency.price.historical",
+            ),
+            SimpleNamespace(
+                identity=SimpleNamespace(asset_type="fx", venue="CN-OTC"),
+                query=SimpleNamespace(
+                    family_id="fx.realtime",
+                    family_contract_version=FAMILY_CONTRACT_VERSION,
+                    data_kind="bars",
+                    frequency="1d",
+                    adjustment="unadjusted",
+                    price_basis="close",
+                    currency="CNY",
+                    unit=None,
+                ),
+            ),
+            id="cnh-pair",
+        ),
+    ),
+)
+def test_future_openbb_permit_rejects_non_equivalent_context(
+    monkeypatch: pytest.MonkeyPatch,
+    request: pytest.FixtureRequest,
+    permit: OpenBBRuntimeRoutePermit,
+    context: SimpleNamespace,
+) -> None:
+    """A reviewed US route cannot stand in for CN futures, bonds, or FX requests."""
+    monkeypatch.setattr(openbb_runtime, "OPENBB_RUNTIME_PERMIT_MATRIX", (permit,))
+    _default_source_policy_registry.cache_clear()
+    request.addfinalizer(_default_source_policy_registry.cache_clear)
+    registry = _default_source_policy_registry("yfinance", (permit.market, context.identity.venue))
+
+    routes = registry.resolve("market-default-v1").routes_for(context)
+
+    assert [route for route in routes if route.request_provider == "yfinance"] == []

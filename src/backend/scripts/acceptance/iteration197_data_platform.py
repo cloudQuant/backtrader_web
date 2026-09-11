@@ -69,7 +69,7 @@ ACCEPTANCE_SPEC_ID = "iteration197-unified-data-platform-openbb-matrix-v1"
 ACCEPTANCE_SPEC_PATH = (
     "docs/iterations/迭代197-统一数据中台与OpenBB本地优先集成/ACCEPTANCE.md"
 )
-CASE_MAPPING_VERSION = "iteration197-unified-matrix-id-v2-ac36-no-offline-driver"
+CASE_MAPPING_VERSION = "iteration197-unified-matrix-id-v3-ac17-openbb-runner-g1"
 ENVIRONMENT_SCHEMA_VERSION = "iteration197-acceptance-environment-v1"
 SOURCE_MANIFEST_SCHEMA_VERSION = "iteration197-approved-source-manifest-v2"
 
@@ -167,6 +167,32 @@ _ITER196_CORRECTION_REQUIRED_TOKENS = (
 # Every offline target is an exact pytest node and explicitly assigned to the
 # asset it proves.  Absent mappings are intentionally NOT_RUN rather than
 # relabeling a stock fixture as proof for another asset.
+_OPENBB_RUNNER_G1_TARGET = (
+    "tests/market_data_platform/test_openbb_provider.py::"
+    "test_openbb_subprocess_provider_copied_runner_blocks_unattested_artifact"
+)
+_OPENBB_RUNNER_SOCKET_G1_TARGET = (
+    "tests/market_data_platform/test_openbb_provider.py::"
+    "test_openbb_subprocess_provider_instrumented_runner_blocks_socket_egress"
+)
+_OPENBB_EMPTY_PERMIT_G1_TARGET = (
+    "tests/market_data_platform/test_source_policy.py::"
+    "test_openbb_runtime_permit_matrix_is_explicitly_empty"
+)
+_OPENBB_AC17_POLICY_MISMATCH_TARGETS = {
+    "futures": (
+        "tests/market_data_platform/test_source_policy.py::"
+        "test_future_openbb_permit_rejects_non_equivalent_context[cn-futures-rb]"
+    ),
+    "bond": (
+        "tests/market_data_platform/test_source_policy.py::"
+        "test_future_openbb_permit_rejects_non_equivalent_context[cn-convertible-bond]"
+    ),
+    "fx": (
+        "tests/market_data_platform/test_source_policy.py::"
+        "test_future_openbb_permit_rejects_non_equivalent_context[cnh-pair]"
+    ),
+}
 _OFFLINE_TESTS_BY_CASE_ASSET: dict[tuple[str, str], tuple[str, ...]] = {
     (
         "AC-01",
@@ -248,31 +274,59 @@ _OFFLINE_TESTS_BY_CASE_ASSET: dict[tuple[str, str], tuple[str, ...]] = {
     (
         "AC-17",
         "stock",
-    ): ("tests/market_data_platform/test_source_policy.py::test_openbb_runtime_permit_matrix_is_explicitly_empty",),
+    ): (
+        _OPENBB_EMPTY_PERMIT_G1_TARGET,
+        _OPENBB_RUNNER_G1_TARGET,
+        _OPENBB_RUNNER_SOCKET_G1_TARGET,
+    ),
     (
         "AC-17",
         "futures",
-    ): ("tests/market_data_platform/test_source_policy.py::test_openbb_runtime_permit_matrix_is_explicitly_empty",),
+    ): (
+        _OPENBB_AC17_POLICY_MISMATCH_TARGETS["futures"],
+        _OPENBB_RUNNER_G1_TARGET,
+        _OPENBB_RUNNER_SOCKET_G1_TARGET,
+    ),
     (
         "AC-17",
         "bond",
-    ): ("tests/market_data_platform/test_source_policy.py::test_openbb_runtime_permit_matrix_is_explicitly_empty",),
+    ): (
+        _OPENBB_AC17_POLICY_MISMATCH_TARGETS["bond"],
+        _OPENBB_RUNNER_G1_TARGET,
+        _OPENBB_RUNNER_SOCKET_G1_TARGET,
+    ),
     (
         "AC-17",
         "fund",
-    ): ("tests/market_data_platform/test_source_policy.py::test_openbb_runtime_permit_matrix_is_explicitly_empty",),
+    ): (
+        _OPENBB_EMPTY_PERMIT_G1_TARGET,
+        _OPENBB_RUNNER_G1_TARGET,
+        _OPENBB_RUNNER_SOCKET_G1_TARGET,
+    ),
     (
         "AC-17",
         "option",
-    ): ("tests/market_data_platform/test_source_policy.py::test_openbb_runtime_permit_matrix_is_explicitly_empty",),
+    ): (
+        _OPENBB_EMPTY_PERMIT_G1_TARGET,
+        _OPENBB_RUNNER_G1_TARGET,
+        _OPENBB_RUNNER_SOCKET_G1_TARGET,
+    ),
     (
         "AC-17",
         "fx",
-    ): ("tests/market_data_platform/test_source_policy.py::test_openbb_runtime_permit_matrix_is_explicitly_empty",),
+    ): (
+        _OPENBB_AC17_POLICY_MISMATCH_TARGETS["fx"],
+        _OPENBB_RUNNER_G1_TARGET,
+        _OPENBB_RUNNER_SOCKET_G1_TARGET,
+    ),
     (
         "AC-17",
         "crypto",
-    ): ("tests/market_data_platform/test_source_policy.py::test_openbb_runtime_permit_matrix_is_explicitly_empty",),
+    ): (
+        _OPENBB_EMPTY_PERMIT_G1_TARGET,
+        _OPENBB_RUNNER_G1_TARGET,
+        _OPENBB_RUNNER_SOCKET_G1_TARGET,
+    ),
     (
         "AC-32",
         "stock",

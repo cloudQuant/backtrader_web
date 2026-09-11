@@ -515,18 +515,24 @@ def _failure_code(first: MarketDataQueryExecution, *, provider_attempts: int) ->
     return "AKSHARE_LOCAL_FIRST_INCOMPLETE"
 
 
+def _live_provider_from_environment() -> _Provider:
+    """Construct the same isolated AkShare runner adapter used by API requests."""
+    return AkShareMarketDataProvider.from_environment()
+
+
 async def _run_live(
     *,
     database_path: Path,
     trading_date: date,
-    provider_factory: Callable[[], _Provider] = AkShareMarketDataProvider,
+    provider_factory: Callable[[], _Provider] | None = None,
 ) -> dict[str, object]:
     """Run the full durable live chain; tests pass a fake factory, CLI uses AkShare."""
     database_url = _database_url(database_path)
     engine: AsyncEngine = create_async_engine(database_url, future=True)
     session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
     start, end = _window_for(trading_date)
-    provider = _RecordingProvider(provider_factory())
+    factory = _live_provider_from_environment if provider_factory is None else provider_factory
+    provider = _RecordingProvider(factory())
     try:
         async with engine.begin() as connection:
             await connection.run_sync(Base.metadata.create_all)

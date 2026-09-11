@@ -8,6 +8,7 @@ import inspect
 import json
 import os
 import shlex
+import shutil
 import signal
 import subprocess
 import sys
@@ -1851,6 +1852,99 @@ def _actual_openbb_runner() -> Path:
     return Path(__file__).parents[2] / "scripts" / "openbb_market_data_runner.py"
 
 
+def _copied_openbb_runner_bundle(tmp_path: Path) -> Path:
+    """Copy the standalone runner and its pure-data manifests outside the checkout."""
+    bundle_root = tmp_path / "isolated-openbb-runner-bundle"
+    runner = bundle_root / "scripts" / "openbb_market_data_runner.py"
+    runner.parent.mkdir(parents=True)
+    shutil.copyfile(_actual_openbb_runner(), runner)
+
+    manifest_source_root = Path(openbb_runtime.__file__).resolve().parent
+    manifest_destination_root = bundle_root / "app" / "services" / "market_data"
+    manifest_destination_root.mkdir(parents=True)
+    for manifest_name in (
+        "openbb_runtime_permit_manifest.json",
+        "openbb_yfinance_runtime_artifact_manifest.json",
+    ):
+        shutil.copyfile(
+            manifest_source_root / manifest_name,
+            manifest_destination_root / manifest_name,
+        )
+    return runner
+
+
+def _instrument_copied_runner_with_socket_deny_guard(runner: Path, marker: Path) -> None:
+    """Insert a source-level socket guard after the copied runner's future import.
+
+    The instrumented copy deliberately is not byte-identical to the deployment
+    script.  It gives the regression a guard that still runs under ``-I -S``;
+    it is not evidence of an operating-system egress boundary.
+    """
+    source = runner.read_text(encoding="utf-8")
+    future_import = "from __future__ import annotations\n"
+    if source.count(future_import) != 1:
+        raise AssertionError("copied runner must contain one future import")
+    guard = (
+        "\nimport socket as _iter197_test_socket\n"
+        "from pathlib import Path as _Iter197TestPath\n\n"
+        "def _iter197_test_socket_denied(*_args: object, **_kwargs: object) -> object:\n"
+        f"    _Iter197TestPath({str(marker)!r}).write_text('socket-attempt', encoding='utf-8')\n"
+        "    raise RuntimeError('ITER197_TEST_SOCKET_DENIED')\n\n"
+        "class _Iter197TestDeniedSocket(_iter197_test_socket.socket):\n"
+        "    def connect(self, *_args: object, **_kwargs: object) -> None:\n"
+        "        _iter197_test_socket_denied(*_args, **_kwargs)\n\n"
+        "    def connect_ex(self, *_args: object, **_kwargs: object) -> int:\n"
+        "        _iter197_test_socket_denied(*_args, **_kwargs)\n\n"
+        "    def send(self, *_args: object, **_kwargs: object) -> int:\n"
+        "        _iter197_test_socket_denied(*_args, **_kwargs)\n\n"
+        "    def sendall(self, *_args: object, **_kwargs: object) -> None:\n"
+        "        _iter197_test_socket_denied(*_args, **_kwargs)\n\n"
+        "    def sendto(self, *_args: object, **_kwargs: object) -> int:\n"
+        "        _iter197_test_socket_denied(*_args, **_kwargs)\n\n"
+        "    def sendmsg(self, *_args: object, **_kwargs: object) -> int:\n"
+        "        _iter197_test_socket_denied(*_args, **_kwargs)\n\n"
+        "_iter197_test_socket.socket = _Iter197TestDeniedSocket\n"
+        "_iter197_test_socket.create_connection = _iter197_test_socket_denied\n"
+        "_iter197_test_socket.getaddrinfo = _iter197_test_socket_denied\n"
+        "_iter197_test_socket.gethostbyname = _iter197_test_socket_denied\n"
+        "_iter197_test_socket.gethostbyname_ex = _iter197_test_socket_denied\n"
+        "_iter197_test_socket.getnameinfo = _iter197_test_socket_denied\n"
+    )
+    runner.write_text(source.replace(future_import, future_import + guard, 1), encoding="utf-8")
+
+
+def _assert_instrumented_runner_socket_guard(runner: Path, marker: Path, tmp_path: Path) -> None:
+    """Prove the source-injected guard intercepts a standard Python socket API."""
+    probe = tmp_path / "instrumented-runner-socket-guard-probe.py"
+    probe.write_text(
+        "import importlib.util\n"
+        "import socket\n"
+        "import sys\n"
+        f"spec = importlib.util.spec_from_file_location('instrumented_runner', {str(runner)!r})\n"
+        "if spec is None or spec.loader is None:\n"
+        "    raise SystemExit(2)\n"
+        "module = importlib.util.module_from_spec(spec)\n"
+        "sys.modules[spec.name] = module\n"
+        "spec.loader.exec_module(module)\n"
+        "try:\n"
+        "    socket.create_connection(('198.51.100.1', 443), timeout=0.1)\n"
+        "except RuntimeError as exc:\n"
+        "    raise SystemExit(0 if str(exc) == 'ITER197_TEST_SOCKET_DENIED' else 1)\n"
+        "raise SystemExit(1)\n",
+        encoding="utf-8",
+    )
+    completed = subprocess.run(
+        [str(Path(sys.executable).resolve()), "-I", "-S", str(probe)],
+        capture_output=True,
+        check=False,
+        text=True,
+    )
+
+    assert completed.returncode == 0
+    assert marker.read_text(encoding="utf-8") == "socket-attempt"
+    marker.unlink()
+
+
 def _run_actual_openbb_runner(
     *,
     arguments: list[str] | None = None,
@@ -2545,6 +2639,111 @@ def test_openbb_runner_blocks_yfinance_before_import_when_runtime_artifact_is_un
     assert json.loads(completed.stdout)["error"]["code"] == (
         "OPENBB_YFINANCE_RUNTIME_ARTIFACT_UNATTESTED"
     )
+
+
+@pytest.mark.asyncio
+async def test_openbb_subprocess_provider_copied_runner_blocks_unattested_artifact(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A copied byte-identical runner proves protocol compatibility, not bundle attestation.
+
+    The untrusted import sentinel must remain unavailable to both the fixed
+    preflight and the normal request.  A typed runtime-artifact failure after
+    those two launches proves that the normal request reached the real runner
+    but stopped before any OpenBB dynamic import could activate a provider.
+    The parent validates only the protocol; runtime deployment still needs an
+    independently reviewed bundle or OCI identity before it can be enabled.
+    """
+    runner = _copied_openbb_runner_bundle(tmp_path)
+    command = _isolated_runner_command(runner)
+    checkout_root = next(
+        parent for parent in Path(__file__).resolve().parents if (parent / ".git").exists()
+    )
+    assert runner.read_bytes() == _actual_openbb_runner().read_bytes()
+    assert not runner.resolve().is_relative_to(checkout_root)
+
+    sentinel_root = tmp_path / "untrusted-pythonpath"
+    sentinel_root.mkdir()
+    import_marker = tmp_path / "openbb-import-attempted"
+    (sentinel_root / "openbb.py").write_text(
+        "from pathlib import Path\n"
+        f"Path({str(import_marker)!r}).write_text('imported', encoding='utf-8')\n"
+        "raise RuntimeError('OpenBB import attempted')\n",
+        encoding="utf-8",
+    )
+    actual_popen = subprocess.Popen
+    launched_commands: list[tuple[str, ...]] = []
+    launched_environments: list[dict[str, str]] = []
+
+    def observed_popen(
+        command_value: tuple[str, ...], *args: object, **kwargs: object
+    ) -> subprocess.Popen[bytes]:
+        launched_commands.append(tuple(command_value))
+        environment = kwargs.get("env")
+        assert isinstance(environment, dict)
+        launched_environments.append(dict(environment))
+        return actual_popen(command_value, *args, **kwargs)
+
+    monkeypatch.setenv("OPENBB_MARKET_DATA_RUNNER", shlex.join(command))
+    monkeypatch.setenv("OPENBB_MARKET_DATA_RUNNER_PROTOCOL", "openbb-market-data-v2")
+    monkeypatch.setenv("OPENBB_ALLOWED_PROVIDERS", "yfinance")
+    monkeypatch.setenv("PYTHONPATH", str(sentinel_root))
+    monkeypatch.setattr(openbb_runner.subprocess, "Popen", observed_popen)
+
+    with pytest.raises(OpenBBProviderError) as rejected:
+        await OpenBBSubprocessProvider.from_environment().fetch(
+            replace(_request(), market="US-NYSE")
+        )
+
+    assert rejected.value.code == "OPENBB_YFINANCE_RUNTIME_ARTIFACT_UNATTESTED"
+    assert launched_commands == [(*command, "--protocol-self-check"), command]
+    assert all("PYTHONPATH" not in environment for environment in launched_environments)
+    assert all(
+        environment["OPENBB_ALLOWED_PROVIDERS"] == "yfinance"
+        for environment in launched_environments
+    )
+    assert not import_marker.exists()
+
+
+@pytest.mark.asyncio
+async def test_openbb_subprocess_provider_instrumented_runner_blocks_socket_egress(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The copied runner makes no Python-socket egress before candidate rejection.
+
+    This is a source-level regression guard for the copied runner, not proof
+    of a production OS/container egress boundary.  It remains effective when
+    the production ``-I -S`` command intentionally ignores ``PYTHONPATH``.
+    """
+    runner = _copied_openbb_runner_bundle(tmp_path)
+    socket_marker = tmp_path / "runner-socket-attempted"
+    _instrument_copied_runner_with_socket_deny_guard(runner, socket_marker)
+    _assert_instrumented_runner_socket_guard(runner, socket_marker, tmp_path)
+    command = _isolated_runner_command(runner)
+    actual_popen = subprocess.Popen
+    launched_commands: list[tuple[str, ...]] = []
+
+    def observed_popen(
+        command_value: tuple[str, ...], *args: object, **kwargs: object
+    ) -> subprocess.Popen[bytes]:
+        launched_commands.append(tuple(command_value))
+        return actual_popen(command_value, *args, **kwargs)
+
+    monkeypatch.setenv("OPENBB_MARKET_DATA_RUNNER", shlex.join(command))
+    monkeypatch.setenv("OPENBB_MARKET_DATA_RUNNER_PROTOCOL", "openbb-market-data-v2")
+    monkeypatch.setenv("OPENBB_ALLOWED_PROVIDERS", "yfinance")
+    monkeypatch.setattr(openbb_runner.subprocess, "Popen", observed_popen)
+
+    with pytest.raises(OpenBBProviderError) as rejected:
+        await OpenBBSubprocessProvider.from_environment().fetch(
+            replace(_request(), market="US-NYSE")
+        )
+
+    assert rejected.value.code == "OPENBB_YFINANCE_RUNTIME_ARTIFACT_UNATTESTED"
+    assert launched_commands == [(*command, "--protocol-self-check"), command]
+    assert not socket_marker.exists()
 
 
 def test_openbb_runner_keeps_yfinance_outbound_end_bound_fail_closed_for_candidate() -> None:

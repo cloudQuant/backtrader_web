@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import json
 from datetime import datetime, timedelta, timezone
 from importlib import import_module
 
 import pytest
 
+from app.services.market_data import akshare_provider
 from app.services.market_data.providers import (
     MarketDataProviderRequest,
     ProviderFetchResult,
@@ -151,6 +153,50 @@ def test_live_cli_removes_caller_target_after_a_terminal_failure(
     assert harness.main(["--live", "--database-path", str(requested)]) == 1
     output = capsys.readouterr().out
     assert '"removed":true' in output
+    assert not requested.exists()
+
+
+def test_live_cli_uses_fail_closed_environment_runner_without_spawning(
+    monkeypatch, tmp_path, capsys
+) -> None:
+    """An empty runner configuration reports a stable failure before any child starts."""
+    requested = tmp_path / "unconfigured-runner.sqlite3"
+
+    for environment_key in (
+        "AKSHARE_MARKET_DATA_RUNNER",
+        "AKSHARE_RUNNER_HOME",
+        "AKSHARE_RUNNER_WORKDIR",
+        "AKSHARE_RUNNER_SITE_PACKAGES",
+    ):
+        monkeypatch.delenv(environment_key, raising=False)
+
+    def fail_if_spawned(*args, **kwargs):
+        del args, kwargs
+        pytest.fail("an unconfigured runner must not start a subprocess")
+
+    monkeypatch.setattr(akshare_provider.subprocess, "Popen", fail_if_spawned)
+
+    assert harness.main(["--live", "--database-path", str(requested)]) == 1
+
+    output = json.loads(capsys.readouterr().out)
+    assert output["status"] == "failed"
+    assert output["code"] == "AKSHARE_RUNNER_COMMAND_UNCONFIGURED"
+    assert output["stage"] == "live_fetch_or_persistence"
+    assert output["provider_fetch_attempt_count"] == 1
+    assert output["provider_result"] == {
+        "result_count": 0,
+        "response_row_count": 0,
+        "normalized_observation_count": 0,
+    }
+    assert output["first_local_first"] == {
+        "coverage_status": "incomplete",
+        "observation_count": 0,
+        "persisted_fetch_count": 0,
+        "passing_observation_count": 0,
+        "failed_observation_count": 0,
+        "warning_codes": ["AKSHARE_RUNNER_COMMAND_UNCONFIGURED"],
+    }
+    assert output["database"] == {"kind": "caller_designated_temporary", "removed": True}
     assert not requested.exists()
 
 
