@@ -181,7 +181,7 @@ def test_registry_covers_all_named_acceptance_cases_and_formal_matrix_ids() -> N
     ]
     assert set(runner._CASE_BY_FORMAL_ID) == {case.formal_case_id for case in runner._CASES}
     assert runner._CASE_BY_FORMAL_ID["AC-197-MATRIX-001"] is runner._CASE_BY_ID["AC-01"]
-    assert runner.CASE_MAPPING_VERSION == "iteration197-unified-matrix-id-v1"
+    assert runner.CASE_MAPPING_VERSION == "iteration197-unified-matrix-id-v2-ac36-no-offline-driver"
     assert set(runner.VALID_MODES) == {
         "offline",
         "integration",
@@ -606,6 +606,44 @@ def test_offline_case_uses_child_socket_audit_and_required_junit_evidence(
         "test_local_first_persists_once_then_reuses_complete_older_revision_without_network"
     ) in command
     assert any(str(value).startswith("--junitxml=") for value in command)
+
+
+def test_ac36_offline_is_not_run_without_research_or_b2_fixture_evidence(
+    tmp_path: Path,
+    valid_scope_manifest: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The formal sealed-URI case cannot mint G1 evidence from local fixture tests."""
+    _allow_clean_candidate(monkeypatch)
+    command_calls: list[object] = []
+    result = runner.run_acceptance(
+        _args(
+            tmp_path,
+            mode="offline",
+            scope_manifest=valid_scope_manifest,
+            cases=["AC-197-MATRIX-036"],
+            asset_types=["all"],
+        ),
+        command_runner=lambda *args, **kwargs: command_calls.append((args, kwargs)),
+    )
+
+    assert result["exit_code"] == runner.EXIT_INCOMPLETE
+    assert command_calls == []
+    assert [case["case_key"] for case in result["cases"]] == [
+        "AC-36:bond:G1",
+        "AC-36:crypto:G1",
+        "AC-36:fund:G1",
+        "AC-36:futures:G1",
+        "AC-36:fx:G1",
+        "AC-36:option:G1",
+        "AC-36:stock:G1",
+    ]
+    assert all(case["formal_case_id"] == "AC-197-MATRIX-036" for case in result["cases"])
+    assert all(case["status"] == "NOT_RUN" for case in result["cases"])
+    assert all(case["overall_case_status"] == "NOT_RUN" for case in result["cases"])
+    assert all(case["code"] == "OFFLINE_ASSET_CASE_DRIVER_UNAVAILABLE" for case in result["cases"])
+    assert all(case["evidence"] == [] for case in result["cases"])
+    assert not any(case_id == "AC-36" for case_id, _asset_type in runner._OFFLINE_TESTS_BY_CASE_ASSET)
 
 
 def test_offline_network_guard_blocks_tcp_and_writes_an_audit_record() -> None:

@@ -69,7 +69,7 @@ ACCEPTANCE_SPEC_ID = "iteration197-unified-data-platform-openbb-matrix-v1"
 ACCEPTANCE_SPEC_PATH = (
     "docs/iterations/迭代197-统一数据中台与OpenBB本地优先集成/ACCEPTANCE.md"
 )
-CASE_MAPPING_VERSION = "iteration197-unified-matrix-id-v1"
+CASE_MAPPING_VERSION = "iteration197-unified-matrix-id-v2-ac36-no-offline-driver"
 ENVIRONMENT_SCHEMA_VERSION = "iteration197-acceptance-environment-v1"
 SOURCE_MANIFEST_SCHEMA_VERSION = "iteration197-approved-source-manifest-v2"
 
@@ -294,13 +294,11 @@ _OFFLINE_TESTS_BY_CASE_ASSET: dict[tuple[str, str], tuple[str, ...]] = {
         "tests/market_data_platform/test_research_binding.py::"
         "test_runtime_binding_rechecks_owner_signature_subset_and_artifact_digest",
     ),
-    (
-        "AC-36",
-        "stock",
-    ): (
-        "tests/market_data_platform/test_research_binding.py::"
-        "test_runtime_binding_rechecks_current_read_permission_and_source_policy",
-    ),
+    # AC-36 is the formal sealed-URI and isolation G1/G3 contract.  It has no
+    # deterministic offline driver: neither research-binding fixtures nor B2
+    # local fixtures establish that external isolation boundary.  Leaving the
+    # tuple absent makes every offline AC-36 asset slice fail closed as
+    # ``NOT_RUN`` without starting a child pytest process.
     (
         "AC-39",
         "stock",
