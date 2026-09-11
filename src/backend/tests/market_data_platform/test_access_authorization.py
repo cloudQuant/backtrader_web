@@ -17,6 +17,7 @@ from app.services.market_data.access import (
     MarketDataQueryAccess,
 )
 from app.services.market_data.source_policy import (
+    MarketDataLocalReadSource,
     MarketDataProviderRoute,
     MarketDataSourcePolicy,
 )
@@ -49,11 +50,34 @@ def _route(
     )
 
 
-def _policy(*routes: MarketDataProviderRoute) -> MarketDataSourcePolicy:
+def _local_source(
+    *,
+    local_source_id: str = "legacy-stock-local-v1",
+    source_registry_id: str = "legacy-stock-warehouse",
+) -> MarketDataLocalReadSource:
+    return MarketDataLocalReadSource(
+        local_source_id=local_source_id,
+        source_registry_id=source_registry_id,
+        asset_types=frozenset({"stock"}),
+        data_kinds=frozenset({"bars"}),
+        frequencies=frozenset({"1d"}),
+        markets=frozenset({"CN-SSE"}),
+        adjustments=frozenset({"qfq"}),
+        price_bases=frozenset({"close"}),
+        currencies=frozenset({"CNY"}),
+        units=frozenset({"share"}),
+    )
+
+
+def _policy(
+    *routes: MarketDataProviderRoute,
+    local_sources: tuple[MarketDataLocalReadSource, ...] = (),
+) -> MarketDataSourcePolicy:
     return MarketDataSourcePolicy(
         policy_id="market-public-v1",
         allowed_purposes=frozenset({"display", "research", "research_cache_fill", "backtest"}),
         routes=routes,
+        local_sources=local_sources,
     )
 
 
@@ -197,7 +221,177 @@ async def test_registry_grant_binds_principal_entitlement_and_source_descriptor(
 
 
 @pytest.mark.asyncio
-async def test_research_cache_fill_requires_research_source_use_and_keeps_its_purpose_in_receipt() -> None:
+async def test_policy_grant_allows_a_local_source_without_creating_a_provider_route() -> None:
+    """A local-only policy grants retained facts without authorizing network dispatch."""
+    user = await _user_with_roles(Role.USER)
+    local_source = _local_source()
+    async with async_session_maker() as session:
+        session.add(_registry(source_id=local_source.source_registry_id))
+        await session.commit()
+        authorizer = MarketDataAccessAuthorizer(session, clock=lambda: NOW)
+        principal = await authorizer.principal_for_user(user)
+        grant = await authorizer.authorize_policy(
+            principal=principal,
+            policy=_policy(local_sources=(local_source,)),
+            routes=(),
+            local_sources=(local_source,),
+            asset_type="stock",
+            market="CN-SSE",
+            purpose="display",
+        )
+
+    assert grant.route_authorizations == ()
+    assert grant.authorized_route_ids == frozenset()
+    assert grant.authorized_local_source_ids == {"legacy-stock-local-v1"}
+    assert grant.authorized_source_registry_ids == {"legacy-stock-warehouse"}
+    authorization = grant.authorization_for_local_source("legacy-stock-local-v1")
+    assert authorization.source_registry_id == "legacy-stock-warehouse"
+    with pytest.raises(MarketDataAuthorizationError) as denied_route:
+        grant.authorization_for_route("legacy-stock-local-v1")
+
+    assert denied_route.value.code == "SOURCE_ROUTE_AUTHORIZATION_DENIED"
+
+
+@pytest.mark.asyncio
+async def test_policy_grant_keeps_local_sources_isolated_from_provider_routes() -> None:
+    """Route and local identities remain separate while their registry IDs union for reads."""
+    user = await _user_with_roles(Role.USER)
+    route = _route()
+    local_source = _local_source()
+    async with async_session_maker() as session:
+        session.add(_registry(source_id="akshare"))
+        session.add(_registry(source_id=local_source.source_registry_id))
+        await session.commit()
+        authorizer = MarketDataAccessAuthorizer(session, clock=lambda: NOW)
+        principal = await authorizer.principal_for_user(user)
+        grant = await authorizer.authorize_policy(
+            principal=principal,
+            policy=_policy(route, local_sources=(local_source,)),
+            routes=(route,),
+            local_sources=(local_source,),
+            asset_type="stock",
+            market="CN-SSE",
+            purpose="display",
+        )
+
+    assert grant.authorized_route_ids == {"akshare-stock-v1"}
+    assert grant.authorized_local_source_ids == {"legacy-stock-local-v1"}
+    assert grant.authorized_source_registry_ids == {"akshare", "legacy-stock-warehouse"}
+    assert tuple(route_id for route_id, _ in grant.route_authorizations) == ("akshare-stock-v1",)
+    assert tuple(local_source_id for local_source_id, _ in grant.local_source_authorizations) == (
+        "legacy-stock-local-v1",
+    )
+    with pytest.raises(MarketDataAuthorizationError) as route_as_local:
+        grant.authorization_for_local_source("akshare-stock-v1")
+    with pytest.raises(MarketDataAuthorizationError) as local_as_route:
+        grant.authorization_for_route("legacy-stock-local-v1")
+
+    assert route_as_local.value.code == "SOURCE_LOCAL_SOURCE_AUTHORIZATION_DENIED"
+    assert local_as_route.value.code == "SOURCE_ROUTE_AUTHORIZATION_DENIED"
+
+
+@pytest.mark.asyncio
+async def test_policy_grant_can_exclude_a_denied_local_source_while_retaining_a_route() -> None:
+    """A retained source denial does not turn an authorized provider fallback into a denial."""
+    user = await _user_with_roles(Role.USER)
+    route = _route()
+    local_source = _local_source()
+    async with async_session_maker() as session:
+        session.add(_registry(source_id="akshare"))
+        session.add(_registry(source_id=local_source.source_registry_id, enabled=False))
+        await session.commit()
+        authorizer = MarketDataAccessAuthorizer(session, clock=lambda: NOW)
+        principal = await authorizer.principal_for_user(user)
+        grant = await authorizer.authorize_policy(
+            principal=principal,
+            policy=_policy(route, local_sources=(local_source,)),
+            routes=(route,),
+            local_sources=(local_source,),
+            asset_type="stock",
+            market="CN-SSE",
+            purpose="display",
+        )
+
+    assert grant.authorized_route_ids == {"akshare-stock-v1"}
+    assert grant.authorized_local_source_ids == frozenset()
+    assert grant.authorized_source_registry_ids == {"akshare"}
+    with pytest.raises(MarketDataAuthorizationError) as denied_local_source:
+        grant.authorization_for_local_source("legacy-stock-local-v1")
+
+    assert denied_local_source.value.code == "SOURCE_LOCAL_SOURCE_AUTHORIZATION_DENIED"
+
+
+@pytest.mark.asyncio
+async def test_policy_grant_rejects_all_candidates_in_stable_route_then_local_order() -> None:
+    """When every candidate fails, the established provider-priority error is retained."""
+    user = await _user_with_roles(Role.USER)
+    route = _route()
+    local_source = _local_source()
+    async with async_session_maker() as session:
+        session.add(_registry(source_id="akshare", license_status="UNKNOWN"))
+        session.add(_registry(source_id=local_source.source_registry_id, enabled=False))
+        await session.commit()
+        authorizer = MarketDataAccessAuthorizer(session, clock=lambda: NOW)
+        principal = await authorizer.principal_for_user(user)
+        with pytest.raises(MarketDataAuthorizationError) as denied:
+            await authorizer.authorize_policy(
+                principal=principal,
+                policy=_policy(route, local_sources=(local_source,)),
+                routes=(route,),
+                local_sources=(local_source,),
+                asset_type="stock",
+                market="CN-SSE",
+                purpose="display",
+            )
+
+    assert denied.value.code == "SOURCE_LICENSE_DENIED"
+
+
+@pytest.mark.asyncio
+async def test_policy_grant_descriptor_hash_binds_local_source_authorization() -> None:
+    """A changed local authorization invalidates a cursor or lease policy binding."""
+    user = await _user_with_roles(Role.USER)
+    local_source = _local_source()
+    async with async_session_maker() as session:
+        registry = _registry(source_id=local_source.source_registry_id)
+        session.add(registry)
+        await session.commit()
+        authorizer = MarketDataAccessAuthorizer(session, clock=lambda: NOW)
+        principal = await authorizer.principal_for_user(user)
+        before = await authorizer.authorize_policy(
+            principal=principal,
+            policy=_policy(local_sources=(local_source,)),
+            routes=(),
+            local_sources=(local_source,),
+            asset_type="stock",
+            market="CN-SSE",
+            purpose="display",
+        )
+
+        registry.allowed_uses = ["DISPLAY", "RESEARCH_ONLY"]
+        registry.updated_at = NOW + timedelta(seconds=1)
+        await session.commit()
+        after = await authorizer.authorize_policy(
+            principal=principal,
+            policy=_policy(local_sources=(local_source,)),
+            routes=(),
+            local_sources=(local_source,),
+            asset_type="stock",
+            market="CN-SSE",
+            purpose="display",
+        )
+
+    assert before.policy_descriptor_hash != after.policy_descriptor_hash
+    assert (
+        before.authorization_for_local_source("legacy-stock-local-v1").descriptor_hash
+        != after.authorization_for_local_source("legacy-stock-local-v1").descriptor_hash
+    )
+
+
+@pytest.mark.asyncio
+async def test_research_cache_fill_requires_research_source_use_and_keeps_its_purpose_in_receipt() -> (
+    None
+):
     """An interactive cache fill cannot borrow a display-only provider licence."""
     user = await _user_with_roles(Role.USER)
     route = _route()

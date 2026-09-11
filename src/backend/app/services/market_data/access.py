@@ -30,6 +30,7 @@ from app.models.market_data_platform import (
 from app.models.permission import ROLE_PERMISSIONS, Permission, Role, user_roles
 from app.models.user import User
 from app.services.market_data.source_policy import (
+    MarketDataLocalReadSource,
     MarketDataProviderRoute,
     MarketDataSourcePolicy,
 )
@@ -159,13 +160,20 @@ class MarketDataSourceAuthorization:
 
 @dataclass(frozen=True, slots=True)
 class MarketDataAccessGrant:
-    """Authorized routes and the descriptor hash used by the execution/cursor."""
+    """Authorized provider routes and local sources bound into cursor state.
+
+    Provider routes remain the only objects that may initiate a network
+    request.  Local sources name existing observation provenance that may be
+    read from the store, so their stable policy IDs are kept in a separate
+    authorization collection.
+    """
 
     principal: MarketDataPrincipal
     policy_id: str
     purpose: str
     route_authorizations: tuple[tuple[str, MarketDataSourceAuthorization], ...]
     policy_descriptor_hash: str
+    local_source_authorizations: tuple[tuple[str, MarketDataSourceAuthorization], ...] = ()
 
     @property
     def authorized_route_ids(self) -> frozenset[str]:
@@ -173,19 +181,27 @@ class MarketDataAccessGrant:
         return frozenset(route_id for route_id, _ in self.route_authorizations)
 
     @property
-    def authorized_source_registry_ids(self) -> frozenset[str]:
-        """Return only current-registry sources that may satisfy a local read.
+    def authorized_local_source_ids(self) -> frozenset[str]:
+        """Return local-source IDs authorized only for existing fact reads."""
+        return frozenset(local_source_id for local_source_id, _ in self.local_source_authorizations)
 
-        A route authorization is deliberately more specific than a provider
-        name: it records the source-registry record that was evaluated for this
-        principal, purpose, asset type, and market.  The query store uses this
-        set as a SQL filter before it reads observation revisions, so a fact
-        collected under a now-disabled or otherwise unauthorized source cannot
-        be exposed merely because it is already local.
+    @property
+    def authorized_source_registry_ids(self) -> frozenset[str]:
+        """Return current-registry sources that may satisfy a local read.
+
+        Route and local-source authorizations each record the source-registry
+        record evaluated for this principal, purpose, asset type, and market.
+        The query store uses the union as a SQL filter before it reads
+        observation revisions, so a fact collected under a now-disabled or
+        otherwise unauthorized source cannot be exposed merely because it is
+        already local.
         """
         return frozenset(
             authorization.source_registry_id
-            for _route_id, authorization in self.route_authorizations
+            for _candidate_id, authorization in (
+                *self.route_authorizations,
+                *self.local_source_authorizations,
+            )
         )
 
     def authorization_for_route(self, route_id: str) -> MarketDataSourceAuthorization:
@@ -194,6 +210,16 @@ class MarketDataAccessGrant:
             if candidate_route_id == route_id:
                 return authorization
         raise MarketDataAuthorizationError("SOURCE_ROUTE_AUTHORIZATION_DENIED")
+
+    def authorization_for_local_source(
+        self,
+        local_source_id: str,
+    ) -> MarketDataSourceAuthorization:
+        """Return one local source's authorization evidence or fail closed."""
+        for candidate_local_source_id, authorization in self.local_source_authorizations:
+            if candidate_local_source_id == local_source_id:
+                return authorization
+        raise MarketDataAuthorizationError("SOURCE_LOCAL_SOURCE_AUTHORIZATION_DENIED")
 
 
 @dataclass(frozen=True, slots=True)
@@ -389,11 +415,18 @@ class MarketDataAccessAuthorizer:
         principal: MarketDataPrincipal,
         policy: MarketDataSourcePolicy,
         routes: Sequence[MarketDataProviderRoute],
+        local_sources: Sequence[MarketDataLocalReadSource] = (),
         asset_type: str,
         market: str,
         purpose: str,
     ) -> MarketDataAccessGrant:
-        """Authorize candidate routes before any local store or adapter interaction."""
+        """Authorize candidate routes and local sources before any data access.
+
+        A local source authorizes only the read of existing facts.  It is
+        deliberately evaluated through ``authorize_local_source`` rather than
+        being synthesized into a provider route, preserving the boundary that
+        only actual routes may call an adapter or persist a fresh receipt.
+        """
         normalized_asset_type = _required_lower(asset_type, field_name="asset_type", maximum=32)
         normalized_market = _required_upper(market, field_name="market", maximum=128)
         normalized_purpose = _required_lower(purpose, field_name="purpose", maximum=32)
@@ -403,10 +436,11 @@ class MarketDataAccessAuthorizer:
             raise MarketDataAuthorizationError("MARKET_DATA_READ_ENTITLEMENT_DENIED")
         if not policy.allows_purpose(normalized_purpose):
             raise MarketDataAuthorizationError("SOURCE_POLICY_PURPOSE_DENIED")
-        if not routes:
+        if not routes and not local_sources:
             raise MarketDataAuthorizationError("SOURCE_POLICY_NO_ELIGIBLE_PROVIDER")
 
-        authorizations: list[tuple[str, MarketDataSourceAuthorization]] = []
+        route_authorizations: list[tuple[str, MarketDataSourceAuthorization]] = []
+        local_source_authorizations: list[tuple[str, MarketDataSourceAuthorization]] = []
         denials: list[str] = []
         for route in routes:
             try:
@@ -420,16 +454,29 @@ class MarketDataAccessAuthorizer:
             except MarketDataAuthorizationError as exc:
                 denials.append(exc.code)
                 continue
-            authorizations.append((route.route_id, authorization))
-        if not authorizations:
-            # The first route follows policy priority, making denial responses
-            # deterministic without disclosing a source catalog beyond what the
-            # caller already selected through a server-owned policy.
+            route_authorizations.append((route.route_id, authorization))
+        for local_source in local_sources:
+            try:
+                authorization = await self.authorize_local_source(
+                    principal=principal,
+                    source_registry_id=local_source.source_registry_id,
+                    asset_type=normalized_asset_type,
+                    market=normalized_market,
+                    purpose=normalized_purpose,
+                )
+            except MarketDataAuthorizationError as exc:
+                denials.append(exc.code)
+                continue
+            local_source_authorizations.append((local_source.local_source_id, authorization))
+        if not route_authorizations and not local_source_authorizations:
+            # Candidate routes retain policy priority, followed by local
+            # sources in their policy order.  This keeps failure stable without
+            # disclosing a source catalog beyond the server-owned policy.
             raise MarketDataAuthorizationError(
                 denials[0] if denials else "SOURCE_ROUTE_AUTHORIZATION_DENIED"
             )
         descriptor_payload = {
-            "version": "market-data-policy-access-v1",
+            "version": "market-data-policy-access-v2",
             "policy_id": policy.policy_id,
             "asset_type": normalized_asset_type,
             "market": normalized_market,
@@ -442,15 +489,23 @@ class MarketDataAccessAuthorizer:
                     "route_id": route_id,
                     "source_descriptor_hash": authorization.descriptor_hash,
                 }
-                for route_id, authorization in authorizations
+                for route_id, authorization in route_authorizations
+            ],
+            "local_sources": [
+                {
+                    "local_source_id": local_source_id,
+                    "source_descriptor_hash": authorization.descriptor_hash,
+                }
+                for local_source_id, authorization in local_source_authorizations
             ],
         }
         return MarketDataAccessGrant(
             principal=principal,
             policy_id=policy.policy_id,
             purpose=normalized_purpose,
-            route_authorizations=tuple(authorizations),
+            route_authorizations=tuple(route_authorizations),
             policy_descriptor_hash=_canonical_sha256(descriptor_payload),
+            local_source_authorizations=tuple(local_source_authorizations),
         )
 
     async def authorize_route(

@@ -485,6 +485,7 @@ def _policy_with_effective_purposes(
                 policy_id=policy.policy_id,
                 allowed_purposes=purposes,
                 routes=policy.routes,
+                local_sources=policy.local_sources,
             ),
         )
     )

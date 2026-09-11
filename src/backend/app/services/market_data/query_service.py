@@ -55,6 +55,7 @@ from app.services.market_data.snapshot_freshness import (
     SnapshotFreshnessPolicyRegistry,
 )
 from app.services.market_data.source_policy import (
+    MarketDataLocalReadSource,
     MarketDataProviderRoute,
     MarketDataSourcePolicy,
     MarketDataSourcePolicyError,
@@ -538,6 +539,7 @@ class MarketDataQueryService:
             raise MarketDataQueryServiceError("QUERY_CONTEXT_INVALID")
 
         candidate_policy_routes = policy.routes_for(context)
+        candidate_local_sources = policy.local_sources_for(context)
         policy_routes = candidate_policy_routes
         allowed_source_registry_ids: frozenset[str] | None = None
         source_authorizations: dict[str, MarketDataSourceAuthorization] = {}
@@ -549,6 +551,7 @@ class MarketDataQueryService:
                 principal=access.principal,
                 policy=policy,
                 routes=policy_routes,
+                local_sources=candidate_local_sources,
                 asset_type=context.identity.asset_type,
                 market=venue,
                 purpose=context.query.purpose,
@@ -853,6 +856,7 @@ class MarketDataQueryService:
                         access=access,
                         policy=policy,
                         candidate_policy_routes=candidate_policy_routes,
+                        candidate_local_sources=candidate_local_sources,
                         context=context,
                         expected_access_grant_descriptor_hash=access_grant_descriptor_hash,
                     )
@@ -884,6 +888,7 @@ class MarketDataQueryService:
                         access=access,
                         policy=policy,
                         candidate_policy_routes=candidate_policy_routes,
+                        candidate_local_sources=candidate_local_sources,
                         context=fetch_context,
                         expected_access_grant_descriptor_hash=access_grant_descriptor_hash,
                     )
@@ -1019,6 +1024,7 @@ class MarketDataQueryService:
                             access=access,
                             policy=policy,
                             candidate_policy_routes=candidate_policy_routes,
+                            candidate_local_sources=candidate_local_sources,
                             context=fetch_context,
                             expected_access_grant_descriptor_hash=access_grant_descriptor_hash,
                         )
@@ -1063,6 +1069,7 @@ class MarketDataQueryService:
                 access=access,
                 policy=policy,
                 candidate_policy_routes=candidate_policy_routes,
+                candidate_local_sources=candidate_local_sources,
                 context=context,
                 expected_access_grant_descriptor_hash=expected_access_grant_descriptor_hash,
             )
@@ -1108,6 +1115,7 @@ class MarketDataQueryService:
         access: MarketDataQueryAccess | None,
         policy: MarketDataSourcePolicy,
         candidate_policy_routes: tuple[MarketDataProviderRoute, ...],
+        candidate_local_sources: tuple[MarketDataLocalReadSource, ...],
         context: ResolvedMarketDataQueryContext,
         expected_access_grant_descriptor_hash: str,
     ) -> tuple[
@@ -1136,6 +1144,7 @@ class MarketDataQueryService:
             principal=current_principal,
             policy=policy,
             routes=candidate_policy_routes,
+            local_sources=candidate_local_sources,
             asset_type=context.identity.asset_type,
             market=venue,
             purpose=context.query.purpose,
@@ -1972,6 +1981,33 @@ def _policy_descriptor_hash(policy: MarketDataSourcePolicy) -> str:
                 ),
             }
             for route in policy.routes
+        ],
+        "local_sources": [
+            {
+                "local_source_id": local_source.local_source_id,
+                "source_registry_id": local_source.source_registry_id,
+                "asset_types": sorted(local_source.asset_types),
+                "data_kinds": sorted(local_source.data_kinds),
+                "frequencies": sorted(local_source.frequencies),
+                "markets": sorted(local_source.markets),
+                "adjustments": _policy_axis_payload(local_source.adjustments),
+                "price_bases": _policy_axis_payload(local_source.price_bases),
+                "currencies": _policy_axis_payload(local_source.currencies),
+                "units": _policy_axis_payload(local_source.units),
+                "family_id": local_source.family_id,
+                "family_contract_version": local_source.family_contract_version,
+                "product_types": (
+                    sorted(local_source.product_types)
+                    if local_source.product_types is not None
+                    else None
+                ),
+                "fund_identity_kinds": (
+                    sorted(local_source.fund_identity_kinds)
+                    if local_source.fund_identity_kinds is not None
+                    else None
+                ),
+            }
+            for local_source in policy.local_sources
         ],
     }
     # A reviewed policy may legitimately have several routes.  It is hashed

@@ -29,6 +29,7 @@ from app.services.market_data.capability_ledger import (
     route_capability_id,
 )
 from app.services.market_data.source_policy import (
+    MarketDataLocalReadSource,
     MarketDataProviderRoute,
     MarketDataSourcePolicy,
     MarketDataSourcePolicyRegistry,
@@ -122,6 +123,21 @@ def _secondary_route() -> MarketDataProviderRoute:
     )
 
 
+def _local_source() -> MarketDataLocalReadSource:
+    return MarketDataLocalReadSource(
+        local_source_id="ledger-stock-history-local-read-v1",
+        source_registry_id="ledger-stock-history-warehouse",
+        asset_types=frozenset({"stock"}),
+        data_kinds=frozenset({"bars"}),
+        frequencies=frozenset({"1d"}),
+        markets=frozenset({"CN-SSE"}),
+        adjustments=frozenset({"qfq"}),
+        price_bases=frozenset({"close"}),
+        currencies=frozenset({"CNY"}),
+        units=frozenset({"share"}),
+    )
+
+
 def test_route_capability_descriptor_binds_the_private_kline_family_contract_pair() -> None:
     """An old route attestation cannot authorize the generic stock-bars product."""
     kline_route = replace(
@@ -148,6 +164,7 @@ def _policy(
     *,
     include_cache_fill: bool = True,
     include_secondary_route: bool = False,
+    include_local_source: bool = False,
 ) -> MarketDataSourcePolicyRegistry:
     purposes = frozenset({"display", "research", "backtest"})
     if include_cache_fill:
@@ -161,6 +178,7 @@ def _policy(
                 policy_id="market-default-v1",
                 allowed_purposes=purposes,
                 routes=routes,
+                local_sources=(_local_source(),) if include_local_source else (),
             ),
         )
     )
@@ -344,6 +362,21 @@ async def test_effective_online_routes_exclude_disabled_unrelated_routes_but_kee
     assert states[route_capability_id(secondary.route_id)].reason_code == (
         "CAPABILITY_DESCRIPTOR_MISMATCH"
     )
+
+
+@pytest.mark.asyncio
+async def test_effective_policy_preserves_local_read_sources_when_purposes_are_narrowed() -> None:
+    """A rollout gate may narrow purposes but cannot erase approved local facts."""
+    policy = _policy(include_local_source=True)
+
+    evaluation = await _evaluate(policy=policy)
+    effective_policy = evaluation.effective_source_policies.resolve("market-default-v1")
+
+    assert effective_policy.local_sources == (_local_source(),)
+    assert tuple(route.route_id for route in effective_policy.routes) == (
+        "ledger-stock-primary-v1",
+    )
+    assert "research_cache_fill" not in effective_policy.allowed_purposes
 
 
 @pytest.mark.asyncio

@@ -165,9 +165,7 @@ class MarketDataProviderRoute:
             _semantic_capability_set(self.units, field_name="unit"),
         )
         if (self.family_id is None) != (self.family_contract_version is None):
-            raise ValueError(
-                "family_id and family_contract_version must be supplied together"
-            )
+            raise ValueError("family_id and family_contract_version must be supplied together")
         if self.family_id is not None:
             object.__setattr__(
                 self,
@@ -242,12 +240,165 @@ class MarketDataProviderRoute:
 
 
 @dataclass(frozen=True, slots=True)
+class MarketDataLocalReadSource:
+    """One explicit source whose existing observations may be read locally.
+
+    A local-read source is deliberately not a provider route.  It has no
+    adapter, request-provider token, or route identifier, and therefore cannot
+    dispatch a network request.  Its only identity is the reviewed source
+    registry row whose already-persisted observations may satisfy a query.
+    The required capability axes are intentionally as precise as a provider
+    route so authorizing a local archive never broadens into an adjacent series.
+    """
+
+    # This stable policy identifier distinguishes multiple reviewed local
+    # scopes that happen to point at the same source-registry record.  It is
+    # intentionally not derived from that registry identifier, which remains
+    # the identity evaluated by the authorization layer.
+    local_source_id: str
+    source_registry_id: str
+    asset_types: frozenset[str]
+    data_kinds: frozenset[str]
+    frequencies: frozenset[str]
+    markets: frozenset[str]
+    adjustments: frozenset[str | None]
+    price_bases: frozenset[str | None]
+    currencies: frozenset[str | None]
+    units: frozenset[str | None]
+    # A local source can bind the exact public product family and version just
+    # as a provider route does.  Both remain unset for retained generic local
+    # archives until their product contract is explicitly reviewed.
+    family_id: str | None = None
+    family_contract_version: str | None = None
+    product_types: frozenset[str] | None = None
+    fund_identity_kinds: frozenset[str] | None = None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "local_source_id",
+            _nonempty_text(self.local_source_id, field_name="local_source_id"),
+        )
+        object.__setattr__(
+            self,
+            "source_registry_id",
+            _nonempty_text(self.source_registry_id, field_name="source_registry_id", maximum=255),
+        )
+        object.__setattr__(
+            self,
+            "asset_types",
+            _nonempty_text_set(self.asset_types, field_name="asset_type"),
+        )
+        object.__setattr__(
+            self,
+            "data_kinds",
+            _nonempty_text_set(self.data_kinds, field_name="data_kind"),
+        )
+        object.__setattr__(
+            self,
+            "frequencies",
+            _nonempty_text_set(self.frequencies, field_name="frequency"),
+        )
+        object.__setattr__(
+            self,
+            "markets",
+            _nonempty_text_set(self.markets, field_name="market"),
+        )
+        object.__setattr__(
+            self,
+            "adjustments",
+            _semantic_capability_set(self.adjustments, field_name="adjustment"),
+        )
+        object.__setattr__(
+            self,
+            "price_bases",
+            _semantic_capability_set(self.price_bases, field_name="price_basis"),
+        )
+        object.__setattr__(
+            self,
+            "currencies",
+            _semantic_capability_set(self.currencies, field_name="currency", maximum=32),
+        )
+        object.__setattr__(
+            self,
+            "units",
+            _semantic_capability_set(self.units, field_name="unit"),
+        )
+        if (self.family_id is None) != (self.family_contract_version is None):
+            raise ValueError("family_id and family_contract_version must be supplied together")
+        if self.family_id is not None:
+            object.__setattr__(
+                self,
+                "family_id",
+                _nonempty_text(self.family_id, field_name="family_id"),
+            )
+        if self.family_contract_version is not None:
+            object.__setattr__(
+                self,
+                "family_contract_version",
+                _nonempty_text(
+                    self.family_contract_version,
+                    field_name="family_contract_version",
+                    maximum=64,
+                ),
+            )
+        if self.product_types is not None:
+            object.__setattr__(
+                self,
+                "product_types",
+                _nonempty_text_set(self.product_types, field_name="product_type"),
+            )
+        if self.fund_identity_kinds is not None:
+            if "fund" not in self.asset_types:
+                raise ValueError("fund_identity_kinds require a fund local source")
+            object.__setattr__(
+                self,
+                "fund_identity_kinds",
+                _nonempty_text_set(
+                    self.fund_identity_kinds,
+                    field_name="fund_identity_kind",
+                ),
+            )
+
+    def supports(self, context: ResolvedMarketDataQueryContext) -> bool:
+        """Return whether this source exactly permits a local read context."""
+        venue = context.identity.venue
+        frozen_identity = getattr(context.identity, "identity", None)
+        product_type = getattr(frozen_identity, "product_type", None)
+        details = getattr(frozen_identity, "details", None)
+        fund_identity_kind = getattr(details, "fund_identity_kind", None)
+        return (
+            venue is not None
+            and context.identity.asset_type in self.asset_types
+            and context.query.data_kind in self.data_kinds
+            and (context.query.frequency or "snapshot") in self.frequencies
+            and venue in self.markets
+            and context.query.adjustment in self.adjustments
+            and context.query.price_basis in self.price_bases
+            and context.query.currency in self.currencies
+            and context.query.unit in self.units
+            and (
+                self.family_id is None
+                or getattr(context.query, "family_id", None) == self.family_id
+            )
+            and (
+                self.family_contract_version is None
+                or getattr(context.query, "family_contract_version", None)
+                == self.family_contract_version
+            )
+            and (self.product_types is None or product_type in self.product_types)
+            and (self.fund_identity_kinds is None or fund_identity_kind in self.fund_identity_kinds)
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class MarketDataSourcePolicy:
-    """A priority-ordered, server-maintained route sequence and purpose grant."""
+    """Server-owned provider routes, local-read sources, and purpose grant."""
 
     policy_id: str
     allowed_purposes: frozenset[str]
     routes: tuple[MarketDataProviderRoute, ...]
+    local_sources: tuple[MarketDataLocalReadSource, ...] = ()
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -259,14 +410,26 @@ class MarketDataSourcePolicy:
             _nonempty_text_set(self.allowed_purposes, field_name="allowed_purpose"),
         )
         routes = tuple(self.routes)
-        if not routes:
-            raise ValueError("source policy requires at least one provider route")
+        local_sources = tuple(self.local_sources)
+        if not routes and not local_sources:
+            raise ValueError(
+                "source policy requires at least one provider route or local read source"
+            )
         if any(not isinstance(route, MarketDataProviderRoute) for route in routes):
             raise TypeError("source policy routes must be MarketDataProviderRoute values")
+        if any(
+            not isinstance(local_source, MarketDataLocalReadSource)
+            for local_source in local_sources
+        ):
+            raise TypeError("source policy local_sources must be MarketDataLocalReadSource values")
         route_ids = [route.route_id for route in routes]
         if len(route_ids) != len(set(route_ids)):
             raise ValueError("source policy route_id values must be unique")
+        local_source_ids = [local_source.local_source_id for local_source in local_sources]
+        if len(local_source_ids) != len(set(local_source_ids)):
+            raise ValueError("source policy local_source_id values must be unique")
         object.__setattr__(self, "routes", routes)
+        object.__setattr__(self, "local_sources", local_sources)
 
     def allows_purpose(self, purpose: str) -> bool:
         """Return whether this server-owned policy permits the public purpose."""
@@ -278,6 +441,15 @@ class MarketDataSourcePolicy:
     ) -> tuple[MarketDataProviderRoute, ...]:
         """Return only explicitly capable routes in their policy priority order."""
         return tuple(route for route in self.routes if route.supports(context))
+
+    def local_sources_for(
+        self,
+        context: ResolvedMarketDataQueryContext,
+    ) -> tuple[MarketDataLocalReadSource, ...]:
+        """Return only exact local-read sources in their policy priority order."""
+        return tuple(
+            local_source for local_source in self.local_sources if local_source.supports(context)
+        )
 
 
 class MarketDataSourcePolicyRegistry:

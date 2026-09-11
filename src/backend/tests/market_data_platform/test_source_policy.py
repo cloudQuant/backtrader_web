@@ -23,6 +23,7 @@ from app.services.market_data.openbb_runtime import (
     approved_openbb_runtime_route_permits,
 )
 from app.services.market_data.source_policy import (
+    MarketDataLocalReadSource,
     MarketDataProviderRoute,
     MarketDataSourcePolicy,
     MarketDataSourcePolicyRegistry,
@@ -78,6 +79,150 @@ def _route() -> MarketDataProviderRoute:
         units=frozenset({"share"}),
         adapter=_Provider(),
     )
+
+
+def _local_source(**changes: object) -> MarketDataLocalReadSource:
+    values: dict[str, object] = {
+        "local_source_id": "legacy-stock-zh-a-hist-local-read-v1",
+        "source_registry_id": "legacy-stock-zh-a-hist-warehouse",
+        "asset_types": frozenset({"stock"}),
+        "data_kinds": frozenset({"bars"}),
+        "frequencies": frozenset({"1d"}),
+        "markets": frozenset({"CN-SSE"}),
+        "adjustments": frozenset({"qfq"}),
+        "price_bases": frozenset({"close"}),
+        "currencies": frozenset({"CNY"}),
+        "units": frozenset({"share"}),
+    }
+    values.update(changes)
+    return MarketDataLocalReadSource(**values)  # type: ignore[arg-type]
+
+
+def test_local_read_source_is_not_a_provider_route() -> None:
+    """A local source may authorize stored facts but carries no I/O dispatch fields."""
+    local_source = _local_source()
+
+    assert not isinstance(local_source, MarketDataProviderRoute)
+    assert all(
+        not hasattr(local_source, field_name)
+        for field_name in ("adapter", "request_provider", "route_id")
+    )
+    with pytest.raises(TypeError, match="routes must be MarketDataProviderRoute"):
+        MarketDataSourcePolicy(
+            policy_id="wrong-route-type-v1",
+            allowed_purposes=frozenset({"display"}),
+            routes=(local_source,),  # type: ignore[arg-type]
+        )
+    with pytest.raises(TypeError, match="local_sources must be MarketDataLocalReadSource"):
+        MarketDataSourcePolicy(
+            policy_id="wrong-local-source-type-v1",
+            allowed_purposes=frozenset({"display"}),
+            routes=(),
+            local_sources=(_route(),),  # type: ignore[arg-type]
+        )
+
+
+@pytest.mark.parametrize(
+    ("query_changes", "identity_changes"),
+    (
+        ({"data_kind": "snapshot"}, {}),
+        ({"frequency": "1w"}, {}),
+        ({"adjustment": "hfq"}, {}),
+        ({"price_basis": "settlement"}, {}),
+        ({"currency": "USD"}, {}),
+        ({"unit": "contract"}, {}),
+        ({}, {"asset_type": "fund"}),
+        ({}, {"venue": "CN-SZSE"}),
+    ),
+)
+def test_local_read_source_matches_every_declared_axis_exactly(
+    query_changes: dict[str, str],
+    identity_changes: dict[str, str],
+) -> None:
+    """A nearby local series cannot broaden into a source-policy authorization."""
+    local_source = _local_source()
+    context = _context(**query_changes)
+    for field_name, value in identity_changes.items():
+        setattr(context.identity, field_name, value)
+
+    assert local_source.supports(_context())
+    assert not local_source.supports(context)
+
+
+def test_policy_keeps_local_read_sources_out_of_provider_route_selection() -> None:
+    """A local-only policy remains readable without becoming an online route list."""
+    local_source = _local_source()
+    policy = MarketDataSourcePolicy(
+        policy_id="local-only-stock-history-v1",
+        allowed_purposes=frozenset({"display"}),
+        routes=(),
+        local_sources=(local_source,),
+    )
+
+    assert policy.routes_for(_context()) == ()
+    assert policy.local_sources_for(_context()) == (local_source,)
+
+
+def test_policy_defaults_local_read_sources_to_empty_and_requires_a_capability() -> None:
+    """Retained route policies stay compatible while a completely empty policy is rejected."""
+    routed_policy = MarketDataSourcePolicy(
+        policy_id="route-only-v1",
+        allowed_purposes=frozenset({"display"}),
+        routes=(_route(),),
+    )
+
+    assert routed_policy.local_sources == ()
+    with pytest.raises(ValueError, match="at least one provider route or local read source"):
+        MarketDataSourcePolicy(
+            policy_id="empty-v1",
+            allowed_purposes=frozenset({"display"}),
+            routes=(),
+        )
+
+
+def test_policy_copy_preserves_local_read_sources() -> None:
+    """A policy rebuilt by dataclass replacement retains its reviewed local sources."""
+    local_source = _local_source()
+    policy = MarketDataSourcePolicy(
+        policy_id="local-copy-v1",
+        allowed_purposes=frozenset({"display"}),
+        routes=(),
+        local_sources=(local_source,),
+    )
+
+    rebuilt = replace(policy, allowed_purposes=frozenset({"display", "research"}))
+
+    assert rebuilt.routes == ()
+    assert rebuilt.local_sources == (local_source,)
+    assert rebuilt.local_sources[0].local_source_id == "legacy-stock-zh-a-hist-local-read-v1"
+    assert rebuilt.local_sources_for(_context()) == (local_source,)
+
+
+def test_policy_requires_unique_local_source_ids_without_conflating_registry_scope() -> None:
+    """One registry may have multiple scopes, but every policy selection key is unique."""
+    primary = _local_source(local_source_id="legacy-stock-qfq-v1")
+    other_scope = _local_source(
+        local_source_id="legacy-stock-hfq-v1",
+        adjustments=frozenset({"hfq"}),
+    )
+
+    policy = MarketDataSourcePolicy(
+        policy_id="separate-local-scopes-v1",
+        allowed_purposes=frozenset({"display"}),
+        routes=(),
+        local_sources=(primary, other_scope),
+    )
+
+    assert [source.local_source_id for source in policy.local_sources_for(_context())] == [
+        "legacy-stock-qfq-v1"
+    ]
+    with pytest.raises(ValueError, match="local_source_id values must be unique"):
+        MarketDataSourcePolicy(
+            policy_id="duplicate-local-source-id-v1",
+            allowed_purposes=frozenset({"display"}),
+            routes=(),
+            local_sources=(primary, primary),
+        )
 
 
 @pytest.mark.parametrize(
@@ -194,9 +339,9 @@ def test_default_policy_binds_every_akshare_route_to_its_registry_family_pair() 
         for family_id, family_contract_version in policy_pairs_by_route_id.values()
     )
     assert set(policy_pairs_by_route_id.values()) == expected_all_pairs
-    assert {pair for pair in policy_pairs_by_route_id.values() if pair[0] != KLINE_LEGACY_FAMILY_ID} == (
-        expected_public_pairs
-    )
+    assert {
+        pair for pair in policy_pairs_by_route_id.values() if pair[0] != KLINE_LEGACY_FAMILY_ID
+    } == (expected_public_pairs)
 
 
 @pytest.mark.parametrize(
@@ -280,21 +425,24 @@ def test_default_policy_routes_only_the_exact_etf_nav_product_contract() -> None
     routes = registry.resolve("market-default-v1").routes_for(context)
 
     assert [route.route_id for route in routes] == ["akshare-fund-nav-primary-v1"]
-    assert registry.resolve("market-default-v1").routes_for(
-        SimpleNamespace(
-            identity=context.identity,
-            query=SimpleNamespace(
-                family_id="fund.liquidity",
-                family_contract_version=FAMILY_CONTRACT_VERSION,
-                data_kind="reference_series",
-                frequency="1d",
-                adjustment="source_reported",
-                price_basis="nav",
-                currency="CNY",
-                unit="fund_share",
-            ),
+    assert (
+        registry.resolve("market-default-v1").routes_for(
+            SimpleNamespace(
+                identity=context.identity,
+                query=SimpleNamespace(
+                    family_id="fund.liquidity",
+                    family_contract_version=FAMILY_CONTRACT_VERSION,
+                    data_kind="reference_series",
+                    frequency="1d",
+                    adjustment="source_reported",
+                    price_basis="nav",
+                    currency="CNY",
+                    unit="fund_share",
+                ),
+            )
         )
-    ) == ()
+        == ()
+    )
 
 
 @pytest.mark.parametrize(

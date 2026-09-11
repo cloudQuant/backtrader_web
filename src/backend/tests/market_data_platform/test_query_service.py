@@ -58,6 +58,7 @@ from app.services.market_data.snapshot_freshness import (
     SnapshotFreshnessPolicy,
     SnapshotFreshnessPolicyRegistry,
 )
+from app.services.market_data.source_policy import MarketDataLocalReadSource
 from app.services.market_data.store import (
     LocalObservationRevision,
     MarketDataStoreError,
@@ -647,6 +648,68 @@ class _Store:
         )
 
 
+class _SourceFilteredStore(_Store):
+    """Test store that proves the query service passes the local source allow-list."""
+
+    def __init__(
+        self,
+        *,
+        calendar: CalendarSnapshot,
+        revisions: list[LocalObservationRevision],
+        source_registry_ids_by_revision_id: dict[str, str],
+    ) -> None:
+        super().__init__(calendar=calendar, revisions=revisions)
+        self.source_registry_ids_by_revision_id = source_registry_ids_by_revision_id
+
+    async def read_observation_revisions(
+        self,
+        context: ResolvedMarketDataQueryContext,
+        *,
+        knowledge_cutoff: datetime,
+        visibility_anchor: MarketDataVisibilityAnchor | None = None,
+        include_unusable_for_coverage: bool = False,
+        allowed_source_registry_ids: frozenset[str] | None = None,
+    ) -> tuple[LocalObservationRevision, ...]:
+        rows = await super().read_observation_revisions(
+            context,
+            knowledge_cutoff=knowledge_cutoff,
+            visibility_anchor=visibility_anchor,
+            include_unusable_for_coverage=include_unusable_for_coverage,
+            allowed_source_registry_ids=allowed_source_registry_ids,
+        )
+        if allowed_source_registry_ids is None:
+            return rows
+        return tuple(
+            row
+            for row in rows
+            if self.source_registry_ids_by_revision_id.get(row.revision_id)
+            in allowed_source_registry_ids
+        )
+
+    async def persist_provider_result(
+        self,
+        context: ResolvedMarketDataQueryContext,
+        result: ProviderFetchResult,
+        *,
+        received_at: datetime,
+        source_authorization: MarketDataSourceAuthorization | None = None,
+        fetch_lease: MarketDataFetchLeaseHandle | None = None,
+    ) -> PersistedProviderFetch:
+        persisted = await super().persist_provider_result(
+            context,
+            result,
+            received_at=received_at,
+            source_authorization=source_authorization,
+            fetch_lease=fetch_lease,
+        )
+        if source_authorization is not None:
+            for revision_id in persisted.observation_revision_ids:
+                self.source_registry_ids_by_revision_id[revision_id] = (
+                    source_authorization.source_registry_id
+                )
+        return persisted
+
+
 class _SnapshotStore(_Store):
     """Make any accidental bar-calendar read fail the quote-snapshot contract."""
 
@@ -880,6 +943,7 @@ def _service(
     context: ResolvedMarketDataQueryContext,
     store: _Store,
     provider_routes: tuple[Any, ...],
+    local_sources: tuple[MarketDataLocalReadSource, ...] = (),
     allow_online_fetch: bool = True,
     online_route_ids: frozenset[str] | None = None,
     cursor_signing_key: str = _CURSOR_SIGNING_KEY,
@@ -911,6 +975,7 @@ def _service(
                     policy_id="market-default-v1",
                     allowed_purposes=frozenset({"display", "research", "backtest"}),
                     routes=provider_routes,
+                    local_sources=local_sources,
                 ),
             )
         ),
@@ -941,6 +1006,26 @@ def _route(provider: _Provider, *, expected: str = "akshare", request_provider: 
         currencies=frozenset({"CNY"}),
         units=frozenset({"share"}),
         adapter=provider,
+    )
+
+
+def _local_source(
+    *,
+    local_source_id: str = "legacy-stock-local-read-v1",
+    source_registry_id: str = "legacy-stock-warehouse",
+) -> MarketDataLocalReadSource:
+    """Build one reviewed local-only stock-bars provenance scope for tests."""
+    return MarketDataLocalReadSource(
+        local_source_id=local_source_id,
+        source_registry_id=source_registry_id,
+        asset_types=frozenset({"stock"}),
+        data_kinds=frozenset({"bars"}),
+        frequencies=frozenset({"1d"}),
+        markets=frozenset({"CN-SSE"}),
+        adjustments=frozenset({"qfq"}),
+        price_bases=frozenset({"close"}),
+        currencies=frozenset({"CNY"}),
+        units=frozenset({"share"}),
     )
 
 
@@ -1022,6 +1107,7 @@ class _AccessAuthorizer(MarketDataAccessAuthorizer):
         self.write_authorization = write_authorization
         self.read_entitlement_checks = 0
         self.policy_authorizations: list[tuple[str, ...]] = []
+        self.local_source_policy_authorizations: list[tuple[str, ...]] = []
         self.local_read_counts_at_authorization: list[int] = []
         self.write_reauthorizations: list[tuple[str, MarketDataSourceAuthorization]] = []
         self.revalidated_principals: list[MarketDataPrincipal] = []
@@ -1041,6 +1127,11 @@ class _AccessAuthorizer(MarketDataAccessAuthorizer):
         routes = kwargs["routes"]
         assert isinstance(routes, tuple)
         self.policy_authorizations.append(tuple(route.route_id for route in routes))
+        local_sources = kwargs["local_sources"]
+        assert isinstance(local_sources, tuple)
+        self.local_source_policy_authorizations.append(
+            tuple(local_source.local_source_id for local_source in local_sources)
+        )
         if isinstance(self.refreshed_grant, Exception):
             raise self.refreshed_grant
         if self.refreshed_grant is not None and len(self.policy_authorizations) > 1:
@@ -1077,24 +1168,31 @@ class _AccessAuthorizer(MarketDataAccessAuthorizer):
 
 def _access(
     *,
-    source_registry_id: str,
-    route_id: str,
+    source_registry_id: str | None = None,
+    route_id: str | None = None,
     grant_hash: str,
     store: _Store,
     resolver: _Resolver,
     write_authorization: MarketDataSourceAuthorization | Exception | None = None,
+    local_source_authorizations: tuple[tuple[str, MarketDataSourceAuthorization], ...] = (),
 ) -> MarketDataQueryAccess:
-    authorization = _source_authorization(
-        source_registry_id=source_registry_id,
-        descriptor_hash="c" * 64,
-    )
+    if (source_registry_id is None) != (route_id is None):
+        raise ValueError("source_registry_id and route_id must be supplied together")
+    route_authorizations: tuple[tuple[str, MarketDataSourceAuthorization], ...] = ()
+    if source_registry_id is not None and route_id is not None:
+        authorization = _source_authorization(
+            source_registry_id=source_registry_id,
+            descriptor_hash="c" * 64,
+        )
+        route_authorizations = ((route_id, authorization),)
     principal = _principal()
     grant = MarketDataAccessGrant(
         principal=principal,
         policy_id="market-default-v1",
         purpose="display",
-        route_authorizations=((route_id, authorization),),
+        route_authorizations=route_authorizations,
         policy_descriptor_hash=grant_hash,
+        local_source_authorizations=local_source_authorizations,
     )
     return MarketDataQueryAccess(
         principal=principal,
@@ -1125,6 +1223,16 @@ def _allow_all_routes_access(
         )
         for index, route in enumerate(policy.routes)
     )
+    local_source_authorizations = tuple(
+        (
+            local_source.local_source_id,
+            _source_authorization(
+                source_registry_id=local_source.source_registry_id,
+                descriptor_hash=f"{index + len(authorizations) + 1:064x}",
+            ),
+        )
+        for index, local_source in enumerate(policy.local_sources)
+    )
     principal = _principal()
     grant = MarketDataAccessGrant(
         principal=principal,
@@ -1132,6 +1240,7 @@ def _allow_all_routes_access(
         purpose="display",
         route_authorizations=authorizations,
         policy_descriptor_hash="f" * 64,
+        local_source_authorizations=local_source_authorizations,
     )
     return MarketDataQueryAccess(
         principal=principal,
@@ -1394,6 +1503,72 @@ async def test_cross_worker_fetch_lease_follower_rejects_changed_source_grant_be
 
     assert rejected.value.code == "MARKET_DATA_ACCESS_CHANGED_DURING_FETCH"
     assert access.authorizer.revalidated_principals == [access.principal]
+    assert provider.requests == []
+    assert len(store.read_cutoffs) == 2
+
+
+@pytest.mark.asyncio
+async def test_cross_worker_fetch_lease_follower_rejects_changed_local_source_grant_before_reread() -> (
+    None
+):
+    """A local-source authorization evidence change fails before the follower rereads."""
+    context = _context()
+    local_source = _local_source()
+    store = _Store(calendar=_calendar(), revisions=[])
+    provider = _Provider(_provider_result())
+    service = _service(
+        context=context,
+        store=store,
+        provider_routes=(_route(provider),),
+        local_sources=(local_source,),
+    )
+    resolver = service._resolver
+    assert isinstance(resolver, _Resolver)
+    local_authorization = _source_authorization(
+        source_registry_id=local_source.source_registry_id,
+        descriptor_hash="d" * 64,
+    )
+    access = _access(
+        source_registry_id="akshare",
+        route_id="route-akshare",
+        grant_hash="a" * 64,
+        store=store,
+        resolver=resolver,
+        local_source_authorizations=((local_source.local_source_id, local_authorization),),
+    )
+    changed_local_authorization = _source_authorization(
+        source_registry_id=local_source.source_registry_id,
+        descriptor_hash="e" * 64,
+    )
+    follower = _FetchLeases(
+        handle=None,
+        on_acquire=lambda: setattr(
+            access.authorizer,
+            "refreshed_grant",
+            replace(
+                access.authorizer.grant,
+                policy_descriptor_hash="b" * 64,
+                local_source_authorizations=(
+                    (local_source.local_source_id, changed_local_authorization),
+                ),
+            ),
+        ),
+    )
+    service._fetch_leases = follower
+
+    with pytest.raises(MarketDataQueryServiceError) as rejected:
+        await service.execute(_request(), access=access)
+
+    assert rejected.value.code == "MARKET_DATA_ACCESS_CHANGED_DURING_FETCH"
+    assert access.authorizer.revalidated_principals == [access.principal]
+    assert access.authorizer.policy_authorizations == [
+        ("route-akshare",),
+        ("route-akshare",),
+    ]
+    assert access.authorizer.local_source_policy_authorizations == [
+        (local_source.local_source_id,),
+        (local_source.local_source_id,),
+    ]
     assert provider.requests == []
     assert len(store.read_cutoffs) == 2
 
@@ -1802,7 +1977,9 @@ def test_private_kline_pair_propagates_from_coverage_to_the_provider_receipt() -
     assert provider_request.provider_symbol == "600000"
     assert provider_request.dto_payload["family_id"] == "stock.kline_legacy"
     assert provider_request.dto_payload["family_contract_version"] == "market-data-kline-v1"
-    with pytest.raises(MarketDataQueryServiceError, match="SOURCE_POLICY_ROUTE_FAMILY_VERSION_MISMATCH"):
+    with pytest.raises(
+        MarketDataQueryServiceError, match="SOURCE_POLICY_ROUTE_FAMILY_VERSION_MISMATCH"
+    ):
         _provider_request_for(
             context,
             replace(route, family_contract_version="market-data-family-v1"),
@@ -1812,7 +1989,7 @@ def test_private_kline_pair_propagates_from_coverage_to_the_provider_receipt() -
 
 
 def test_policy_descriptor_hash_binds_permit_family_and_endpoint() -> None:
-    """A cursor cannot replay a route after its product or endpoint changes."""
+    """A cursor cannot replay changed route or local-read-source policy dimensions."""
     from app.services.market_data.query_service import _policy_descriptor_hash
     from app.services.market_data.source_policy import (
         MarketDataProviderRoute,
@@ -1826,11 +2003,18 @@ def test_policy_descriptor_hash_binds_permit_family_and_endpoint() -> None:
         provider_endpoint="equity.price.historical",
     )
 
-    def policy_for(candidate_route: MarketDataProviderRoute) -> MarketDataSourcePolicy:
+    local_source = _local_source()
+
+    def policy_for(
+        candidate_route: MarketDataProviderRoute,
+        *,
+        local_sources: tuple[MarketDataLocalReadSource, ...] = (local_source,),
+    ) -> MarketDataSourcePolicy:
         return MarketDataSourcePolicy(
             policy_id="market-default-v1",
             allowed_purposes=frozenset({"display"}),
             routes=(candidate_route,),
+            local_sources=local_sources,
         )
 
     baseline = _policy_descriptor_hash(policy_for(route))
@@ -1858,6 +2042,201 @@ def test_policy_descriptor_hash_binds_permit_family_and_endpoint() -> None:
     )
     assert baseline != _policy_descriptor_hash(
         policy_for(replace(route, product_types=frozenset({"ETF"})))
+    )
+    assert baseline != _policy_descriptor_hash(
+        policy_for(
+            route,
+            local_sources=(replace(local_source, local_source_id="legacy-stock-local-read-v2"),),
+        )
+    )
+    assert baseline != _policy_descriptor_hash(
+        policy_for(
+            route,
+            local_sources=(replace(local_source, source_registry_id="legacy-stock-warehouse-v2"),),
+        )
+    )
+    assert baseline != _policy_descriptor_hash(
+        policy_for(
+            route,
+            local_sources=(replace(local_source, units=frozenset({"contract"})),),
+        )
+    )
+
+
+@pytest.mark.asyncio
+async def test_local_read_source_authorizes_existing_facts_without_a_provider_route() -> None:
+    """An authorized local-only provenance scope can satisfy a complete local query."""
+    context = _context()
+    local_source = _local_source()
+    local_revisions = [_revision(_at(hour)) for hour in (9, 10, 11)]
+    store = _SourceFilteredStore(
+        calendar=_calendar(),
+        revisions=local_revisions,
+        source_registry_ids_by_revision_id={
+            revision.revision_id: local_source.source_registry_id for revision in local_revisions
+        },
+    )
+    service = _service(
+        context=context,
+        store=store,
+        provider_routes=(),
+        local_sources=(local_source,),
+    )
+    resolver = service._resolver
+    assert isinstance(resolver, _Resolver)
+    local_authorization = _source_authorization(
+        source_registry_id=local_source.source_registry_id,
+        descriptor_hash="d" * 64,
+    )
+    access = _access(
+        grant_hash="a" * 64,
+        store=store,
+        resolver=resolver,
+        local_source_authorizations=((local_source.local_source_id, local_authorization),),
+    )
+
+    result = await service.execute(_request(), access=access)
+
+    assert result.coverage.status.value == "complete"
+    assert result.observations == tuple(local_revisions)
+    assert result.fetches == ()
+    assert store.persisted == []
+    assert access.authorizer.policy_authorizations == [()]
+    assert access.authorizer.local_source_policy_authorizations == [(local_source.local_source_id,)]
+    assert store.read_source_filters
+    assert all(
+        allowed_source_ids == frozenset({local_source.source_registry_id})
+        for allowed_source_ids in store.read_source_filters
+    )
+    assert store.calendar_source_filters == [frozenset({local_source.source_registry_id})]
+
+
+@pytest.mark.asyncio
+async def test_local_sources_are_reauthorized_without_entering_provider_or_persistence_chains() -> (
+    None
+):
+    """Lease refreshes preserve local provenance while routes alone fetch and persist."""
+    context = _context()
+    local_source = _local_source()
+    local_revision = _revision(_at(9))
+    store = _SourceFilteredStore(
+        calendar=_calendar(),
+        revisions=[local_revision],
+        source_registry_ids_by_revision_id={
+            local_revision.revision_id: local_source.source_registry_id,
+        },
+    )
+    provider = _Provider(_provider_result(events=(_at(10), _at(11))))
+    service = _service(
+        context=context,
+        store=store,
+        provider_routes=(_route(provider),),
+        local_sources=(local_source,),
+    )
+    resolver = service._resolver
+    assert isinstance(resolver, _Resolver)
+    local_authorization = _source_authorization(
+        source_registry_id=local_source.source_registry_id,
+        descriptor_hash="d" * 64,
+    )
+    access = _access(
+        source_registry_id="akshare",
+        route_id="route-akshare",
+        grant_hash="a" * 64,
+        store=store,
+        resolver=resolver,
+        local_source_authorizations=((local_source.local_source_id, local_authorization),),
+    )
+
+    result = await service.execute(_request(), access=access)
+
+    assert result.coverage.status.value == "complete"
+    assert [item.event_at for item in result.observations] == [_at(9), _at(10), _at(11)]
+    assert len(provider.requests) == 1
+    assert len(store.persisted_source_authorizations) == 1
+    persisted_authorization = store.persisted_source_authorizations[0]
+    assert persisted_authorization is not None
+    assert persisted_authorization.source_registry_id == "akshare"
+    assert persisted_authorization.source_registry_id != local_source.source_registry_id
+    assert access.authorizer.policy_authorizations
+    assert all(
+        route_ids == ("route-akshare",) for route_ids in access.authorizer.policy_authorizations
+    )
+    assert len(access.authorizer.local_source_policy_authorizations) > 1
+    assert all(
+        local_source_ids == (local_source.local_source_id,)
+        for local_source_ids in access.authorizer.local_source_policy_authorizations
+    )
+    assert store.read_source_filters
+    assert all(
+        allowed_source_ids == frozenset({"akshare", local_source.source_registry_id})
+        for allowed_source_ids in store.read_source_filters
+    )
+    assert store.calendar_source_filters
+    assert all(
+        allowed_source_ids == frozenset({"akshare", local_source.source_registry_id})
+        for allowed_source_ids in store.calendar_source_filters
+    )
+
+
+@pytest.mark.asyncio
+async def test_denied_local_source_is_excluded_before_authorized_route_fetches_and_persists() -> (
+    None
+):
+    """A denied archive cannot expose a fact when a distinct route remains authorized."""
+    context = _context()
+    local_source = _local_source()
+    excluded_local_revision = _revision(_at(9), value=99.0)
+    store = _SourceFilteredStore(
+        calendar=_calendar(),
+        revisions=[excluded_local_revision],
+        source_registry_ids_by_revision_id={
+            excluded_local_revision.revision_id: local_source.source_registry_id,
+        },
+    )
+    provider = _Provider(_provider_result(events=(_at(9), _at(10), _at(11))))
+    service = _service(
+        context=context,
+        store=store,
+        provider_routes=(_route(provider),),
+        local_sources=(local_source,),
+    )
+    resolver = service._resolver
+    assert isinstance(resolver, _Resolver)
+    # Deliberately omit local_source_authorizations: only the online route is
+    # currently authorized, so the archive must not enter the store allow-list.
+    access = _access(
+        source_registry_id="akshare",
+        route_id="route-akshare",
+        grant_hash="a" * 64,
+        store=store,
+        resolver=resolver,
+    )
+
+    result = await service.execute(_request(), access=access)
+
+    assert result.coverage.status.value == "complete"
+    assert [item.event_at for item in result.observations] == [_at(9), _at(10), _at(11)]
+    assert excluded_local_revision not in result.observations
+    assert len(provider.requests) == 1
+    assert len(store.persisted_source_authorizations) == 1
+    persisted_authorization = store.persisted_source_authorizations[0]
+    assert persisted_authorization is not None
+    assert persisted_authorization.source_registry_id == "akshare"
+    assert access.authorizer.local_source_policy_authorizations
+    assert all(
+        local_source_ids == (local_source.local_source_id,)
+        for local_source_ids in access.authorizer.local_source_policy_authorizations
+    )
+    assert store.read_source_filters
+    assert all(
+        allowed_source_ids == frozenset({"akshare"})
+        for allowed_source_ids in store.read_source_filters
+    )
+    assert store.calendar_source_filters
+    assert all(
+        allowed_source_ids == frozenset({"akshare"})
+        for allowed_source_ids in store.calendar_source_filters
     )
 
 
