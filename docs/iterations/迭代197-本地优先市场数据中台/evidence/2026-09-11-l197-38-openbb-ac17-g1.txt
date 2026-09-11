@@ -1,0 +1,56 @@
+# L-197-38：OpenBB AC-17 G1 clean candidate receipt
+
+日期：2026-09-11
+候选提交：`70e94148b8494ddb222d555513f809d76ca478c8`
+工作树：`/Users/yunjinqi/Downloads/backtrader_web`
+候选洁净性：执行前 `git status --short` 为空；acceptance runner 记录 `CANDIDATE_CLEAN_OR_ALLOWLISTED`、`dirty_count=0`、`unallowlisted_dirty_count=0`。
+
+## 执行范围
+
+本收据只覆盖统一矩阵的 `AC-17` / `AC-197-MATRIX-017` 的离线 `G1` 切片，覆盖当前两个页面已支持的七类资产：`stock`、`futures`、`bond`、`fund`、`option`、`fx`、`crypto`。
+
+```text
+cd /Users/yunjinqi/Downloads/backtrader_web/src/backend
+/Users/yunjinqi/opt/anaconda3/bin/conda run --no-capture-output -n base python \
+  scripts/acceptance/iteration197_data_platform.py \
+  --mode offline --case AC-17 --asset-type all \
+  --output /tmp/iter197-ac17-openbb-g1-clean-70e94148-a \
+  --project-root /Users/yunjinqi/Downloads/backtrader_web
+```
+
+运行器和候选元数据：
+
+- `case_mapping_version=iteration197-unified-matrix-id-v3-ac17-openbb-runner-g1`
+- `case_map_sha256=6c46ed0fcbb5de54b0ce7ca8f147c9dd6b94df64efab63d6935fe24ef06edde3`
+- `runner_sha256=4d23d595674f87fa6a1dd69394fd7f01ae4d1a91f78f1512de122771075ae5b9`
+- 唯一 Alembic head：`20260911_market_data_b2_completeness_evidence`
+- 结果 JSON 的 SHA-256：`7cc69085c2cd28dd4c5d1e4768b56351776df8907cc3d90962af2d5c44dc22ec`
+
+## 本地 G1 结果
+
+七个 asset slice 均产生 1 个 JUnit 文件，且每个文件均为 `3` 个 testcase、`0` failures、`0` errors、`0` skipped。每个 slice 的 `network_attempt_count=0`，其含义限于运行器的 Python child socket audit guard 未观察到 socket 尝试。
+
+| Asset slice | G1 slice | G3 | 整体 case |
+| --- | --- | --- | --- |
+| `stock` | `PASS` | pending | `NOT_RUN` |
+| `futures` | `PASS` | pending | `NOT_RUN` |
+| `bond` | `PASS` | pending | `NOT_RUN` |
+| `fund` | `PASS` | pending | `NOT_RUN` |
+| `option` | `PASS` | pending | `NOT_RUN` |
+| `fx` | `PASS` | pending | `NOT_RUN` |
+| `crypto` | `PASS` | pending | `NOT_RUN` |
+
+运行器顶层退出码为 `3`，结果为 `NOT_RUN`，原因是每个 slice 都保留 `remaining_gates=["G3"]`。这正是该矩阵对局部 G1 通过的预期 fail-closed 结果，不是将 AC-17 升级为完成或正式通过。
+
+## G1 覆盖的精确边界
+
+- `stock`、`fund`、`option`、`crypto`：当前 canonical runtime permit matrix 显式为空；测试证明不能生成 OpenBB 路由。
+- `futures`、`bond`、`fx`：在合成的未来 permit 下，CN futures、CN convertible bond、CNH pair 都因语义上下文不等价而被拒绝；该测试不创建真实 permit。
+- 七个 asset slice 都运行同一个 copied-runner 回归：真实 `scripts/openbb_market_data_runner.py` 与两份纯数据 manifest 被复制到应用 checkout 外，由真实 `OpenBBSubprocessProvider` 发起固定 preflight 和普通请求；普通请求在动态 OpenBB 导入或网络调用前稳定返回 `OPENBB_YFINANCE_RUNTIME_ARTIFACT_UNATTESTED`。它只证明父子进程协议与 fail-closed 次序的兼容性，不证明 runner 构件、部署或镜像身份已被证明。
+- 七个 asset slice 都运行 instrumented-copy socket regression：在 runner 源文件中插入 Python socket/DNS API guard，并用 `-I -S` 探针确认 `socket.create_connection` 会触发 guard；随后真实 parent/runner 流程没有产生 guard marker。它是 Python 源级回归，不是操作系统、容器、DNS、代理或网络策略的 egress 证明。
+
+## 未覆盖和继续阻断项
+
+本次没有安装 OpenBB 扩展、创建 permit 或 route、执行真实 OpenBB/yfinance 请求、写入市场数据、访问真实数据库，或启用任何部署开关。当前 runtime artifact 仍为 `unattested`，permit matrix 仍为空。
+
+`G3` 仍需要在经批准的真实环境中单独形成可复核证据，包括：可证明身份的 runner delivery/OCI 或等效构件、动态扩展与依赖闭包、上游及数据访问/再分发许可、service account/工作目录/凭据/egress 隔离、真实小窗口的 OpenBB provider → receipt/store → 独立 `local_only` 重读，以及相应原始载荷 hash 和外部回执。因而 E-197-05 和 E-197-09 的正式状态保持 `BLOCKED` / `NOT_RUN`，本项目整体仍不具备发布签收条件。
