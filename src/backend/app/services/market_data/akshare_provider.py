@@ -35,7 +35,6 @@ from app.services.market_data.provider_contracts import (
     AKSHARE_RESPONSE_FIELD_ALIASES,
     ProviderContract,
     ProviderContractError,
-    ProviderContractRegistry,
 )
 from app.services.market_data.providers import (
     MarketDataProviderRequest,
@@ -55,6 +54,22 @@ _PERIOD_BY_FREQUENCY = {
     "1w": "weekly",
     "1mo": "monthly",
 }
+
+# Snapshot the approved provider-contract identities at import time. The
+# adapter does not expose a runtime contract-registry seam, and this additional
+# check keeps a private object replacement from widening a reviewed field
+# mapping before provider I/O.
+_AKSHARE_REVIEWED_CONTRACT_IDENTITIES: Mapping[tuple[str, str], tuple[str, str]] = (
+    MappingProxyType(
+        {
+            (contract.provider, contract.route_id): (
+                contract.contract_id,
+                contract.descriptor_sha256,
+            )
+            for contract in AKSHARE_PROVIDER_CONTRACT_REGISTRY.contracts
+        }
+    )
+)
 
 # The response normalizer obtains its reviewed aliases from the immutable
 # ProviderContract.  Keep this module-level alias for the schedule-only wide
@@ -803,9 +818,6 @@ class AkShareMarketDataProvider:
         self,
         *,
         routes: Sequence[AkShareRoute] = AKSHARE_ROUTE_REGISTRY,
-        contracts: ProviderContractRegistry | Sequence[ProviderContract] = (
-            AKSHARE_PROVIDER_CONTRACT_REGISTRY
-        ),
         callable_resolver: AkShareCallableResolver | None = None,
         timeout_seconds: float = 30.0,
         max_concurrency: int = 4,
@@ -816,11 +828,10 @@ class AkShareMarketDataProvider:
             raise ValueError("AkShare max_concurrency must be between 1 and 32")
         self._routes = tuple(routes)
         self._validate_routes(self._routes)
-        self._contracts = (
-            contracts
-            if isinstance(contracts, ProviderContractRegistry)
-            else ProviderContractRegistry(contracts)
-        )
+        # Provider contracts are a static, reviewed control plane. Accepting
+        # a caller-supplied registry could widen ``mapped_fields`` or response
+        # aliases and make an unreviewed metric look normalizable before I/O.
+        self._contracts = AKSHARE_PROVIDER_CONTRACT_REGISTRY
         self._callable_resolver = callable_resolver or _resolve_akshare_callable
         self._timeout_seconds = timeout_seconds
         self._semaphore = asyncio.BoundedSemaphore(max_concurrency)
@@ -1003,6 +1014,9 @@ class AkShareMarketDataProvider:
         response semantics.  Compare the material declaration axes here so a
         future route edit cannot silently retain an old contract digest.
         """
+        expected_identity = _AKSHARE_REVIEWED_CONTRACT_IDENTITIES.get(
+            (contract.provider, contract.route_id)
+        )
         expected_static_endpoint = (
             next(iter(contract.endpoints))
             if contract.endpoint_resolver_id == "akshare.static-endpoint-v1"
@@ -1010,7 +1024,8 @@ class AkShareMarketDataProvider:
         )
         expected_validator = _AKSHARE_REQUEST_VALIDATORS.get(contract.request_validator_id)
         if (
-            contract.route_id not in route.route_ids
+            expected_identity != (contract.contract_id, contract.descriptor_sha256)
+            or contract.route_id not in route.route_ids
             or route.asset_type != contract.asset_type
             or route.data_kind != contract.data_kind
             or route.frequencies != contract.frequencies

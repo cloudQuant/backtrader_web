@@ -150,6 +150,76 @@ async def test_adapter_rejects_unknown_route_and_missing_mapping_before_provider
     assert calls == []
 
 
+def _tampered_stock_contract_registry() -> ProviderContractRegistry:
+    """Build a self-consistent but unreviewed field-map widening for a negative test."""
+    reviewed = AKSHARE_PROVIDER_CONTRACT_REGISTRY.contract_for(
+        provider="akshare",
+        route_id="akshare-stock-primary-v1",
+    )
+    widened_profile = replace(
+        reviewed.field_profile,
+        mapped_fields=reviewed.field_profile.mapped_fields | {"unreviewed_metric"},
+    )
+    widened_contract = replace(
+        reviewed,
+        field_profile=widened_profile,
+        response_field_aliases={
+            **dict(reviewed.response_field_aliases),
+            "未审核指标": "unreviewed_metric",
+        },
+        descriptor_sha256=None,
+    )
+
+    assert widened_contract.descriptor_sha256 != reviewed.descriptor_sha256
+    return ProviderContractRegistry((widened_contract,))
+
+
+def test_adapter_has_no_runtime_contract_registry_injection_seam() -> None:
+    """A caller cannot replace reviewed contracts during adapter construction."""
+    resolver_calls: list[str] = []
+
+    def resolver(endpoint: str):
+        resolver_calls.append(endpoint)
+        pytest.fail("constructor must not resolve a provider callable")
+
+    with pytest.raises(TypeError, match="contracts"):
+        AkShareMarketDataProvider(
+            contracts=_tampered_stock_contract_registry(),  # type: ignore[call-arg]
+            callable_resolver=resolver,
+        )
+
+    assert resolver_calls == []
+
+
+@pytest.mark.asyncio
+async def test_adapter_rejects_tampered_field_mapping_and_alias_before_provider_io() -> None:
+    """Unsafe in-process replacement still cannot widen a reviewed response profile."""
+    resolver_calls: list[str] = []
+    source_calls: list[dict[str, object]] = []
+
+    def resolver(endpoint: str):
+        resolver_calls.append(endpoint)
+
+        def source_callable(**kwargs: object) -> list[dict[str, object]]:
+            source_calls.append(kwargs)
+            return []
+
+        return source_callable
+
+    provider = AkShareMarketDataProvider(callable_resolver=resolver)
+    # The public constructor has no registry seam. This private mutation models
+    # an unsafe in-process integration and exercises the descriptor guard that
+    # runs before callable resolution.
+    provider._contracts = _tampered_stock_contract_registry()
+
+    with pytest.raises(AkShareProviderError) as mismatch:
+        await provider.fetch(_request(required_fields=frozenset({"unreviewed_metric"})))
+
+    assert mismatch.value.code == "AKSHARE_PROVIDER_CONTRACT_DESCRIPTOR_MISMATCH"
+    assert resolver_calls == []
+    assert source_calls == []
+
+
 @pytest.mark.asyncio
 async def test_adapter_rejects_provider_endpoint_descriptor_drift_before_provider_io() -> None:
     """The server-owned dispatch token must agree with the selected static contract."""
