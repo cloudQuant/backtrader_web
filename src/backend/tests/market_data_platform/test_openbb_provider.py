@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import inspect
 import json
 import os
 import shlex
+import signal
 import subprocess
 import sys
 from dataclasses import replace
@@ -57,14 +59,67 @@ def _request() -> MarketDataProviderRequest:
 
 
 def _runner_script(tmp_path: Path, body: str) -> Path:
+    """Build a fake peer for the line-framed, parent-owned runner protocol."""
+    protocol_body = body.replace(
+        "json.load(sys.stdin)",
+        "json.loads(sys.stdin.buffer.readline())",
+    ).replace(
+        "sys.stdin.read()",
+        "sys.stdin.buffer.readline()",
+    )
     script = tmp_path / "fake_openbb_runner.py"
-    script.write_text(body, encoding="utf-8")
+    script.write_text(
+        """
+import atexit
+import json as _protocol_json
+import os as _protocol_os
+import sys as _protocol_sys
+
+if _protocol_sys.argv[1:] == ["--protocol-self-check"]:
+    _protocol_json.dump(
+        {
+            "protocol_version": "openbb-market-data-v2",
+            "protocol_self_check_version": "openbb-market-data-protocol-self-check-v1",
+            "transport_version": "openbb-jsonl-parent-stdin-ack-v2",
+            "status": "ready",
+        },
+        _protocol_sys.stdout,
+    )
+    _protocol_sys.stdout.write("\\n")
+    _protocol_sys.stdout.flush()
+    _protocol_ack_fd = _protocol_os.getenv("OPENBB_PROTOCOL_SELF_CHECK_ACK_FD")
+    if _protocol_ack_fd is not None:
+        try:
+            _protocol_os.read(int(_protocol_ack_fd), 1)
+        except (OSError, ValueError):
+            pass
+    raise SystemExit(0)
+
+def _wait_for_parent_cleanup() -> None:
+    _protocol_sys.stdout.write("\\n")
+    _protocol_sys.stdout.flush()
+    _protocol_sys.stdin.buffer.read(1)
+
+atexit.register(_wait_for_parent_cleanup)
+"""
+        + protocol_body,
+        encoding="utf-8",
+    )
     return script
 
 
 def _isolated_runner_command(script: Path) -> tuple[str, str, str, str]:
     """Build the only production-accepted Python runner invocation shape."""
     return (str(Path(sys.executable).resolve()), "-I", "-S", str(script.resolve()))
+
+
+def _process_is_alive(process_id: int) -> bool:
+    """Return whether a same-user runner process remains after cleanup."""
+    try:
+        os.kill(process_id, 0)
+    except ProcessLookupError:
+        return False
+    return True
 
 
 @pytest.fixture(autouse=True)
@@ -121,7 +176,7 @@ raw_payload_sha256 = hashlib.sha256(
 ).hexdigest()
 json.dump(
     {
-        "protocol_version": "openbb-market-data-v1",
+        "protocol_version": "openbb-market-data-v2",
         "request_id": request["request_id"],
         "request": request["request"],
         "provider_id": "openbb:yfinance",
@@ -169,7 +224,7 @@ request = dict(envelope["request"])
 request["provider_symbol"] = "SUBSTITUTED"
 json.dump(
     {
-        "protocol_version": "openbb-market-data-v1",
+        "protocol_version": "openbb-market-data-v2",
         "request_id": envelope["request_id"],
         "request": request,
     },
@@ -206,7 +261,7 @@ raw_payload_sha256 = hashlib.sha256(
 ).hexdigest()
 json.dump(
     {
-        "protocol_version": "openbb-market-data-v1",
+        "protocol_version": "openbb-market-data-v2",
         "request_id": request["request_id"],
         "request": request["request"],
         "provider_id": "openbb:yfinance",
@@ -255,7 +310,7 @@ raw_payload_sha256 = hashlib.sha256(
 ).hexdigest()
 json.dump(
     {
-        "protocol_version": "openbb-market-data-v1",
+        "protocol_version": "openbb-market-data-v2",
         "request_id": request["request_id"],
         "request": request["request"],
         "provider_id": "openbb:yfinance",
@@ -311,7 +366,7 @@ raw_payload_sha256 = hashlib.sha256(
 ).hexdigest()
 json.dump(
     {{
-        "protocol_version": "openbb-market-data-v1",
+        "protocol_version": "openbb-market-data-v2",
         "request_id": request["request_id"],
         "request": request["request"],
         "provider_id": "openbb:yfinance",
@@ -376,7 +431,7 @@ raw_payload_sha256 = hashlib.sha256(
 ).hexdigest()
 json.dump(
     {{
-        "protocol_version": "openbb-market-data-v1",
+        "protocol_version": "openbb-market-data-v2",
         "request_id": request["request_id"],
         "request": request["request"],
         "provider_id": "openbb:yfinance",
@@ -422,13 +477,42 @@ import sys
 json.load(sys.stdin)
 json.dump(
     {
-        "protocol_version": "openbb-market-data-v1",
+        "protocol_version": "openbb-market-data-v2",
         "request_id": "wrong-request-id",
         "provider_id": "openbb:yfinance",
         "retrieved_at": "2026-01-04T00:00:00+00:00",
         "source_revision": "yfinance-response-v1",
         "records": [],
         "warnings": [],
+    },
+    sys.stdout,
+)
+""",
+    )
+
+    with pytest.raises(OpenBBProviderError) as mismatch:
+        await OpenBBSubprocessProvider(command=_isolated_runner_command(script)).fetch(_request())
+
+    assert mismatch.value.code == "OPENBB_RUNNER_PROTOCOL_MISMATCH"
+
+
+@pytest.mark.asyncio
+async def test_openbb_subprocess_provider_rejects_a_v1_response_after_v2_transport_attestation(
+    tmp_path: Path,
+) -> None:
+    """A request receipt cannot silently downgrade the verified v2 transport."""
+    script = _runner_script(
+        tmp_path,
+        """
+import json
+import sys
+
+request = json.load(sys.stdin)
+json.dump(
+    {
+        "protocol_version": "openbb-market-data-v1",
+        "request_id": request["request_id"],
+        "request": request["request"],
     },
     sys.stdout,
 )
@@ -499,6 +583,7 @@ def test_openbb_subprocess_provider_accepts_only_the_exact_isolated_python_runne
     script = _runner_script(tmp_path, "raise SystemExit(0)\n")
     command = _isolated_runner_command(script)
     monkeypatch.setenv("OPENBB_MARKET_DATA_RUNNER", shlex.join(command))
+    monkeypatch.setenv("OPENBB_MARKET_DATA_RUNNER_PROTOCOL", "openbb-market-data-v2")
 
     provider = OpenBBSubprocessProvider.from_environment()
 
@@ -518,6 +603,177 @@ def test_openbb_subprocess_provider_accepts_only_the_exact_isolated_python_runne
     non_python.chmod(0o755)
     with pytest.raises(ValueError, match="absolute python"):
         OpenBBSubprocessProvider(command=(str(non_python), "-I", "-S", command[3]))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "declared_protocol",
+    (None, "openbb-market-data-v1", "openbb-market-data-v3", "openbb-market-data-v2 "),
+)
+async def test_openbb_subprocess_provider_rejects_missing_or_non_v2_protocol_declarations_before_spawn(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    declared_protocol: str | None,
+) -> None:
+    """The operator declaration is exact and prevents any runner subprocess launch."""
+    import app.services.market_data.providers as providers
+
+    script = _runner_script(tmp_path, "raise SystemExit(0)\n")
+    command = _isolated_runner_command(script)
+    launches = 0
+
+    def unexpected_popen(*args: object, **kwargs: object) -> subprocess.Popen[bytes]:
+        nonlocal launches
+        launches += 1
+        raise AssertionError("protocol declaration rejection must precede runner spawn")
+
+    monkeypatch.setenv("OPENBB_MARKET_DATA_RUNNER", shlex.join(command))
+    if declared_protocol is None:
+        monkeypatch.delenv("OPENBB_MARKET_DATA_RUNNER_PROTOCOL", raising=False)
+    else:
+        monkeypatch.setenv("OPENBB_MARKET_DATA_RUNNER_PROTOCOL", declared_protocol)
+    monkeypatch.setattr(providers.subprocess, "Popen", unexpected_popen)
+
+    with pytest.raises(OpenBBProviderError) as rejected:
+        await OpenBBSubprocessProvider.from_environment().fetch(_request())
+
+    assert rejected.value.code == "OPENBB_RUNNER_PROTOCOL_UNSUPPORTED"
+    assert launches == 0
+
+
+@pytest.mark.asyncio
+async def test_openbb_subprocess_provider_runs_a_v2_declared_runner_after_fixed_preflight(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A v2 declaration still requires, then passes, the fixed transport preflight."""
+    import app.services.market_data.providers as providers
+
+    script = _runner_script(
+        tmp_path,
+        """
+import hashlib
+import json
+import sys
+
+request = json.load(sys.stdin)
+raw_payload = {"format": "openbb-records-pre-normalization-v1", "records": []}
+raw_payload_sha256 = hashlib.sha256(
+    json.dumps(raw_payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
+).hexdigest()
+json.dump(
+    {
+        "protocol_version": "openbb-market-data-v2",
+        "request_id": request["request_id"],
+        "request": request["request"],
+        "provider_id": "openbb:yfinance",
+        "retrieved_at": "2026-01-04T00:00:00+00:00",
+        "source_revision": "declared-v2-v1",
+        "raw_payload": raw_payload,
+        "raw_payload_sha256": raw_payload_sha256,
+        "records": [],
+        "warnings": [],
+    },
+    sys.stdout,
+)
+""",
+    )
+    command = _isolated_runner_command(script)
+    actual_popen = subprocess.Popen
+    launched_commands: list[tuple[str, ...]] = []
+
+    def observed_popen(
+        command_value: tuple[str, ...], *args: object, **kwargs: object
+    ) -> subprocess.Popen[bytes]:
+        launched_commands.append(tuple(command_value))
+        return actual_popen(command_value, *args, **kwargs)
+
+    monkeypatch.setenv("OPENBB_MARKET_DATA_RUNNER", shlex.join(command))
+    monkeypatch.setenv("OPENBB_MARKET_DATA_RUNNER_PROTOCOL", "openbb-market-data-v2")
+    monkeypatch.setattr(providers.subprocess, "Popen", observed_popen)
+
+    result = await OpenBBSubprocessProvider.from_environment().fetch(_request())
+
+    assert result.source_revision == "declared-v2-v1"
+    assert launched_commands == [(*command, "--protocol-self-check"), command]
+    assert "OPENBB_MARKET_DATA_RUNNER_PROTOCOL" not in _openbb_runner_environment()
+
+
+@pytest.mark.asyncio
+async def test_openbb_subprocess_provider_rejects_a_v1_runner_falsely_declared_as_v2_before_request_spawn(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """EOF preflight rejects an old json.load peer even if an operator mislabels it."""
+    import app.services.market_data.providers as providers
+
+    preflight_started = tmp_path / "old-v1-preflight-started"
+    request_started = tmp_path / "old-v1-request-started"
+    script = tmp_path / "old_v1_runner.py"
+    script.write_text(
+        f"""
+import json
+import sys
+from pathlib import Path
+
+if sys.argv[1:] == ["--protocol-self-check"]:
+    Path({str(preflight_started)!r}).touch()
+    json.load(sys.stdin)
+Path({str(request_started)!r}).touch()
+json.load(sys.stdin)
+""",
+        encoding="utf-8",
+    )
+    command = _isolated_runner_command(script)
+    actual_popen = subprocess.Popen
+    launched_commands: list[tuple[str, ...]] = []
+
+    def observed_popen(
+        command_value: tuple[str, ...], *args: object, **kwargs: object
+    ) -> subprocess.Popen[bytes]:
+        launched_commands.append(tuple(command_value))
+        return actual_popen(command_value, *args, **kwargs)
+
+    monkeypatch.setenv("OPENBB_MARKET_DATA_RUNNER", shlex.join(command))
+    monkeypatch.setenv("OPENBB_MARKET_DATA_RUNNER_PROTOCOL", "openbb-market-data-v2")
+    monkeypatch.setattr(providers.subprocess, "Popen", observed_popen)
+
+    with pytest.raises(OpenBBProviderError) as rejected:
+        await OpenBBSubprocessProvider.from_environment().fetch(_request())
+
+    assert rejected.value.code == "OPENBB_RUNNER_PROTOCOL_UNATTESTED"
+    assert preflight_started.exists()
+    assert not request_started.exists()
+    assert launched_commands == [(*command, "--protocol-self-check")]
+
+
+@pytest.mark.asyncio
+async def test_openbb_subprocess_provider_rejects_ack_pipe_creation_failure_before_spawn(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A parent-side preflight pipe failure cannot fall through to a request runner."""
+    import app.services.market_data.providers as providers
+
+    script = _runner_script(tmp_path, "raise SystemExit(0)\n")
+    launches = 0
+
+    def unavailable_pipe() -> tuple[int, int]:
+        raise OSError("synthetic pipe allocation failure")
+
+    def unexpected_popen(*args: object, **kwargs: object) -> subprocess.Popen[bytes]:
+        nonlocal launches
+        launches += 1
+        raise AssertionError("a failed preflight pipe must prevent every runner spawn")
+
+    monkeypatch.setattr(providers.os, "pipe", unavailable_pipe)
+    monkeypatch.setattr(providers.subprocess, "Popen", unexpected_popen)
+
+    with pytest.raises(OpenBBProviderError) as rejected:
+        await OpenBBSubprocessProvider(command=_isolated_runner_command(script)).fetch(_request())
+
+    assert rejected.value.code == "OPENBB_RUNNER_PROTOCOL_UNATTESTED"
+    assert launches == 0
 
 
 @pytest.mark.asyncio
@@ -743,6 +999,528 @@ os._exit(0)
     assert not survived.exists()
 
 
+def test_openbb_runner_cleanup_orders_group_kill_before_direct_child_reap() -> None:
+    """The adapter cannot signal a numeric PGID after the leader was reaped."""
+    import app.services.market_data.providers as providers
+
+    cleanup_source = inspect.getsource(providers._cleanup_owned_openbb_runner_group)
+    runner_source = inspect.getsource(providers._OpenBBSubprocessRunner.execute)
+
+    assert cleanup_source.index("_kill_owned_openbb_runner_group") < cleanup_source.index(
+        "_reap_owned_openbb_runner_process"
+    )
+    assert "subprocess.Popen" in runner_source
+    assert "asyncio.create_subprocess_exec" not in runner_source
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(os.name != "posix", reason="requires a POSIX runner process group")
+async def test_openbb_success_kills_a_descendant_that_closed_all_standard_pipes(
+    tmp_path: Path,
+) -> None:
+    """A valid receipt cannot leave an invisible same-session child alive."""
+    ready = tmp_path / "closed-pipe-child-ready"
+    survived = tmp_path / "closed-pipe-child-survived"
+    runner_pid = tmp_path / "closed-pipe-runner-pid"
+    script = _runner_script(
+        tmp_path,
+        f"""
+import hashlib
+import json
+import os
+from pathlib import Path
+import sys
+import time
+
+request = json.load(sys.stdin)
+Path({str(runner_pid)!r}).write_text(str(os.getpid()), encoding="utf-8")
+child = os.fork()
+if child == 0:
+    sys.stdin.close()
+    sys.stdout.close()
+    sys.stderr.close()
+    Path({str(ready)!r}).touch()
+    time.sleep(0.35)
+    Path({str(survived)!r}).touch()
+    time.sleep(10)
+    os._exit(0)
+while not Path({str(ready)!r}).exists():
+    time.sleep(0.01)
+raw_payload = {{"format": "openbb-records-pre-normalization-v1", "records": []}}
+raw_payload_sha256 = hashlib.sha256(
+    json.dumps(raw_payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
+).hexdigest()
+json.dump(
+    {{
+        "protocol_version": "openbb-market-data-v2",
+        "request_id": request["request_id"],
+        "request": request["request"],
+        "provider_id": "openbb:yfinance",
+        "retrieved_at": "2026-01-04T00:00:00+00:00",
+        "source_revision": "closed-pipe-child-v1",
+        "raw_payload": raw_payload,
+        "raw_payload_sha256": raw_payload_sha256,
+        "records": [],
+        "warnings": [],
+    }},
+    sys.stdout,
+)
+sys.stdout.write("\\n")
+sys.stdout.flush()
+sys.stdin.buffer.read(1)
+""",
+    )
+
+    result = await OpenBBSubprocessProvider(command=_isolated_runner_command(script)).fetch(
+        _request()
+    )
+
+    await asyncio.sleep(0.45)
+    assert result.source_revision == "closed-pipe-child-v1"
+    assert ready.exists()
+    assert not survived.exists()
+    assert not _process_is_alive(int(runner_pid.read_text(encoding="utf-8")))
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(os.name != "posix", reason="requires a POSIX runner process group")
+async def test_openbb_success_reaps_closed_pipe_descendant_after_the_leader_immediately_exits(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A valid v2 receipt cannot orphan a child when its leader exits immediately."""
+    import app.services.market_data.providers as providers
+
+    child_ready = tmp_path / "immediate-exit-child-ready"
+    child_survived = tmp_path / "immediate-exit-child-survived"
+    child_pid = tmp_path / "immediate-exit-child-pid"
+    script = tmp_path / "immediate_exit_v2_runner.py"
+    script.write_text(
+        f"""
+import hashlib
+import json
+import os
+from pathlib import Path
+import sys
+import time
+
+if sys.argv[1:] == ["--protocol-self-check"]:
+    json.dump(
+        {{
+            "protocol_version": "openbb-market-data-v2",
+            "protocol_self_check_version": "openbb-market-data-protocol-self-check-v1",
+            "transport_version": "openbb-jsonl-parent-stdin-ack-v2",
+            "status": "ready",
+        }},
+        sys.stdout,
+    )
+    sys.stdout.write("\\n")
+    sys.stdout.flush()
+    ack_fd = os.getenv("OPENBB_PROTOCOL_SELF_CHECK_ACK_FD")
+    if ack_fd is not None:
+        os.read(int(ack_fd), 1)
+    raise SystemExit(0)
+
+request = json.loads(sys.stdin.buffer.readline())
+child = os.fork()
+if child == 0:
+    sys.stdin.close()
+    sys.stdout.close()
+    sys.stderr.close()
+    Path({str(child_pid)!r}).write_text(str(os.getpid()), encoding="utf-8")
+    Path({str(child_ready)!r}).touch()
+    time.sleep(0.35)
+    Path({str(child_survived)!r}).touch()
+    time.sleep(10)
+    os._exit(0)
+while not Path({str(child_ready)!r}).exists():
+    time.sleep(0.01)
+raw_payload = {{"format": "openbb-records-pre-normalization-v1", "records": []}}
+raw_payload_sha256 = hashlib.sha256(
+    json.dumps(raw_payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
+).hexdigest()
+json.dump(
+    {{
+        "protocol_version": "openbb-market-data-v2",
+        "request_id": request["request_id"],
+        "request": request["request"],
+        "provider_id": "openbb:yfinance",
+        "retrieved_at": "2026-01-04T00:00:00+00:00",
+        "source_revision": "leader-immediate-exit-v1",
+        "raw_payload": raw_payload,
+        "raw_payload_sha256": raw_payload_sha256,
+        "records": [],
+        "warnings": [],
+    }},
+    sys.stdout,
+)
+sys.stdout.write("\\n")
+sys.stdout.flush()
+os._exit(0)
+""",
+        encoding="utf-8",
+    )
+    actual_killpg = os.killpg
+    actual_waitpid = os.waitpid
+    lifecycle: list[tuple[str, int, int]] = []
+
+    def observed_killpg(process_group_id: int, value: int) -> None:
+        lifecycle.append(("killpg", process_group_id, value))
+        actual_killpg(process_group_id, value)
+
+    def observed_waitpid(process_id: int, options: int) -> tuple[int, int]:
+        lifecycle.append(("waitpid", process_id, options))
+        return actual_waitpid(process_id, options)
+
+    monkeypatch.setattr(providers.os, "killpg", observed_killpg)
+    monkeypatch.setattr(providers.os, "waitpid", observed_waitpid)
+
+    result = await OpenBBSubprocessProvider(command=_isolated_runner_command(script)).fetch(
+        _request()
+    )
+
+    await asyncio.sleep(0.45)
+    assert result.source_revision == "leader-immediate-exit-v1"
+    assert child_ready.exists()
+    assert not child_survived.exists()
+    assert not _process_is_alive(int(child_pid.read_text(encoding="utf-8")))
+
+    reaped_process_ids: set[int] = set()
+    destructive_kills = 0
+    for operation, process_id, value in lifecycle:
+        if operation == "waitpid":
+            reaped_process_ids.add(process_id)
+        elif value == signal.SIGKILL:
+            destructive_kills += 1
+            assert process_id not in reaped_process_ids
+    assert destructive_kills == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(os.name != "posix", reason="requires a POSIX runner process group")
+async def test_openbb_drain_failure_confirms_group_before_releasing_its_admission_slot(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A failed drain cannot release the gate before a closed-pipe child is gone."""
+    import app.services.market_data.providers as providers
+
+    monkeypatch.setattr(providers, "_PROCESS_OPENBB_RUNNER_GATE", providers._OpenBBRunnerGate())
+    child_ready = tmp_path / "drain-error-child-ready"
+    child_survived = tmp_path / "drain-error-child-survived"
+    child_pid = tmp_path / "drain-error-child-pid"
+    script = _runner_script(
+        tmp_path,
+        f"""
+import hashlib
+import json
+import os
+from pathlib import Path
+import sys
+import time
+
+request = json.load(sys.stdin)
+child = os.fork()
+if child == 0:
+    sys.stdin.close()
+    sys.stdout.close()
+    sys.stderr.close()
+    Path({str(child_pid)!r}).write_text(str(os.getpid()), encoding="utf-8")
+    Path({str(child_ready)!r}).touch()
+    time.sleep(0.35)
+    Path({str(child_survived)!r}).touch()
+    time.sleep(10)
+    os._exit(0)
+while not Path({str(child_ready)!r}).exists():
+    time.sleep(0.01)
+raw_payload = {{"format": "openbb-records-pre-normalization-v1", "records": []}}
+raw_payload_sha256 = hashlib.sha256(
+    json.dumps(raw_payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
+).hexdigest()
+json.dump(
+    {{
+        "protocol_version": "openbb-market-data-v2",
+        "request_id": request["request_id"],
+        "request": request["request"],
+        "provider_id": "openbb:yfinance",
+        "retrieved_at": "2026-01-04T00:00:00+00:00",
+        "source_revision": "drain-error-v1",
+        "raw_payload": raw_payload,
+        "raw_payload_sha256": raw_payload_sha256,
+        "records": [],
+        "warnings": [],
+    }},
+    sys.stdout,
+)
+sys.stdout.write("\\n")
+sys.stdout.flush()
+sys.stdin.buffer.read(1)
+""",
+    )
+    command = _isolated_runner_command(script)
+    preflight_complete = asyncio.Event()
+    request_stderr_failed = asyncio.Event()
+    confirmation_entered = asyncio.Event()
+    confirmation_completed = asyncio.Event()
+    allow_confirmation = asyncio.Event()
+    original_attest = providers._OpenBBSubprocessRunner.attest_protocol
+    original_stream_reader = providers._read_openbb_runner_stream_bounded
+    original_confirmation = providers._confirm_openbb_runner_group_terminated
+    actual_popen = subprocess.Popen
+    launched_commands: list[tuple[str, ...]] = []
+
+    async def observed_attest(runner: object, *, timeout_seconds: float) -> None:
+        await original_attest(runner, timeout_seconds=timeout_seconds)
+        preflight_complete.set()
+
+    async def failing_request_stderr_reader(
+        stream: object,
+        *args: object,
+        **kwargs: object,
+    ) -> object:
+        if preflight_complete.is_set() and kwargs.get("stop_when_limit_exceeded") is True:
+            for _ in range(100):
+                if child_ready.exists():
+                    break
+                await asyncio.sleep(0.01)
+            assert child_ready.exists()
+            request_stderr_failed.set()
+            raise OSError("synthetic request stderr drain failure")
+        return await original_stream_reader(stream, *args, **kwargs)
+
+    async def delayed_request_confirmation(process_group_id: int) -> None:
+        if preflight_complete.is_set():
+            confirmation_entered.set()
+            await allow_confirmation.wait()
+            await original_confirmation(process_group_id)
+            confirmation_completed.set()
+            return
+        await original_confirmation(process_group_id)
+
+    def observed_popen(
+        command_value: tuple[str, ...], *args: object, **kwargs: object
+    ) -> subprocess.Popen[bytes]:
+        launched_commands.append(tuple(command_value))
+        return actual_popen(command_value, *args, **kwargs)
+
+    monkeypatch.setattr(providers._OpenBBSubprocessRunner, "attest_protocol", observed_attest)
+    monkeypatch.setattr(
+        providers,
+        "_read_openbb_runner_stream_bounded",
+        failing_request_stderr_reader,
+    )
+    monkeypatch.setattr(
+        providers,
+        "_confirm_openbb_runner_group_terminated",
+        delayed_request_confirmation,
+    )
+    monkeypatch.setattr(providers.subprocess, "Popen", observed_popen)
+    provider = OpenBBSubprocessProvider(command=command, max_concurrent_runs=1)
+    first_fetch = asyncio.create_task(provider.fetch(_request()))
+
+    await asyncio.wait_for(request_stderr_failed.wait(), timeout=1.0)
+    await asyncio.wait_for(confirmation_entered.wait(), timeout=1.0)
+    assert child_ready.exists()
+    assert launched_commands == [(*command, "--protocol-self-check"), command]
+
+    with pytest.raises(OpenBBProviderError) as overloaded:
+        await provider.fetch(_request())
+
+    assert overloaded.value.code == "OPENBB_RUNNER_OVERLOADED"
+    assert launched_commands == [(*command, "--protocol-self-check"), command]
+
+    allow_confirmation.set()
+    with pytest.raises(OpenBBProviderError) as rejected:
+        await first_fetch
+
+    await asyncio.sleep(0.45)
+    assert rejected.value.code == "OPENBB_RUNNER_CLEANUP_FAILED"
+    assert confirmation_completed.is_set()
+    assert not child_survived.exists()
+    assert not _process_is_alive(int(child_pid.read_text(encoding="utf-8")))
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(os.name != "posix", reason="requires a POSIX runner process group")
+async def test_openbb_permission_denied_cleanup_fails_closed_after_group_confirmation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A denied group signal cannot become a successful OpenBB receipt."""
+    import app.services.market_data.providers as providers
+
+    permission_denied = asyncio.Event()
+    group_was_live = asyncio.Event()
+    group_confirmed = asyncio.Event()
+    actual_killpg = os.killpg
+    kill_attempts = 0
+    signal_attempted = False
+    process_group_id: int | None = None
+
+    def signal_with_audited_denial(group_id: int, value: int) -> None:
+        nonlocal process_group_id, signal_attempted, kill_attempts
+        if value == signal.SIGKILL:
+            kill_attempts += 1
+            # The first session is the v2 preflight.  Let it terminate normally
+            # so this test injects PermissionError into the real request group.
+            if kill_attempts == 2:
+                signal_attempted = True
+                process_group_id = group_id
+                permission_denied.set()
+                raise PermissionError("synthetic group permission denial")
+        if value == 0:
+            try:
+                actual_killpg(group_id, value)
+            except ProcessLookupError:
+                group_confirmed.set()
+                raise
+            return
+        actual_killpg(group_id, value)
+
+    async def external_operator_terminates_confirmed_live_group() -> None:
+        await asyncio.wait_for(permission_denied.wait(), timeout=1.0)
+        assert process_group_id is not None
+        assert actual_killpg(process_group_id, 0) is None
+        group_was_live.set()
+        await asyncio.sleep(0.05)
+        actual_killpg(process_group_id, signal.SIGKILL)
+
+    monkeypatch.setattr(providers.os, "killpg", signal_with_audited_denial)
+    child_ready = tmp_path / "permission-child-ready"
+    script = _runner_script(
+        tmp_path,
+        f"""
+import hashlib
+import json
+import os
+from pathlib import Path
+import sys
+import time
+
+request = json.load(sys.stdin)
+child = os.fork()
+if child == 0:
+    sys.stdin.close()
+    sys.stdout.close()
+    sys.stderr.close()
+    Path({str(child_ready)!r}).touch()
+    time.sleep(10)
+    os._exit(0)
+while not Path({str(child_ready)!r}).exists():
+    time.sleep(0.01)
+raw_payload = {{"format": "openbb-records-pre-normalization-v1", "records": []}}
+raw_payload_sha256 = hashlib.sha256(
+    json.dumps(raw_payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
+).hexdigest()
+json.dump(
+    {{
+        "protocol_version": "openbb-market-data-v2",
+        "request_id": request["request_id"],
+        "request": request["request"],
+        "provider_id": "openbb:yfinance",
+        "retrieved_at": "2026-01-04T00:00:00+00:00",
+        "source_revision": "permission-denied-v1",
+        "raw_payload": raw_payload,
+        "raw_payload_sha256": raw_payload_sha256,
+        "records": [],
+        "warnings": [],
+    }},
+    sys.stdout,
+)
+sys.stdout.write("\\n")
+sys.stdout.flush()
+sys.stdin.buffer.read(1)
+""",
+    )
+    operator_task = asyncio.create_task(external_operator_terminates_confirmed_live_group())
+
+    with pytest.raises(OpenBBProviderError) as rejected:
+        await OpenBBSubprocessProvider(command=_isolated_runner_command(script)).fetch(_request())
+    await operator_task
+
+    assert signal_attempted
+    assert kill_attempts == 2
+    assert group_was_live.is_set()
+    assert group_confirmed.is_set()
+    assert rejected.value.code == "OPENBB_RUNNER_CLEANUP_FAILED"
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(os.name != "posix", reason="requires a POSIX runner process group")
+async def test_openbb_double_cancellation_waits_for_kill_reap_and_drain(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A repeated cancellation cannot release the OpenBB runner slot early."""
+    import app.services.market_data.providers as providers
+
+    ready = tmp_path / "double-cancel-child-ready"
+    survived = tmp_path / "double-cancel-child-survived"
+    runner_pid = tmp_path / "double-cancel-runner-pid"
+    cleanup_started = asyncio.Event()
+    cleanup_finished = asyncio.Event()
+    original_cleanup = providers._cleanup_owned_openbb_runner_group
+    original_confirmation = providers._confirm_openbb_runner_group_terminated
+
+    async def delayed_confirmation(process_group_id: int) -> None:
+        await original_confirmation(process_group_id)
+        await asyncio.sleep(0.05)
+
+    async def observed_cleanup(*args: object, **kwargs: object) -> object:
+        cleanup_started.set()
+        result = await original_cleanup(*args, **kwargs)
+        cleanup_finished.set()
+        return result
+
+    monkeypatch.setattr(providers, "_confirm_openbb_runner_group_terminated", delayed_confirmation)
+    monkeypatch.setattr(providers, "_cleanup_owned_openbb_runner_group", observed_cleanup)
+    script = _runner_script(
+        tmp_path,
+        f"""
+import json
+import os
+from pathlib import Path
+import sys
+import time
+
+json.load(sys.stdin)
+Path({str(runner_pid)!r}).write_text(str(os.getpid()), encoding="utf-8")
+child = os.fork()
+if child == 0:
+    Path({str(ready)!r}).touch()
+    time.sleep(0.35)
+    Path({str(survived)!r}).touch()
+    time.sleep(10)
+    os._exit(0)
+while not Path({str(ready)!r}).exists():
+    time.sleep(0.01)
+time.sleep(10)
+""",
+    )
+    provider = OpenBBSubprocessProvider(
+        command=_isolated_runner_command(script),
+        timeout_seconds=5.0,
+    )
+
+    task = asyncio.create_task(provider.fetch(_request()))
+    for _ in range(100):
+        if ready.exists():
+            break
+        await asyncio.sleep(0.01)
+    assert ready.exists()
+
+    task.cancel()
+    await asyncio.wait_for(cleanup_started.wait(), timeout=1.0)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    await asyncio.sleep(0.45)
+    assert cleanup_finished.is_set()
+    assert not survived.exists()
+    assert not _process_is_alive(int(runner_pid.read_text(encoding="utf-8")))
+
+
 @pytest.mark.asyncio
 async def test_openbb_subprocess_provider_does_not_forward_application_secrets(
     tmp_path: Path,
@@ -773,7 +1551,7 @@ if os.getenv("HOME") == "/private/application/home":
 if blocked:
     json.dump(
         {
-            "protocol_version": "openbb-market-data-v1",
+            "protocol_version": "openbb-market-data-v2",
             "request_id": request["request_id"],
         "request": request["request"],
             "error": {"code": "OPENBB_ENV_LEAK", "detail": ",".join(blocked)},
@@ -787,7 +1565,7 @@ else:
     ).hexdigest()
     json.dump(
         {
-            "protocol_version": "openbb-market-data-v1",
+            "protocol_version": "openbb-market-data-v2",
             "request_id": request["request_id"],
         "request": request["request"],
             "provider_id": "openbb:yfinance",
@@ -835,7 +1613,7 @@ request = json.load(sys.stdin)
 if os.getcwd() != {str(runner_workdir)!r}:
     json.dump(
         {{
-            "protocol_version": "openbb-market-data-v1",
+            "protocol_version": "openbb-market-data-v2",
             "request_id": request["request_id"],
         "request": request["request"],
             "error": {{"code": "OPENBB_WORKDIR_LEAK", "detail": os.getcwd()}},
@@ -849,7 +1627,7 @@ else:
     ).hexdigest()
     json.dump(
         {{
-            "protocol_version": "openbb-market-data-v1",
+            "protocol_version": "openbb-market-data-v2",
             "request_id": request["request_id"],
         "request": request["request"],
             "provider_id": "openbb:yfinance",
@@ -892,7 +1670,7 @@ raw_payload_sha256 = hashlib.sha256(
 ).hexdigest()
 json.dump(
     {
-        "protocol_version": "openbb-market-data-v1",
+        "protocol_version": "openbb-market-data-v2",
         "request_id": request["request_id"],
         "request": request["request"],
         "provider_id": "openbb:yfinance",
@@ -1059,7 +1837,7 @@ def test_openbb_runner_rejects_declared_semantics_before_importing_openbb() -> N
         [*_isolated_runner_command(runner)],
         input=json.dumps(
             {
-                "protocol_version": "openbb-market-data-v1",
+                "protocol_version": "openbb-market-data-v2",
                 "request_id": request.request_id,
                 "request": request.dto_payload,
             }
@@ -1462,6 +2240,29 @@ def test_openbb_runner_rejects_a_symlinked_owned_artifact_file(
     assert attestation.code == "OPENBB_YFINANCE_RUNTIME_ARTIFACT_UNATTESTED"
 
 
+def test_openbb_runner_protocol_self_check_has_v2_identity_and_exits_on_cli_eof() -> None:
+    """The fixed preflight is static, isolated, and does not require a parent ACK on a CLI."""
+    preflight = _run_actual_openbb_runner(arguments=["--protocol-self-check"])
+    request = _request()
+    normal = _run_actual_openbb_runner(
+        payload={
+            "protocol_version": "openbb-market-data-v2",
+            "request_id": request.request_id,
+            "request": request.dto_payload,
+        }
+    )
+
+    assert preflight.returncode == 0
+    assert json.loads(preflight.stdout) == {
+        "protocol_version": "openbb-market-data-v2",
+        "protocol_self_check_version": "openbb-market-data-protocol-self-check-v1",
+        "transport_version": "openbb-jsonl-parent-stdin-ack-v2",
+        "status": "ready",
+    }
+    assert normal.returncode == 0
+    assert json.loads(normal.stdout)["protocol_version"] == "openbb-market-data-v2"
+
+
 def test_openbb_runner_self_check_reports_a_safe_blocked_attestation(
     tmp_path: Path,
 ) -> None:
@@ -1482,7 +2283,7 @@ def test_openbb_runner_self_check_reports_a_safe_blocked_attestation(
 
     assert completed.returncode == 0
     attestation = json.loads(completed.stdout)
-    assert attestation["protocol_version"] == "openbb-market-data-v1"
+    assert attestation["protocol_version"] == "openbb-market-data-v2"
     assert attestation["self_check_version"] == "openbb-market-data-self-check-v1"
     assert attestation["status"] == "blocked"
     runtime_attestation = attestation["attestation"]["runtime"]
@@ -1593,7 +2394,7 @@ def test_openbb_ordinary_python_entrypoints_fail_closed_before_manifest_metadata
     assert attestation.returncode == 0
     assert startup_marker.exists()
     assert json.loads(self_check.stdout) == {
-        "protocol_version": "openbb-market-data-v1",
+        "protocol_version": "openbb-market-data-v2",
         "self_check_version": "openbb-market-data-self-check-v1",
         "status": "blocked",
         "error": {
@@ -1602,7 +2403,7 @@ def test_openbb_ordinary_python_entrypoints_fail_closed_before_manifest_metadata
         },
     }
     assert json.loads(attestation.stdout) == {
-        "protocol_version": "openbb-market-data-v1",
+        "protocol_version": "openbb-market-data-v2",
         "runtime_attestation_version": "openbb-yfinance-runtime-attestation-v1",
         "status": "blocked",
         "error": {
@@ -1619,7 +2420,7 @@ def test_openbb_ordinary_python_entrypoints_fail_closed_before_manifest_metadata
     request = _request()
     blocked_request = _run_actual_openbb_runner(
         payload={
-            "protocol_version": "openbb-market-data-v1",
+            "protocol_version": "openbb-market-data-v2",
             "request_id": request.request_id,
             "request": request.dto_payload,
         },
@@ -1629,7 +2430,7 @@ def test_openbb_ordinary_python_entrypoints_fail_closed_before_manifest_metadata
 
     assert blocked_request.returncode == 0
     assert json.loads(blocked_request.stdout) == {
-        "protocol_version": "openbb-market-data-v1",
+        "protocol_version": "openbb-market-data-v2",
         "request_id": request.request_id,
         "error": {
             "code": "OPENBB_RUNTIME_ISOLATION_UNATTESTED",
@@ -1681,7 +2482,7 @@ def test_openbb_isolated_runner_ignores_pythonpath_startup_and_openbb_import_sen
     request = _request()
     blocked_request = _run_actual_openbb_runner(
         payload={
-            "protocol_version": "openbb-market-data-v1",
+            "protocol_version": "openbb-market-data-v2",
             "request_id": request.request_id,
             "request": request.dto_payload,
         },
@@ -1739,7 +2540,7 @@ def test_openbb_runner_blocks_yfinance_before_import_when_runtime_artifact_is_un
 
     completed = _run_actual_openbb_runner(
         payload={
-            "protocol_version": "openbb-market-data-v1",
+            "protocol_version": "openbb-market-data-v2",
             "request_id": request.request_id,
             "request": request.dto_payload,
         },
@@ -1791,7 +2592,7 @@ def test_openbb_runner_rejects_an_overlarge_daily_window_before_importing_openbb
 
     completed = _run_actual_openbb_runner(
         payload={
-            "protocol_version": "openbb-market-data-v1",
+            "protocol_version": "openbb-market-data-v2",
             "request_id": request.request_id,
             "request": request.dto_payload,
         },
@@ -1824,7 +2625,7 @@ def test_openbb_runner_rejects_dangerous_extension_environment_before_import(
 
     completed = _run_actual_openbb_runner(
         payload={
-            "protocol_version": "openbb-market-data-v1",
+            "protocol_version": "openbb-market-data-v2",
             "request_id": request.request_id,
             "request": request.dto_payload,
         },
@@ -1910,7 +2711,7 @@ def test_openbb_runner_rejects_a_nonexact_provider_environment_before_import(
 
     completed = _run_actual_openbb_runner(
         payload={
-            "protocol_version": "openbb-market-data-v1",
+            "protocol_version": "openbb-market-data-v2",
             "request_id": request.request_id,
             "request": request.dto_payload,
         },

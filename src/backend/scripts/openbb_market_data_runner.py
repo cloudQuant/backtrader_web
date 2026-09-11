@@ -21,7 +21,10 @@ from importlib import metadata
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any
 
-PROTOCOL_VERSION = "openbb-market-data-v1"
+PROTOCOL_VERSION = "openbb-market-data-v2"
+PROTOCOL_SELF_CHECK_VERSION = "openbb-market-data-protocol-self-check-v1"
+TRANSPORT_VERSION = "openbb-jsonl-parent-stdin-ack-v2"
+_PROTOCOL_SELF_CHECK_ACK_FD_ENVIRONMENT_KEY = "OPENBB_PROTOCOL_SELF_CHECK_ACK_FD"
 SELF_CHECK_VERSION = "openbb-market-data-self-check-v1"
 _ALLOWED_ASSET_TYPES = {"stock", "fund", "futures", "fx", "crypto"}
 _YFINANCE_INTERVAL_BY_FREQUENCY = {
@@ -599,9 +602,44 @@ def _runtime_artifact_attestation() -> _RuntimeArtifactAttestation:
 
 
 def _emit(payload: Mapping[str, Any]) -> int:
-    sys.stdout.write(json.dumps(payload, ensure_ascii=False, default=_json_default))
+    # The parent reads one complete receipt frame while keeping stdin open.
+    # It can then terminate this owned session before reaping its leader, so a
+    # response-emitting descendant cannot survive through a stale PGID window.
+    sys.stdout.write(json.dumps(payload, ensure_ascii=False, default=_json_default) + "\n")
     sys.stdout.flush()
     return 0
+
+
+def _protocol_self_check_payload(*, status: str) -> dict[str, str]:
+    """Return static transport identity without loading manifests or OpenBB."""
+    return {
+        "protocol_version": PROTOCOL_VERSION,
+        "protocol_self_check_version": PROTOCOL_SELF_CHECK_VERSION,
+        "transport_version": TRANSPORT_VERSION,
+        "status": status,
+    }
+
+
+def _wait_for_protocol_self_check_parent_ack() -> None:
+    """Keep the preflight leader alive until its parent owns group shutdown."""
+    raw_file_descriptor = os.getenv(_PROTOCOL_SELF_CHECK_ACK_FD_ENVIRONMENT_KEY)
+    if raw_file_descriptor is None:
+        return
+    try:
+        file_descriptor = int(raw_file_descriptor)
+    except ValueError:
+        return
+    if file_descriptor < 0:
+        return
+    try:
+        os.read(file_descriptor, 1)
+    except OSError:
+        pass
+    finally:
+        try:
+            os.close(file_descriptor)
+        except OSError:
+            pass
 
 
 def _json_default(value: object) -> str | float:
@@ -1089,7 +1127,7 @@ def _provider_error_code(exc: Exception) -> str:
 
 def main() -> int:
     try:
-        envelope = json.load(sys.stdin)
+        envelope = json.loads(sys.stdin.buffer.readline())
     except (json.JSONDecodeError, OSError) as exc:
         return _error(None, "OPENBB_RUNNER_INVALID_REQUEST", str(exc))
     if not isinstance(envelope, Mapping):
@@ -1261,6 +1299,11 @@ def main() -> int:
 
 def _run(argv: list[str]) -> int:
     """Choose one bounded operator check without allowing undocumented CLI modes."""
+    if argv == ["--protocol-self-check"]:
+        status = "ready" if _has_pre_import_isolation_boundary() else "blocked"
+        result = _emit(_protocol_self_check_payload(status=status))
+        _wait_for_protocol_self_check_parent_ack()
+        return result
     if argv == ["--self-check"]:
         if not _has_pre_import_isolation_boundary():
             return _emit(_self_check_without_pre_import_isolation())
@@ -1271,7 +1314,13 @@ def _run(argv: list[str]) -> int:
         return _emit(_runtime_attestation_payload())
     if argv:
         return _error(None, "OPENBB_RUNNER_ARGUMENT_INVALID", "unsupported runner argument")
-    return main()
+    result = main()
+    # Do not exit after emitting a receipt until the parent closes stdin.  The
+    # parent owns this runner's session and sends SIGKILL before waitpid,
+    # preserving the leader's PID/PGID identity while descendants are reaped.
+    # Direct CLI execution supplies EOF, so operator checks remain one-shot.
+    sys.stdin.buffer.read(1)
+    return result
 
 
 if __name__ == "__main__":
