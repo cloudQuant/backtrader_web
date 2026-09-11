@@ -114,7 +114,7 @@ _SENSITIVE_PATH_PART_RE = re.compile(r"(?:^|[._-])(env|secret|credential|token|p
 # ancestry below gives an actionable failure when a checkout has an incomplete
 # or forked chain, while the exact tip prevents an unreviewed successor from
 # being counted as Iteration 197 acceptance evidence.
-EXPECTED_ALEMBIC_HEAD = "20260910_market_data_capability_ledger"
+EXPECTED_ALEMBIC_HEAD = "20260911_market_data_b2_completeness_evidence"
 REQUIRED_ALEMBIC_REVISIONS = frozenset(
     {
         "20260908_ai_research_approval_authority",
@@ -127,6 +127,9 @@ REQUIRED_ALEMBIC_REVISIONS = frozenset(
         "20260909_market_data_research_binding_consumers",
         "20260910_market_data_shared_source_payloads",
         "20260910_market_data_capability_ledger",
+        "20260911_market_data_deferred_publications",
+        "20260911_market_data_semantic_record_keys",
+        "20260911_market_data_b2_completeness_evidence",
     }
 )
 

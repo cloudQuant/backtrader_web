@@ -21,7 +21,11 @@ _MARKET_DATA_HEAD = "20260909_market_data_constraint_name_portability"
 _MERGE_REVISION = "20260909_ai_research_market_data_merge"
 _RESEARCH_BINDINGS_REVISION = "20260909_market_data_research_bindings"
 _BINDING_CONSUMERS_REVISION = "20260909_market_data_research_binding_consumers"
-_INTEGRATED_HEAD = "20260910_market_data_shared_source_payloads"
+_SHARED_SOURCE_PAYLOADS_REVISION = "20260910_market_data_shared_source_payloads"
+_CAPABILITY_LEDGER_REVISION = "20260910_market_data_capability_ledger"
+_DEFERRED_PUBLICATIONS_REVISION = "20260911_market_data_deferred_publications"
+_SEMANTIC_RECORD_KEYS_REVISION = "20260911_market_data_semantic_record_keys"
+_INTEGRATED_HEAD = "20260911_market_data_b2_completeness_evidence"
 _LEGACY_HEAD = "20260805_asset_research_outcome_reliability"
 _TABLES = {
     "asset_instruments",
@@ -117,6 +121,10 @@ def test_asset_research_graph_has_one_integrated_head() -> None:
     merge_revision = script.get_revision(_MERGE_REVISION)
     research_bindings_revision = script.get_revision(_RESEARCH_BINDINGS_REVISION)
     binding_consumers_revision = script.get_revision(_BINDING_CONSUMERS_REVISION)
+    shared_source_payloads_revision = script.get_revision(_SHARED_SOURCE_PAYLOADS_REVISION)
+    capability_ledger_revision = script.get_revision(_CAPABILITY_LEDGER_REVISION)
+    deferred_publications_revision = script.get_revision(_DEFERRED_PUBLICATIONS_REVISION)
+    semantic_record_keys_revision = script.get_revision(_SEMANTIC_RECORD_KEYS_REVISION)
     integrated_head = script.get_revision(_INTEGRATED_HEAD)
 
     assert merge_revision is not None
@@ -125,8 +133,16 @@ def test_asset_research_graph_has_one_integrated_head() -> None:
     assert research_bindings_revision.down_revision == _MERGE_REVISION
     assert binding_consumers_revision is not None
     assert binding_consumers_revision.down_revision == _RESEARCH_BINDINGS_REVISION
+    assert shared_source_payloads_revision is not None
+    assert shared_source_payloads_revision.down_revision == _BINDING_CONSUMERS_REVISION
+    assert capability_ledger_revision is not None
+    assert capability_ledger_revision.down_revision == _SHARED_SOURCE_PAYLOADS_REVISION
+    assert deferred_publications_revision is not None
+    assert deferred_publications_revision.down_revision == _CAPABILITY_LEDGER_REVISION
+    assert semantic_record_keys_revision is not None
+    assert semantic_record_keys_revision.down_revision == _DEFERRED_PUBLICATIONS_REVISION
     assert integrated_head is not None
-    assert integrated_head.down_revision == _BINDING_CONSUMERS_REVISION
+    assert integrated_head.down_revision == _SEMANTIC_RECORD_KEYS_REVISION
     assert script.get_heads() == [_INTEGRATED_HEAD]
 
 
