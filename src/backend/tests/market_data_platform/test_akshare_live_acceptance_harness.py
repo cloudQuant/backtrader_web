@@ -209,6 +209,7 @@ async def test_offline_fake_chain_persists_then_independently_rereads(tmp_path) 
     output = await harness._run_live(
         database_path=database_path,
         trading_date=harness.DEFAULT_TRADING_DATE,
+        profile=harness._PROFILES["stock-liquidity"],
         provider_factory=lambda: fake,
     )
 
@@ -228,7 +229,7 @@ async def test_offline_fake_chain_persists_then_independently_rereads(tmp_path) 
     }
     assert "must-never-appear-in-summary" not in str(output)
     assert len(fake.requests) == 1
-    assert fake.requests[0].route_id == harness.ROUTE_ID
+    assert fake.requests[0].route_id == harness._PROFILES["stock-liquidity"].route_id
     assert fake.requests[0].data_kind == "reference_series"
     assert database_path.exists()
 
@@ -239,6 +240,7 @@ async def test_empty_source_result_is_a_stable_non_sensitive_failure(tmp_path) -
     output = await harness._run_live(
         database_path=tmp_path / "empty-harness.sqlite3",
         trading_date=harness.DEFAULT_TRADING_DATE,
+        profile=harness._PROFILES["stock-liquidity"],
         provider_factory=_EmptyAkShareProvider,
     )
 
@@ -260,6 +262,7 @@ async def test_window_filtered_result_reports_counts_without_source_rows(tmp_pat
     output = await harness._run_live(
         database_path=tmp_path / "window-filtered-harness.sqlite3",
         trading_date=harness.DEFAULT_TRADING_DATE,
+        profile=harness._PROFILES["stock-liquidity"],
         provider_factory=_WindowFilteredAkShareProvider,
     )
 
@@ -271,3 +274,92 @@ async def test_window_filtered_result_reports_counts_without_source_rows(tmp_pat
         "normalized_observation_count": 0,
     }
     assert "must-never-appear-in-window-summary" not in str(output)
+
+
+_PROFILE_FIELDS = {
+    "fund-liquidity": {"volume": 8_467_983, "turnover": 3_962_900_000.0},
+    "fund-nav": {
+        "nav": 4.684,
+        "cumulative_nav": 4.684,
+        "daily_growth_rate": -0.02,
+    },
+    "fx-range": {"open": 7.1150, "high": 7.1250, "low": 7.1050, "close": 7.1180},
+}
+
+
+class _ProfileFakeProvider:
+    """Return one in-window observation shaped for the selected family."""
+
+    def __init__(self, fields: dict[str, object]) -> None:
+        self._fields = fields
+        self.requests: list[MarketDataProviderRequest] = []
+
+    async def fetch(self, request: MarketDataProviderRequest) -> ProviderFetchResult:
+        self.requests.append(request)
+        return ProviderFetchResult(
+            provider_id="akshare",
+            source_revision="offline-profile-fixture-v1",
+            retrieved_at=datetime.now(UTC),
+            observations=(
+                ProviderMarketObservation(
+                    event_at=request.start_at,
+                    available_at=request.start_at + timedelta(hours=8),
+                    fields=dict(self._fields),
+                ),
+            ),
+            raw_payload={"response_rows": [dict(self._fields)]},
+            request=request,
+        )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("family_key", sorted(_PROFILE_FIELDS))
+async def test_each_reviewed_family_profile_completes_the_offline_chain(
+    tmp_path, family_key
+) -> None:
+    """Every seeded family profile resolves, persists, and local_only rereads offline."""
+    profile = harness._PROFILES[family_key]
+    fake = _ProfileFakeProvider(_PROFILE_FIELDS[family_key])
+
+    output = await harness._run_live(
+        database_path=tmp_path / f"{family_key}-harness.sqlite3",
+        trading_date=harness.DEFAULT_TRADING_DATE,
+        profile=profile,
+        provider_factory=lambda: fake,
+    )
+
+    assert output["status"] == "pass", output
+    assert output["code"] == "AKSHARE_LOCAL_FIRST_CHAIN_PASSED"
+    assert output["family_id"] == profile.family_id
+    assert output["route_id"] == profile.route_id
+    assert output["provider_fetch_attempt_count"] == 1
+    assert output["independent_local_only_reread"]["provider_fetch_attempt_count"] == 0
+    assert output["persistence"] == {
+        "source_snapshot_count": 1,
+        "observation_revision_count": 1,
+    }
+    assert len(fake.requests) == 1
+    assert fake.requests[0].route_id == profile.route_id
+    assert fake.requests[0].data_kind == profile.data_kind
+    # The seeded identity markers must satisfy route-level fund/ETF guards.
+    assert fake.requests[0].market == profile.venue
+    assert fake.requests[0].provider_symbol == profile.display_symbol
+
+
+def test_every_profile_mirrors_the_production_contract_axes() -> None:
+    """Harness profiles stay bound to the reviewed dataset contracts and routes."""
+    from app.services.market_data.akshare_provider import AKSHARE_ROUTE_REGISTRY as akshare_routes
+
+    routes = {route.family_id: route for route in akshare_routes if route.family_id is not None}
+    for profile in harness._PROFILES.values():
+        route = routes[profile.family_id]
+        assert profile.route_id in route.route_ids
+        assert profile.data_kind == route.data_kind
+        assert frozenset(profile.required_fields) == frozenset(
+            harness._request_for(
+                profile,
+                start=datetime(2026, 1, 5, tzinfo=UTC),
+                end=datetime(2026, 1, 6, tzinfo=UTC),
+                mode="local_first",
+            ).required_fields
+        )

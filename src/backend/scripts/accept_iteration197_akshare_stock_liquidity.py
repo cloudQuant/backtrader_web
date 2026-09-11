@@ -5,9 +5,11 @@ The command is deliberately a narrow non-production harness.  It does not use
 ``DATABASE_URL``, does not alter application configuration or credentials, and
 never talks to AkShare unless ``--live`` is supplied.  A live run creates a
 fresh SQLite file, seeds only the synthetic control-plane prerequisites needed
-for the exact ``stock.liquidity`` family, exercises the real
-``MarketDataQueryService`` and AkShare adapter, commits that isolated receipt,
-then verifies an independent ``local_only`` re-read before deleting the file.
+for one exact reviewed B1 family (``--family stock-liquidity`` by default;
+``fund-liquidity``, ``fund-nav`` and ``fx-range`` select the other reviewed
+routes), exercises the real ``MarketDataQueryService`` and AkShare adapter,
+commits that isolated receipt, then verifies an independent ``local_only``
+re-read before deleting the file.
 
 Run from ``src/backend`` with the repository-required Conda interpreter:
 
@@ -18,7 +20,8 @@ The default output is a safe ``NOT_RUN`` result and makes no network or
 database call.  A live confirmation is explicit:
 
     /Users/yunjinqi/opt/anaconda3/bin/conda run --no-capture-output -n base \
-        python scripts/accept_iteration197_akshare_stock_liquidity.py --live
+        python scripts/accept_iteration197_akshare_stock_liquidity.py --live \
+        --family fund-liquidity --trading-date 2026-09-08
 
 ``--database-path`` is optional for operators that need to choose the temporary
 file location.  It must name a non-existent ``.db``, ``.sqlite`` or
@@ -90,18 +93,212 @@ from app.services.market_data.source_policy import (
 from app.services.market_data.store import MarketDataStore
 
 UTC = timezone.utc
-CANONICAL_ID = "instrument:stock:CN-SSE:600000"
-DISPLAY_SYMBOL = "600000"
-FAMILY_ID = "stock.liquidity"
 FAMILY_CONTRACT_VERSION = "market-data-family-v1"
-DATASET_CODE = "market.liquidity"
-SOURCE_POLICY_ID = "market-default-v1"
-ROUTE_ID = "akshare-stock-liquidity-primary-v1"
-REQUIRED_FIELDS = ("volume", "turnover", "turnover_rate")
 DEFAULT_TRADING_DATE = date(2024, 1, 2)
 _SAFE_CODE = re.compile(r"^[A-Z][A-Z0-9_]{1,127}$")
 _SAFE_WARNING_CODE = re.compile(r"^[A-Z][A-Z0-9_]{1,127}$")
 _DATABASE_SUFFIXES = frozenset({".db", ".sqlite", ".sqlite3"})
+
+
+@dataclass(frozen=True, slots=True)
+class _FamilyProfile:
+    """One reviewed B1 family probe: identity, request axes, and route mirror.
+
+    Every field mirrors the production dataset contract and the AkShare route
+    registry.  The harness never invents a second semantics for a family that
+    production already pinned, so a probe exercises exactly the reviewed pair.
+    """
+
+    key: str
+    family_id: str
+    dataset_code: str
+    data_kind: str
+    required_fields: tuple[str, ...]
+    route_id: str
+    source_policy_id: str
+    asset_type: str
+    identity_level: str
+    identity_currency: str
+    canonical_id: str
+    display_symbol: str
+    venue: str
+    identifier_type: str
+    identifier_value: str
+    product_type: str
+    identity_details: tuple[tuple[str, str], ...]
+    registry_asset_types: tuple[str, ...]
+    route_asset_types: frozenset[str]
+    route_markets: frozenset[str]
+    route_adjustments: frozenset[str]
+    route_price_bases: frozenset[str]
+    route_currencies: frozenset[str | None]
+    route_units: frozenset[str | None]
+    route_product_types: frozenset[str] | None
+    route_fund_identity_kinds: frozenset[str] | None
+    request_adjustment: str
+    request_price_basis: str
+    # ``None`` omits the axis from the request exactly like the reviewed
+    # public contract (fx.range declares no currency/unit axis).
+    request_currency: str | None
+    request_unit: str | None
+
+
+_PROFILES: dict[str, _FamilyProfile] = {
+    profile.key: profile
+    for profile in (
+        _FamilyProfile(
+            key="stock-liquidity",
+            family_id="stock.liquidity",
+            dataset_code="market.liquidity",
+            data_kind="reference_series",
+            required_fields=("volume", "turnover", "turnover_rate"),
+            route_id="akshare-stock-liquidity-primary-v1",
+            source_policy_id="market-default-v1",
+            asset_type="stock",
+            identity_level="ASSET",
+            identity_currency="CNY",
+            canonical_id="instrument:stock:CN-SSE:600000",
+            display_symbol="600000",
+            venue="CN-SSE",
+            identifier_type="EXCHANGE_SYMBOL",
+            identifier_value="600000.SH",
+            product_type="EQUITY",
+            identity_details=(("kind", "STOCK"), ("exchange_symbol", "600000.SH")),
+            registry_asset_types=("stock",),
+            route_asset_types=frozenset({"stock"}),
+            route_markets=frozenset({"CN-SSE"}),
+            route_adjustments=frozenset({"unadjusted"}),
+            route_price_bases=frozenset({"close"}),
+            route_currencies=frozenset({"CNY"}),
+            route_units=frozenset({"share"}),
+            route_product_types=None,
+            route_fund_identity_kinds=None,
+            request_adjustment="unadjusted",
+            request_price_basis="close",
+            request_currency="CNY",
+            request_unit="share",
+        ),
+        _FamilyProfile(
+            key="fund-liquidity",
+            family_id="fund.liquidity",
+            dataset_code="market.liquidity",
+            data_kind="reference_series",
+            required_fields=("volume", "turnover"),
+            route_id="akshare-fund-liquidity-primary-v1",
+            source_policy_id="market-default-v1",
+            asset_type="fund",
+            identity_level="PRODUCT",
+            identity_currency="CNY",
+            canonical_id="instrument:fund:CN-SSE:510300",
+            display_symbol="510300",
+            venue="CN-SSE",
+            identifier_type="EXCHANGE_SYMBOL",
+            identifier_value="510300.SH",
+            product_type="ETF",
+            identity_details=(
+                ("kind", "FUND"),
+                ("fund_identity_kind", "LISTING"),
+                ("fund_id", "iteration197-harness:etf:510300"),
+                ("share_class_id", "iteration197-harness:etf:510300:listing"),
+            ),
+            registry_asset_types=("fund",),
+            route_asset_types=frozenset({"fund"}),
+            route_markets=frozenset({"CN-SSE", "CN-SZSE"}),
+            route_adjustments=frozenset({"unadjusted"}),
+            route_price_bases=frozenset({"close"}),
+            route_currencies=frozenset({"CNY"}),
+            route_units=frozenset({"share"}),
+            route_product_types=None,
+            route_fund_identity_kinds=None,
+            request_adjustment="unadjusted",
+            request_price_basis="close",
+            request_currency="CNY",
+            request_unit="share",
+        ),
+        _FamilyProfile(
+            key="fund-nav",
+            family_id="fund.nav",
+            dataset_code="market.fund_nav",
+            data_kind="reference_series",
+            required_fields=("nav", "cumulative_nav", "daily_growth_rate"),
+            route_id="akshare-fund-nav-primary-v1",
+            source_policy_id="market-default-v1",
+            asset_type="fund",
+            identity_level="PRODUCT",
+            identity_currency="CNY",
+            canonical_id="instrument:fund:CN-SSE:510300",
+            display_symbol="510300",
+            venue="CN-SSE",
+            identifier_type="EXCHANGE_SYMBOL",
+            identifier_value="510300.SH",
+            product_type="ETF",
+            # The frozen identity must declare both reviewed markers before
+            # the route authorizes any provider I/O; LOF/REIT/share-class
+            # identities are rejected by the adapter itself.
+            identity_details=(
+                ("kind", "FUND"),
+                ("fund_identity_kind", "LISTING"),
+                ("fund_id", "iteration197-harness:etf:510300"),
+                ("share_class_id", "iteration197-harness:etf:510300:listing"),
+            ),
+            registry_asset_types=("fund",),
+            route_asset_types=frozenset({"fund"}),
+            route_markets=frozenset({"CN-SSE", "CN-SZSE"}),
+            route_adjustments=frozenset({"source_reported"}),
+            route_price_bases=frozenset({"nav"}),
+            route_currencies=frozenset({"CNY"}),
+            route_units=frozenset({"fund_share"}),
+            route_product_types=frozenset({"ETF"}),
+            route_fund_identity_kinds=frozenset({"LISTING"}),
+            request_adjustment="source_reported",
+            request_price_basis="nav",
+            request_currency="CNY",
+            request_unit="fund_share",
+        ),
+        _FamilyProfile(
+            key="fx-range",
+            family_id="fx.range",
+            dataset_code="market.bars",
+            data_kind="bars",
+            required_fields=("open", "high", "low", "close"),
+            route_id="akshare-fx-range-primary-v1",
+            source_policy_id="market-default-v1",
+            asset_type="fx",
+            identity_level="PRODUCT",
+            identity_currency="CNH",
+            canonical_id="instrument:fx:OTC:USDCNH",
+            display_symbol="USDCNH",
+            venue="OTC",
+            identifier_type="PROVIDER_SYMBOL",
+            identifier_value="USDCNH",
+            product_type="FX_PAIR",
+            identity_details=(
+                ("kind", "FX"),
+                ("base_currency", "USD"),
+                ("quote_currency", "CNH"),
+                ("settlement_type", "SPOT"),
+                ("settlement_currency", "CNH"),
+                ("calendar_id", "OTC"),
+                ("price_convention", "USD_PER_CNH"),
+            ),
+            registry_asset_types=("fx",),
+            route_asset_types=frozenset({"fx"}),
+            route_markets=frozenset({"OTC", "CN-OTC"}),
+            route_adjustments=frozenset({"unadjusted"}),
+            route_price_bases=frozenset({"close"}),
+            # fx.range declares no currency/unit axis; the route accepts the
+            # undeclared (``None``) axis value exactly like the public contract.
+            route_currencies=frozenset({None}),
+            route_units=frozenset({None}),
+            route_product_types=None,
+            route_fund_identity_kinds=None,
+            request_adjustment="unadjusted",
+            request_price_basis="close",
+            request_currency=None,
+            request_unit=None,
+        ),
+    )
+}
 
 
 class _Provider(Protocol):
@@ -244,6 +441,16 @@ def _arguments(argv: list[str] | None = None) -> argparse.Namespace:
         help="Explicitly permit one real AkShare request through the local-first service.",
     )
     parser.add_argument(
+        "--family",
+        dest="family",
+        choices=sorted(_PROFILES),
+        default="stock-liquidity",
+        help=(
+            "Which reviewed B1 family probe to run (default: stock-liquidity). "
+            "Each probe uses its own exact route, identity, and calendar seed."
+        ),
+    )
+    parser.add_argument(
         "--database-path",
         metavar="PATH",
         help=(
@@ -256,7 +463,7 @@ def _arguments(argv: list[str] | None = None) -> argparse.Namespace:
         metavar="YYYY-MM-DD",
         default=DEFAULT_TRADING_DATE.isoformat(),
         help=(
-            "One Monday-Friday historical date for the exact 600000 stock.liquidity probe "
+            "One Monday-Friday historical date for the exact single-day probe window "
             f"(default: {DEFAULT_TRADING_DATE.isoformat()})."
         ),
     )
@@ -307,50 +514,60 @@ def _window_for(trading_date: date) -> tuple[datetime, datetime]:
     return start, start + timedelta(days=1)
 
 
-def _request_for(*, start: datetime, end: datetime, mode: str) -> MarketDataQueryRequest:
+def _request_for(
+    profile: _FamilyProfile, *, start: datetime, end: datetime, mode: str
+) -> MarketDataQueryRequest:
     """Build the public B1 contract; no generic/unbound request is permitted."""
-    return MarketDataQueryRequest.model_validate(
-        {
-            "identity": {"canonical_id": CANONICAL_ID},
-            "family_id": FAMILY_ID,
-            "family_contract_version": FAMILY_CONTRACT_VERSION,
-            "dataset_code": DATASET_CODE,
-            "data_kind": "reference_series",
-            "frequency": "1d",
-            "start": start.isoformat(),
-            "end": end.isoformat(),
-            "required_fields": list(REQUIRED_FIELDS),
-            "adjustment": "unadjusted",
-            "price_basis": "close",
-            "currency": "CNY",
-            "unit": "share",
-            "source_policy_id": SOURCE_POLICY_ID,
-            "mode": mode,
-            "purpose": "display",
-        }
-    )
+    payload: dict[str, object] = {
+        "identity": {"canonical_id": profile.canonical_id},
+        "family_id": profile.family_id,
+        "family_contract_version": FAMILY_CONTRACT_VERSION,
+        "dataset_code": profile.dataset_code,
+        "data_kind": profile.data_kind,
+        "frequency": "1d",
+        "start": start.isoformat(),
+        "end": end.isoformat(),
+        "required_fields": list(profile.required_fields),
+        "adjustment": profile.request_adjustment,
+        "price_basis": profile.request_price_basis,
+        "source_policy_id": profile.source_policy_id,
+        "mode": mode,
+        "purpose": "display",
+    }
+    # The reviewed semantic binding requires every axis to be supplied
+    # explicitly (``model_fields_set``), including an undeclared ``None`` for
+    # fx.range, so both keys always enter the validated payload.
+    payload["currency"] = profile.request_currency
+    payload["unit"] = profile.request_unit
+    return MarketDataQueryRequest.model_validate(payload)
 
 
-def _source_policies(provider: _Provider) -> MarketDataSourcePolicyRegistry:
-    """Mirror only the reviewed stock-liquidity production route."""
+def _source_policies(
+    provider: _Provider, profile: _FamilyProfile
+) -> MarketDataSourcePolicyRegistry:
+    """Mirror only the reviewed production route for the selected family."""
     route = MarketDataProviderRoute(
-        route_id=ROUTE_ID,
+        route_id=profile.route_id,
         request_provider="akshare",
         expected_result_provider_ids=frozenset({"akshare"}),
-        asset_types=frozenset({"stock"}),
-        data_kinds=frozenset({"reference_series"}),
+        asset_types=profile.route_asset_types,
+        data_kinds=frozenset({profile.data_kind}),
         frequencies=frozenset({"1d"}),
-        markets=frozenset({"CN-SSE"}),
-        adjustments=frozenset({"unadjusted"}),
-        price_bases=frozenset({"close"}),
-        currencies=frozenset({"CNY"}),
-        units=frozenset({"share"}),
+        markets=profile.route_markets,
+        adjustments=profile.route_adjustments,
+        price_bases=profile.route_price_bases,
+        currencies=profile.route_currencies,
+        units=profile.route_units,
+        family_id=profile.family_id,
+        family_contract_version=FAMILY_CONTRACT_VERSION,
+        product_types=profile.route_product_types,
+        fund_identity_kinds=profile.route_fund_identity_kinds,
         adapter=provider,
     )
     return MarketDataSourcePolicyRegistry(
         (
             MarketDataSourcePolicy(
-                policy_id=SOURCE_POLICY_ID,
+                policy_id=profile.source_policy_id,
                 allowed_purposes=frozenset({"display"}),
                 routes=(route,),
             ),
@@ -362,6 +579,7 @@ async def _seed_prerequisites(
     session: AsyncSession,
     *,
     database_url: str,
+    profile: _FamilyProfile,
     start: datetime,
     end: datetime,
 ) -> str:
@@ -381,8 +599,8 @@ async def _seed_prerequisites(
     session.add(
         AssetDataSourceRegistry(
             source_id="akshare",
-            asset_types=["stock"],
-            jurisdictions=["CN"],
+            asset_types=list(profile.registry_asset_types),
+            jurisdictions=["CN"] if profile.asset_type != "fx" else ["GLOBAL"],
             license_status="APPROVED",
             allowed_uses=["DISPLAY"],
             redistribution_policy="NO_REDISTRIBUTION",
@@ -400,19 +618,19 @@ async def _seed_prerequisites(
 
     identity = InstrumentIdentity.model_validate(
         {
-            "asset_type": "stock",
-            "identity_level": "ASSET",
-            "canonical_id": CANONICAL_ID,
-            "display_symbol": DISPLAY_SYMBOL,
+            "asset_type": profile.asset_type,
+            "identity_level": profile.identity_level,
+            "canonical_id": profile.canonical_id,
+            "display_symbol": profile.display_symbol,
             "name": "Iteration 197 disposable acceptance instrument",
-            "venue": "CN-SSE",
-            "currency": "CNY",
-            "timezone": "Asia/Shanghai",
-            "identifier_type": "EXCHANGE_SYMBOL",
-            "identifier_value": "600000.SH",
-            "product_type": "EQUITY",
+            "venue": profile.venue,
+            "currency": profile.identity_currency,
+            "timezone": "Asia/Shanghai" if profile.asset_type != "fx" else "UTC",
+            "identifier_type": profile.identifier_type,
+            "identifier_value": profile.identifier_value,
+            "product_type": profile.product_type,
             "metadata_version": "iteration197-harness-v1",
-            "details": {"kind": "STOCK", "exchange_symbol": "600000.SH"},
+            "details": dict(profile.identity_details),
         }
     )
     identity_writer = MarketDataIdentityWriter(session)
@@ -426,22 +644,28 @@ async def _seed_prerequisites(
         "evidence_uri": "file:///iteration197-harness/non-production-calendar.json",
         "evidence_content_hash": "0" * 64,
         "source_registry_id": "akshare",
-        "calendar_code": "CN-SSE",
+        # The store resolves the calendar by the request's market value, so
+        # the synthetic grid reuses the frozen venue of this probe identity.
+        "calendar_code": profile.venue,
         "calendar_version": f"harness-{start.date().isoformat()}",
-        "timezone_name": "Asia/Shanghai",
+        "timezone_name": "Asia/Shanghai" if profile.asset_type != "fx" else "UTC",
         "coverage_start_at": start.isoformat(),
         "coverage_end_at": end.isoformat(),
         "events": [
             {
                 "trading_date": start.date().isoformat(),
                 "event_type": "session",
-                "session_code": "reference-series-daily-close",
+                "session_code": (
+                    "reference-series-daily-close"
+                    if profile.data_kind == "reference_series"
+                    else "daily-bar-close"
+                ),
                 "is_trading_day": True,
                 "event_start": start.isoformat(),
                 # ``event_end`` stays strictly below the half-open coverage
                 # endpoint while still representing the one daily event.
                 "event_end": (end - timedelta(microseconds=1)).isoformat(),
-                "coverage": {"data_kind": "reference_series", "frequency": "1d"},
+                "coverage": {"data_kind": profile.data_kind, "frequency": "1d"},
                 "event_payload": {"provider_observation_key": "daily-close"},
             }
         ],
@@ -462,7 +686,9 @@ async def _access(session: AsyncSession, *, user_id: str) -> MarketDataQueryAcce
     return MarketDataQueryAccess(principal=principal, authorizer=authorizer)
 
 
-def _service(session: AsyncSession, provider: _Provider) -> MarketDataQueryService:
+def _service(
+    session: AsyncSession, provider: _Provider, profile: _FamilyProfile
+) -> MarketDataQueryService:
     """Compose the production resolver/store/query service against only this DB."""
     return MarketDataQueryService(
         resolver=MarketDataQueryResolver(
@@ -470,7 +696,7 @@ def _service(session: AsyncSession, provider: _Provider) -> MarketDataQueryServi
             identities=MarketDataIdentityResolver(session),
         ),
         store=MarketDataStore(session),
-        source_policies=_source_policies(provider),
+        source_policies=_source_policies(provider, profile),
         allow_online_fetch=True,
         # No pagination is exercised, but an explicit local test key prevents
         # this harness from reading application configuration if a future
@@ -524,6 +750,7 @@ async def _run_live(
     *,
     database_path: Path,
     trading_date: date,
+    profile: _FamilyProfile,
     provider_factory: Callable[[], _Provider] | None = None,
 ) -> dict[str, object]:
     """Run the full durable live chain; tests pass a fake factory, CLI uses AkShare."""
@@ -541,13 +768,14 @@ async def _run_live(
             user_id = await _seed_prerequisites(
                 seed_session,
                 database_url=database_url,
+                profile=profile,
                 start=start,
                 end=end,
             )
 
-        request = _request_for(start=start, end=end, mode="local_first")
+        request = _request_for(profile, start=start, end=end, mode="local_first")
         async with session_factory() as first_session:
-            first = await _service(first_session, provider).execute(
+            first = await _service(first_session, provider, profile).execute(
                 request,
                 access=await _access(first_session, user_id=user_id),
             )
@@ -555,9 +783,9 @@ async def _run_live(
 
         first_summary = _execution_summary(first)
         base_summary: dict[str, object] = {
-            "family_id": FAMILY_ID,
-            "route_id": ROUTE_ID,
-            "data_kind": "reference_series",
+            "family_id": profile.family_id,
+            "route_id": profile.route_id,
+            "data_kind": profile.data_kind,
             "frequency": "1d",
             "window_date": trading_date.isoformat(),
             "provider_fetch_attempt_count": provider.attempt_count,
@@ -578,10 +806,10 @@ async def _run_live(
                 **base_summary,
             }
 
-        local_only_request = _request_for(start=start, end=end, mode="local_only")
+        local_only_request = _request_for(profile, start=start, end=end, mode="local_only")
         async with session_factory() as reread_session:
             reread_provider = _RecordingProvider(_UnexpectedProvider())
-            reread = await _service(reread_session, reread_provider).execute(
+            reread = await _service(reread_session, reread_provider, profile).execute(
                 local_only_request,
                 access=await _access(reread_session, user_id=user_id),
             )
@@ -670,7 +898,13 @@ def main(argv: list[str] | None = None) -> int:
     exit_code = 1
     cleanup_ok = False
     try:
-        payload = asyncio.run(_run_live(database_path=target.path, trading_date=trading_date))
+        payload = asyncio.run(
+            _run_live(
+                database_path=target.path,
+                trading_date=trading_date,
+                profile=_PROFILES[args.family],
+            )
+        )
         exit_code = 0 if payload.get("status") == "pass" else 1
     except HarnessError as exc:
         payload = {"status": "failed", "code": exc.code, "stage": exc.stage}
