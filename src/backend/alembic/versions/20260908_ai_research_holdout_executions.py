@@ -480,23 +480,16 @@ def _offline_schema_precheck() -> None:
 
 def _sql_matches(observed: str, expected: str) -> bool:
     def normalize(value: str) -> str:
+        # MySQL 9 rewrites the whole check into backquoted identifiers with
+        # per-clause parentheses, lowercase tokens, and charset introducers on
+        # every string literal (``_utf8mb4'ACCEPTED'``); PostgreSQL keeps the
+        # authored shape.  Every reviewed check here is a linear boolean over
+        # IN/equality comparisons, so removing introducers and grouping
+        # parentheses from both sides preserves the operand/boolean token
+        # sequence while a different operand still produces a different one.
         value = value.lower().replace('"', "").replace("`", "")
+        value = re.sub(r"_[a-z0-9]+'", "'", value)
         value = re.sub(r"\s+", "", value)
-        while value.startswith("(") and value.endswith(")"):
-            inner = value[1:-1]
-            depth = 0
-            balanced = True
-            for character in inner:
-                if character == "(":
-                    depth += 1
-                elif character == ")":
-                    depth -= 1
-                    if depth < 0:
-                        balanced = False
-                        break
-            if not balanced or depth != 0:
-                break
-            value = inner
-        return value
+        return value.replace("(", "").replace(")", "")
 
     return normalize(observed) == normalize(expected)

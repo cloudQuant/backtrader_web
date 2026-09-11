@@ -999,11 +999,11 @@ def test_approval_history_preflight_covers_parent_and_material_bindings() -> Non
     rendered = "\n".join((*migration._integrity_queries(), *migration._orphan_queries())).lower()
 
     for marker in (
-        "audit.subject_id != grant.actor_id",
-        "audit.run_id != grant.run_id",
-        "audit.permission != grant.permission",
-        "audit.actor_id != grant.issuer_id",
-        "audit.actor_id != grant.revoked_by",
+        "audit.subject_id != issued_grant.actor_id",
+        "audit.run_id != issued_grant.run_id",
+        "audit.permission != issued_grant.permission",
+        "audit.actor_id != issued_grant.issuer_id",
+        "audit.actor_id != issued_grant.revoked_by",
         "subject.principal_kind != 'human'",
         "issuer.principal_kind != 'human'",
         "decision_actor.principal_kind != 'human'",
@@ -1014,9 +1014,9 @@ def test_approval_history_preflight_covers_parent_and_material_bindings() -> Non
         "package.candidate_id != request.candidate_id",
         "decision.approval_request_id",
         "decision.grant_id",
-        "grant.issued_at > decision.decided_at",
-        "grant.expires_at <= decision.decided_at",
-        "grant.revoked_at <= decision.decided_at",
+        "issued_grant.issued_at > decision.decided_at",
+        "issued_grant.expires_at <= decision.decided_at",
+        "issued_grant.revoked_at <= decision.decided_at",
         "fence.decision_id",
     ):
         assert marker in rendered
@@ -2317,3 +2317,33 @@ def _insert_complete_approval_history(
             "expires_at": request_expires_at,
         },
     )
+
+
+def test_normalize_sql_accepts_mysql_charset_introducers() -> None:
+    """MySQL 9 reflects string literals with ``_utf8mb4'...'`` introducers.
+
+    The approval-authority drift comparison must treat an introducer-prefixed
+    literal as the same literal, while a different literal value still fails.
+    """
+    import importlib.util
+    from pathlib import Path
+
+    migration_path = (
+        Path(__file__).resolve().parents[1]
+        / "alembic"
+        / "versions"
+        / "20260908_ai_research_approval_authority.py"
+    )
+    spec = importlib.util.spec_from_file_location(
+        "iteration196_approval_authority_module", migration_path
+    )
+    assert spec is not None and spec.loader is not None
+    migration = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(migration)
+
+    authored = "principal_kind IN ('SYSTEM', 'USER')"
+    mysql_reflected = "(`principal_kind` in (_utf8mb4'SYSTEM',_utf8mb4'USER'))"
+    assert migration._sql_matches(mysql_reflected, authored)
+
+    drifted = "(`principal_kind` in (_utf8mb4'SYSTEM',_utf8mb4'SERVICE'))"
+    assert not migration._sql_matches(drifted, authored)

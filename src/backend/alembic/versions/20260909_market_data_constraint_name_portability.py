@@ -68,13 +68,18 @@ _LOCK_TIMEOUT_SECONDS = 5
 
 
 def _normalized_expression(expression: object) -> str:
-    """Compare the SQLAlchemy PostgreSQL reflection of a portable SHA check.
+    """Compare dialect-rewritten reflections of a reviewed portable SHA check.
 
     PostgreSQL reflects ``length(column)`` as ``length(column::text)`` for a
-    varchar column.  The cast does not change the check's semantics, whereas
-    every other token remains part of the strict drift comparison.
+    varchar column; MySQL rewrites the whole check into backquoted identifiers
+    with per-clause parentheses and lowercase tokens (``((`c`isnull)or(...))``).
+    Neither rewrite changes semantics for the reviewed single-function
+    comparisons, so both sides are normalized by removing whitespace, case,
+    ``::text`` casts, backquotes, and grouping parentheses.  A genuinely
+    different bound or operand still produces a different token sequence.
     """
-    return "".join(str(expression).split()).lower().replace("::text", "")
+    collapsed = "".join(str(expression).split()).lower().replace("::text", "")
+    return collapsed.replace("`", "").replace("(", "").replace(")", "")
 
 
 def _observed_checks(bind: sa.Connection, table_name: str) -> dict[str, str]:

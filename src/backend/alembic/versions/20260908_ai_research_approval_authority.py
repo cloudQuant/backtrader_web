@@ -2203,34 +2203,34 @@ def _integrity_queries() -> tuple[str, ...]:
         "((revoked_at IS NULL AND revoked_by IS NULL AND revocation_reason IS NULL) OR "
         "(revoked_at IS NOT NULL AND revoked_by IS NOT NULL AND "
         "length(trim(revocation_reason)) > 0)) LIMIT 1",
-        f"SELECT 1 FROM {_GRANT_TABLE} AS grant "
-        "JOIN users AS subject ON subject.id = grant.actor_id "
-        "JOIN users AS issuer ON issuer.id = grant.issuer_id "
-        "LEFT JOIN users AS revoker ON revoker.id = grant.revoked_by "
+        f"SELECT 1 FROM {_GRANT_TABLE} AS issued_grant "
+        "JOIN users AS subject ON subject.id = issued_grant.actor_id "
+        "JOIN users AS issuer ON issuer.id = issued_grant.issuer_id "
+        "LEFT JOIN users AS revoker ON revoker.id = issued_grant.revoked_by "
         "WHERE subject.principal_kind != 'HUMAN' OR issuer.principal_kind != 'HUMAN' "
-        "OR (grant.revoked_by IS NOT NULL AND revoker.principal_kind != 'HUMAN') LIMIT 1",
+        "OR (issued_grant.revoked_by IS NOT NULL AND revoker.principal_kind != 'HUMAN') LIMIT 1",
         f"SELECT 1 FROM {_GRANT_AUDIT_TABLE} AS audit "
         "JOIN users AS audit_actor ON audit_actor.id = audit.actor_id "
         "JOIN users AS subject ON subject.id = audit.subject_id "
         "WHERE audit_actor.principal_kind != 'HUMAN' "
         "OR subject.principal_kind != 'HUMAN' LIMIT 1",
-        f"SELECT 1 FROM {_GRANT_AUDIT_TABLE} AS audit JOIN {_GRANT_TABLE} AS grant "
-        "ON grant.id = audit.grant_id WHERE audit.subject_id != grant.actor_id "
-        "OR audit.run_id != grant.run_id OR NOT ((audit.workspace_id = grant.workspace_id) "
-        "OR (audit.workspace_id IS NULL AND grant.workspace_id IS NULL)) "
-        "OR audit.permission != grant.permission "
+        f"SELECT 1 FROM {_GRANT_AUDIT_TABLE} AS audit JOIN {_GRANT_TABLE} AS issued_grant "
+        "ON issued_grant.id = audit.grant_id WHERE audit.subject_id != issued_grant.actor_id "
+        "OR audit.run_id != issued_grant.run_id OR NOT ((audit.workspace_id = issued_grant.workspace_id) "
+        "OR (audit.workspace_id IS NULL AND issued_grant.workspace_id IS NULL)) "
+        "OR audit.permission != issued_grant.permission "
         "OR audit.policy_version != 'approval-grant-authority-v1' "
-        "OR (audit.event_type = 'ISSUED' AND (audit.actor_id != grant.issuer_id "
-        "OR audit.occurred_at != grant.issued_at OR audit.reason_hash IS NOT NULL)) "
-        "OR (audit.event_type = 'REVOKED' AND (grant.revoked_at IS NULL "
-        "OR grant.revoked_by IS NULL OR audit.actor_id != grant.revoked_by "
-        "OR audit.occurred_at != grant.revoked_at OR audit.reason_hash IS NULL)) LIMIT 1",
-        f"SELECT 1 FROM {_GRANT_TABLE} AS grant LEFT JOIN {_GRANT_AUDIT_TABLE} AS issued "
-        "ON issued.grant_id = grant.id AND issued.event_type = 'ISSUED' "
-        f"LEFT JOIN {_GRANT_AUDIT_TABLE} AS revoked ON revoked.grant_id = grant.id "
+        "OR (audit.event_type = 'ISSUED' AND (audit.actor_id != issued_grant.issuer_id "
+        "OR audit.occurred_at != issued_grant.issued_at OR audit.reason_hash IS NOT NULL)) "
+        "OR (audit.event_type = 'REVOKED' AND (issued_grant.revoked_at IS NULL "
+        "OR issued_grant.revoked_by IS NULL OR audit.actor_id != issued_grant.revoked_by "
+        "OR audit.occurred_at != issued_grant.revoked_at OR audit.reason_hash IS NULL)) LIMIT 1",
+        f"SELECT 1 FROM {_GRANT_TABLE} AS issued_grant LEFT JOIN {_GRANT_AUDIT_TABLE} AS issued "
+        "ON issued.grant_id = issued_grant.id AND issued.event_type = 'ISSUED' "
+        f"LEFT JOIN {_GRANT_AUDIT_TABLE} AS revoked ON revoked.grant_id = issued_grant.id "
         "AND revoked.event_type = 'REVOKED' WHERE issued.id IS NULL "
-        "OR (grant.revoked_at IS NULL AND revoked.id IS NOT NULL) "
-        "OR (grant.revoked_at IS NOT NULL AND revoked.id IS NULL) LIMIT 1",
+        "OR (issued_grant.revoked_at IS NULL AND revoked.id IS NOT NULL) "
+        "OR (issued_grant.revoked_at IS NOT NULL AND revoked.id IS NULL) LIMIT 1",
         f"SELECT 1 FROM {_REQUEST_TABLE} AS request "
         "JOIN ai_research_candidates AS candidate ON candidate.id = request.candidate_id "
         "JOIN ai_research_runs AS run ON run.id = request.run_id "
@@ -2252,7 +2252,7 @@ def _integrity_queries() -> tuple[str, ...]:
         "OR length(request.request_material_hash) != 64) LIMIT 1",
         f"SELECT 1 FROM {_DECISION_TABLE} AS decision "
         f"JOIN {_REQUEST_TABLE} AS request ON request.id = decision.approval_request_id "
-        f"JOIN {_GRANT_TABLE} AS grant ON grant.id = decision.grant_id "
+        f"JOIN {_GRANT_TABLE} AS issued_grant ON issued_grant.id = decision.grant_id "
         "JOIN ai_research_evidence_packages AS package "
         "ON package.id = decision.evidence_package_id "
         f"JOIN {_PROFILE_TABLE} AS profile ON profile.profile_id = decision.capability_profile_id "
@@ -2272,22 +2272,22 @@ def _integrity_queries() -> tuple[str, ...]:
         "OR decision.requested_at != request.requested_at "
         "OR decision.eligible_at != request.eligible_at "
         "OR decision.expires_at != request.expires_at "
-        "OR grant.actor_id != decision.actor_id OR grant.run_id != decision.run_id "
-        "OR grant.grant_hash != decision.grant_hash "
+        "OR issued_grant.actor_id != decision.actor_id OR issued_grant.run_id != decision.run_id "
+        "OR issued_grant.grant_hash != decision.grant_hash "
         "OR package.candidate_id != decision.candidate_id "
         "OR package.run_id != decision.run_id "
         "OR profile.actor_mode != decision.approval_mode "
         "OR profile.evidence_hash != decision.capability_evidence_hash "
         "OR NOT ((decision.workspace_id = request.workspace_id) OR "
         "(decision.workspace_id IS NULL AND request.workspace_id IS NULL)) "
-        "OR NOT ((decision.workspace_id = grant.workspace_id) OR "
-        "(decision.workspace_id IS NULL AND grant.workspace_id IS NULL))) LIMIT 1",
+        "OR NOT ((decision.workspace_id = issued_grant.workspace_id) OR "
+        "(decision.workspace_id IS NULL AND issued_grant.workspace_id IS NULL))) LIMIT 1",
         f"SELECT 1 FROM {_DECISION_TABLE} AS decision "
-        f"JOIN {_GRANT_TABLE} AS grant ON grant.id = decision.grant_id "
+        f"JOIN {_GRANT_TABLE} AS issued_grant ON issued_grant.id = decision.grant_id "
         "WHERE decision.approval_request_id IS NOT NULL AND ("
-        "grant.issued_at > decision.decided_at "
-        "OR grant.expires_at <= decision.decided_at "
-        "OR (grant.revoked_at IS NOT NULL AND grant.revoked_at <= decision.decided_at)) "
+        "issued_grant.issued_at > decision.decided_at "
+        "OR issued_grant.expires_at <= decision.decided_at "
+        "OR (issued_grant.revoked_at IS NOT NULL AND issued_grant.revoked_at <= decision.decided_at)) "
         "LIMIT 1",
         f"SELECT 1 FROM {_DECISION_TABLE} AS decision "
         "JOIN users AS decision_actor ON decision_actor.id = decision.actor_id "
@@ -3508,7 +3508,11 @@ def _sql_matches(observed: str, expected: str) -> bool:
 def _normalize_sql(value: str) -> tuple[Any, ...]:
     """Normalize safe reflection trivia without changing SQL literal contents."""
 
-    source = value.strip()
+    # MySQL 9 prefixes every reflected string literal with a charset
+    # introducer (``_utf8mb4'ACTIVE'``).  The introducer is storage trivia,
+    # not semantics; strip it before tokenizing so the literal comparison
+    # stays exact for both dialects.
+    source = re.sub(r"_[A-Za-z0-9]+'", "'", value.strip())
     tokens = _tokenize_sql(source)
     if tokens is None:
         return ("__INVALID_SQL__", source)

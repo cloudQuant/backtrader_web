@@ -40,7 +40,9 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
 import json
+import os
 import re
 import sys
 import uuid
@@ -69,6 +71,7 @@ if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
 from app.schemas.asset_research import InstrumentIdentity  # noqa: E402
+from app.schemas.market_data_platform import QueryIdentity  # noqa: E402
 from app.services.market_data.identity import MarketDataIdentityResolver  # noqa: E402
 from app.services.market_data.master_data import MarketDataIdentityWriter  # noqa: E402
 
@@ -91,18 +94,21 @@ _REQUIRED_TABLES = frozenset(
         "md_source_payloads",
         "md_capability_ledger_entries",
         "md_publication_release_holds",
-        "md_multi_record_dimensions",
-        "md_multi_record_b2_receipts",
+        "md_b2_completeness_receipts",
+        "md_b2_completeness_manifest_entries",
         "users",
         "user_roles",
     }
 )
 
-# Columns the exact-identity collation migration pins to utf8mb4_bin on MySQL.
+# Columns the exact-identity collation migration pins to utf8mb4_bin on MySQL
+# (mirrors ``_IDENTIFIER_COLUMNS`` in 20260909_market_data_exact_identity_collation).
 _BINARY_COLLATION_COLUMNS: dict[str, frozenset[str]] = {
-    "asset_instruments": frozenset({"canonical_id", "display_symbol"}),
-    "md_instrument_lookup_keys": frozenset({"canonical_id", "lookup_key"}),
-    "md_observation_revisions": frozenset({"series_id"}),
+    "asset_instruments": frozenset({"canonical_id"}),
+    "md_instrument_identity_revisions": frozenset(
+        {"canonical_id", "asset_type", "market", "symbol"}
+    ),
+    "md_instrument_lookup_keys": frozenset({"canonical_id", "asset_type", "market", "symbol"}),
 }
 
 # PIT columns that must be DATETIME(6) on MySQL.
@@ -114,8 +120,11 @@ _MICROSECOND_DATETIME_COLUMNS: dict[str, frozenset[str]] = {
 }
 
 _IDENTIFIED_AT = datetime(2026, 8, 1, tzinfo=UTC)
-# A post-publication instant used for ordinary (non-boundary) resolutions.
-_RESOLVED_AT = datetime(2026, 9, 4, tzinfo=UTC)
+
+
+def _post_publication_instant() -> datetime:
+    """A cutoff strictly after the real publication clock of this run."""
+    return datetime.now(UTC) + timedelta(seconds=5)
 
 
 class MysqlAcceptanceHarnessError(RuntimeError):
@@ -185,8 +194,10 @@ def _target_url(admin_url: URL, database_name: str) -> URL:
 
 
 def _alembic_url_text(target_url: URL) -> str:
-    # Alembic migrations run synchronously through the pymysql driver.
-    return str(target_url.set(drivername="mysql+pymysql"))
+    # ``alembic/env.py`` builds an async engine from this URL, so the async
+    # aiomysql driver must survive; escape ConfigParser interpolation only.
+    text_url = target_url.render_as_string(hide_password=False)
+    return text_url.replace("%", "%%")
 
 
 def _safe_connection_descriptor(admin_url: URL) -> dict[str, object]:
@@ -204,12 +215,50 @@ def _alembic_config(target_url: URL) -> Config:
     return config
 
 
+# MySQL DDL maintenance fences guard production databases against implicit
+# DDL commits while market-data writers are active.  This harness only ever
+# applies them to its own brand-new, empty, UUID-named temporary database,
+# where no writer exists; the value is set for the Alembic call and restored.
+_MYSQL_MAINTENANCE_FENCE_ENVIRONMENTS = (
+    "MARKET_DATA_B2_COMPLETENESS_EVIDENCE_MAINTENANCE_FENCE",
+    "MARKET_DATA_CAPABILITY_LEDGER_MAINTENANCE_FENCE",
+    "MARKET_DATA_CONSTRAINT_NAME_PORTABILITY_MAINTENANCE_FENCE",
+    "MARKET_DATA_EXACT_IDENTITY_MAINTENANCE_FENCE",
+    "MARKET_DATA_FETCH_LEASE_MAINTENANCE_FENCE",
+    "MARKET_DATA_PUBLICATION_RELEASE_HOLD_MAINTENANCE_FENCE",
+    "MARKET_DATA_SEMANTIC_RECORD_KEY_MAINTENANCE_FENCE",
+    "MARKET_DATA_SHARED_BINDING_MAINTENANCE_FENCE",
+    "MARKET_DATA_SHARED_SOURCE_PAYLOAD_MAINTENANCE_FENCE",
+    "MARKET_DATA_SOURCE_GOVERNANCE_MAINTENANCE_FENCE",
+    "MARKET_DATA_SOURCE_RECEIPT_EVIDENCE_MAINTENANCE_FENCE",
+    "MARKET_DATA_VISIBILITY_ANCHOR_MAINTENANCE_FENCE",
+)
+
+
+@contextlib.contextmanager
+def _temporary_database_ddl_fences():
+    """Confirm every MySQL DDL fence for the disposable empty database only."""
+    originals = {key: os.environ.get(key) for key in _MYSQL_MAINTENANCE_FENCE_ENVIRONMENTS}
+    for key in _MYSQL_MAINTENANCE_FENCE_ENVIRONMENTS:
+        os.environ[key] = "confirmed"
+    try:
+        yield
+    finally:
+        for key, value in originals.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+
+
 def _run_alembic_upgrade(target_url: URL) -> None:
-    command.upgrade(_alembic_config(target_url), "head")
+    with _temporary_database_ddl_fences():
+        command.upgrade(_alembic_config(target_url), "head")
 
 
 def _run_alembic_downgrade_one(target_url: URL) -> None:
-    command.downgrade(_alembic_config(target_url), "-1")
+    with _temporary_database_ddl_fences():
+        command.downgrade(_alembic_config(target_url), "-1")
 
 
 async def _create_temporary_database(engine: AsyncEngine, database_name: str) -> None:
@@ -240,13 +289,33 @@ def _missing_tables(sync_connection: Any) -> tuple[str, ...]:
     return tuple(sorted(_REQUIRED_TABLES - existing))
 
 
-def _column_collations(sync_connection: Any) -> dict[tuple[str, str], str]:
-    inspector = sa.inspect(sync_connection)
+async def _column_collations(session: AsyncSession) -> dict[tuple[str, str], str]:
+    """Read real collations from information_schema (reflection is unreliable)."""
+    rows = (
+        await session.execute(
+            text(
+                "SELECT TABLE_NAME, COLUMN_NAME, COLLATION_NAME "
+                "FROM information_schema.COLUMNS "
+                "WHERE TABLE_SCHEMA = DATABASE() "
+                "AND TABLE_NAME IN :tables"
+            ).bindparams(sa.bindparam("tables", expanding=True)),
+            {"tables": sorted(_BINARY_COLLATION_COLUMNS)},
+        )
+    ).all()
     observed: dict[tuple[str, str], str] = {}
-    for table_name, column_names in _BINARY_COLLATION_COLUMNS.items():
-        columns = {column["name"]: column for column in inspector.get_columns(table_name)}
-        for column_name in column_names:
-            observed[(table_name, column_name)] = str(columns.get(column_name, {}).get("collation"))
+    required = {
+        (table, column)
+        for table, columns in _BINARY_COLLATION_COLUMNS.items()
+        for column in columns
+    }
+    for table_name, column_name, collation in rows:
+        key = (str(table_name), str(column_name))
+        # Only the reviewed identifier columns enter the comparison; other
+        # columns on the same tables keep the schema-default collation.
+        if key in required:
+            observed[key] = str(collation or "")
+    for key in sorted(required - set(observed)):
+        observed[key] = ""
     return observed
 
 
@@ -280,7 +349,7 @@ async def _assert_schema(session: AsyncSession) -> dict[str, object]:
     if revision_rows != [EXPECTED_ALEMBIC_HEAD]:
         raise MysqlAcceptanceHarnessError("MYSQL_ACCEPTANCE_ALEMBIC_VERSION_MISMATCH")
 
-    collations = await connection.run_sync(_column_collations)
+    collations = await _column_collations(session)
     non_binary = {
         f"{table}.{column}": collation
         for (table, column), collation in sorted(collations.items())
@@ -364,12 +433,13 @@ async def _seed_case_distinct_identities(session: AsyncSession) -> None:
 async def _assert_case_distinct_resolution(session: AsyncSession) -> dict[str, object]:
     """RB0 and rb0 resolve independently; a wrong-case lookup fails closed."""
     resolver = MarketDataIdentityResolver(session)
+    resolved_at = _post_publication_instant()
     resolved: dict[str, str] = {}
     for display_symbol in ("RB0", "rb0"):
         projection = await resolver.resolve(
-            {"canonical_id": f"instrument:futures:SHFE:{display_symbol}"},
-            effective_at=_RESOLVED_AT,
-            knowledge_cutoff=_RESOLVED_AT,
+            QueryIdentity(canonical_id=f"instrument:futures:SHFE:{display_symbol}"),
+            effective_at=resolved_at,
+            knowledge_cutoff=resolved_at,
         )
         resolved[display_symbol] = projection.identity.canonical_id
     if resolved["RB0"] == resolved["rb0"]:
@@ -378,9 +448,9 @@ async def _assert_case_distinct_resolution(session: AsyncSession) -> dict[str, o
     wrong_case_failed = False
     try:
         await resolver.resolve(
-            {"canonical_id": "instrument:futures:SHFE:Rb0"},
-            effective_at=_RESOLVED_AT,
-            knowledge_cutoff=_RESOLVED_AT,
+            QueryIdentity(canonical_id="instrument:futures:SHFE:Rb0"),
+            effective_at=resolved_at,
+            knowledge_cutoff=resolved_at,
         )
     except Exception:  # noqa: BLE001 - any stable rejection satisfies the probe
         wrong_case_failed = True
@@ -402,10 +472,11 @@ async def _assert_identity_pit_boundary(session: AsyncSession) -> dict[str, obje
     await writer.publish_staged()
 
     resolver = MarketDataIdentityResolver(session)
+    resolved_at = _post_publication_instant()
     projection = await resolver.resolve(
-        {"canonical_id": "instrument:futures:SHFE:HC0"},
-        effective_at=_RESOLVED_AT,
-        knowledge_cutoff=_RESOLVED_AT,
+        QueryIdentity(canonical_id="instrument:futures:SHFE:HC0"),
+        effective_at=resolved_at,
+        knowledge_cutoff=resolved_at,
     )
     published_at = projection.known_at
     if published_at is None or published_at.tzinfo is None:
@@ -414,8 +485,8 @@ async def _assert_identity_pit_boundary(session: AsyncSession) -> dict[str, obje
     hidden_before = False
     try:
         await resolver.resolve(
-            {"canonical_id": "instrument:futures:SHFE:HC0"},
-            effective_at=_RESOLVED_AT,
+            QueryIdentity(canonical_id="instrument:futures:SHFE:HC0"),
+            effective_at=resolved_at,
             knowledge_cutoff=published_at - timedelta(microseconds=1),
         )
     except Exception:  # noqa: BLE001
@@ -423,8 +494,8 @@ async def _assert_identity_pit_boundary(session: AsyncSession) -> dict[str, obje
     if not hidden_before:
         raise MysqlAcceptanceHarnessError("MYSQL_ACCEPTANCE_PIT_PROJECTION_VISIBLE_EARLY")
     at_instant = await resolver.resolve(
-        {"canonical_id": "instrument:futures:SHFE:HC0"},
-        effective_at=_RESOLVED_AT,
+        QueryIdentity(canonical_id="instrument:futures:SHFE:HC0"),
+        effective_at=resolved_at,
         knowledge_cutoff=published_at,
     )
     if at_instant.identity.canonical_id != "instrument:futures:SHFE:HC0":
@@ -436,24 +507,13 @@ async def _assert_identity_pit_boundary(session: AsyncSession) -> dict[str, obje
     }
 
 
-async def _assert_nonempty_downgrade_is_rejected(target_url: URL) -> dict[str, object]:
-    """A governed migration must refuse to downgrade a non-empty database."""
-    rejected = False
-    rejection_code: str | None = None
-    try:
-        _run_alembic_downgrade_one(target_url)
-    except Exception as exc:  # noqa: BLE001 - governed downgrades raise
-        rejected = True
-        rejection_code = type(exc).__name__
-    if not rejected:
-        raise MysqlAcceptanceHarnessError("MYSQL_ACCEPTANCE_NONEMPTY_DOWNGRADE_ALLOWED")
-
-    # The data must remain intact after the refused downgrade.
+async def _verify_downgrade_refusal(target_url: URL) -> dict[str, object]:
+    """Verify the refused downgrade left the head and every identity intact."""
     engine = create_async_engine(target_url, future=True)
     try:
-        async with async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)() as (
-            session
-        ):
+        async with async_sessionmaker(
+            engine, class_=AsyncSession, expire_on_commit=False
+        )() as session:
             revision_rows = (
                 (await session.execute(text("SELECT version_num FROM alembic_version")))
                 .scalars()
@@ -465,10 +525,27 @@ async def _assert_nonempty_downgrade_is_rejected(target_url: URL) -> dict[str, o
     if revision_rows != [EXPECTED_ALEMBIC_HEAD]:
         raise MysqlAcceptanceHarnessError("MYSQL_ACCEPTANCE_DOWNGRADE_MOVED_HEAD")
     return {
-        "rejection_type": rejection_code,
         "alembic_head_after_refusal": revision_rows[0],
         "asset_instrument_rows_retained": int(identity_count or 0),
     }
+
+
+async def _probe_phase(target_url: URL) -> dict[str, object]:
+    """Run every asynchronous schema/identity probe on one short-lived loop."""
+    engine = create_async_engine(target_url, future=True)
+    try:
+        session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+        async with session_factory() as session:
+            evidence: dict[str, object] = {
+                "schema": await _assert_schema(session),
+                "utc": {"session_time_zone": await _assert_utc_roundtrip(session)},
+            }
+            await _seed_case_distinct_identities(session)
+            evidence["case_distinct_identity"] = await _assert_case_distinct_resolution(session)
+            evidence["identity_pit_boundary"] = await _assert_identity_pit_boundary(session)
+            return evidence
+    finally:
+        await engine.dispose()
 
 
 def _dry_run_summary(admin_url: URL) -> dict[str, object]:
@@ -482,39 +559,36 @@ def _dry_run_summary(admin_url: URL) -> dict[str, object]:
     }
 
 
-async def _run_apply(admin_url: URL) -> dict[str, object]:
+def _run_apply(admin_url: URL) -> dict[str, object]:
+    """Drive the disposable database with short-lived loops around sync Alembic.
+
+    ``alembic/env.py`` calls ``asyncio.run`` itself, so Alembic commands must
+    run outside any event loop; every async probe gets its own loop instead.
+    """
     database_name = _temporary_database_name()
     target_url = _target_url(admin_url, database_name)
-    admin_engine = _admin_engine(admin_url)
     try:
-        await _create_temporary_database(admin_engine, database_name)
-    finally:
-        await admin_engine.dispose()
+        admin_engine = _admin_engine(admin_url)
+        try:
+            asyncio.run(_create_temporary_database(admin_engine, database_name))
+        finally:
+            asyncio.run(admin_engine.dispose())
 
-    dropped = False
-    evidence: dict[str, object] = {}
-    try:
         _run_alembic_upgrade(target_url)
 
-        engine = create_async_engine(target_url, future=True)
-        try:
-            session_factory = async_sessionmaker(
-                engine, class_=AsyncSession, expire_on_commit=False
-            )
-            async with session_factory() as session:
-                evidence["schema"] = await _assert_schema(session)
-                evidence["utc"] = {
-                    "session_time_zone": await _assert_utc_roundtrip(session),
-                }
-                await _seed_case_distinct_identities(session)
-                evidence["case_distinct_identity"] = await _assert_case_distinct_resolution(session)
-                evidence["identity_pit_boundary"] = await _assert_identity_pit_boundary(session)
-        finally:
-            await engine.dispose()
+        evidence = asyncio.run(_probe_phase(target_url))
 
-        evidence["nonempty_downgrade_refused"] = await _assert_nonempty_downgrade_is_rejected(
-            target_url
-        )
+        rejection_code: str | None = None
+        try:
+            _run_alembic_downgrade_one(target_url)
+        except Exception as exc:  # noqa: BLE001 - governed downgrades raise
+            rejection_code = type(exc).__name__
+        if rejection_code is None:
+            raise MysqlAcceptanceHarnessError("MYSQL_ACCEPTANCE_NONEMPTY_DOWNGRADE_ALLOWED")
+        refusal = asyncio.run(_verify_downgrade_refusal(target_url))
+        refusal["rejection_type"] = rejection_code
+        evidence["nonempty_downgrade_refused"] = refusal
+
         return {
             "status": "pass",
             "code": "MYSQL_ACCEPTANCE_CORE_PASSED",
@@ -531,8 +605,10 @@ async def _run_apply(admin_url: URL) -> dict[str, object]:
         # terminal output intentionally opaque.
         raise MysqlAcceptanceHarnessError("MYSQL_ACCEPTANCE_HARNESS_FAILED") from None
     finally:
-        if not dropped:
-            await _drop_temporary_database(admin_url, database_name)
+        try:
+            asyncio.run(_drop_temporary_database(admin_url, database_name))
+        except Exception:  # noqa: BLE001 - best-effort cleanup of a UUID database
+            pass
 
 
 def _emit(payload: dict[str, object]) -> None:
@@ -552,7 +628,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     try:
-        payload = asyncio.run(_run_apply(admin_url))
+        payload = _run_apply(admin_url)
     except MysqlAcceptanceHarnessError as exc:
         payload = {"status": "failed", "code": exc.code, "credential_writes": False}
         _emit(payload)

@@ -227,7 +227,15 @@ def _ensure_allocator(
     if not inspector.has_table(_ALLOCATOR_TABLE):
         op.create_table(
             _ALLOCATOR_TABLE,
-            sa.Column("singleton_id", sa.Integer(), primary_key=True, nullable=False),
+            sa.Column(
+                "singleton_id",
+                sa.Integer(),
+                primary_key=True,
+                nullable=False,
+                # MySQL error 3818 forbids CHECK constraints referencing an
+                # AUTO_INCREMENT column; this row is always the fixed value 1.
+                autoincrement=False,
+            ),
             sa.Column("next_visibility_sequence", sa.BigInteger(), nullable=False),
             sa.Column("last_visible_at", _PIT_DATETIME, nullable=True),
             sa.Column("created_at", _PIT_DATETIME, nullable=False),

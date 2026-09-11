@@ -222,3 +222,37 @@ def test_holdout_execution_sqlite_downgrade_refuses_retained_journal(tmp_path: P
                 command.downgrade(config, _PREVIOUS)
     finally:
         engine.dispose()
+
+
+def test_sql_matches_accepts_mysql_clause_parentheses() -> None:
+    """MySQL 9 reflects each OR clause with its own parentheses.
+
+    ``((action in ('CLAIM_STARTED'))or(action in ('CLAIM_REJECTED')))`` must
+    still match the reviewed linear expression, while a genuinely different
+    operand list must keep failing.
+    """
+    import importlib.util
+
+    migration_path = _BACKEND_ROOT / "alembic" / "versions" / "20260908_ai_research_holdout_executions.py"
+    spec = importlib.util.spec_from_file_location(
+        "iteration196_holdout_migration_module", migration_path
+    )
+    assert spec is not None and spec.loader is not None
+    migration = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(migration)
+
+    mysql_reflected = (
+        "((`action` in (_utf8mb4'CLAIM_STARTED',_utf8mb4'LEASE_EXPIRED_RECONCILING'))"
+        " or (`action` in (_utf8mb4'CLAIM_REJECTED',_utf8mb4'CHECKPOINT_REJECTED')))"
+    )
+    linear_source = (
+        "(action IN ('CLAIM_STARTED', 'LEASE_EXPIRED_RECONCILING') "
+        "OR action IN ('CLAIM_REJECTED', 'CHECKPOINT_REJECTED'))"
+    )
+    assert migration._sql_matches(mysql_reflected, linear_source)
+
+    different_operand = (
+        "((`action` in (_utf8mb4'CLAIM_STARTED',_utf8mb4'UNREVIEWED_EXTRA'))"
+        " or (`action` in (_utf8mb4'CLAIM_REJECTED',_utf8mb4'CHECKPOINT_REJECTED')))"
+    )
+    assert not migration._sql_matches(different_operand, linear_source)

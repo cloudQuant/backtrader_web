@@ -3005,3 +3005,66 @@ def test_shared_dataset_binding_migration_refuses_offline_sql_rendering(
             f"{OBSERVATIONS_REVISION}:{SHARED_DATASET_BINDINGS_REVISION}",
             sql=True,
         )
+
+
+def test_visibility_allocator_singleton_has_no_mysql_autoincrement() -> None:
+    """MySQL rejects a CHECK constraint that references an AUTO_INCREMENT column.
+
+    The allocator is one fixed ``singleton_id = 1`` row, so the MySQL dialect
+    must not render AUTO_INCREMENT for its integer primary key; otherwise the
+    guarded singleton CHECK fails schema creation on MySQL 8/9 (error 3818).
+    """
+    from sqlalchemy.dialects import mysql as mysql_dialect
+
+    from app.models.market_data_platform import MdVisibilitySequenceAllocator
+
+    table = MdVisibilitySequenceAllocator.__table__
+    compiled = str(
+        sa.schema.CreateTable(table).compile(dialect=mysql_dialect.dialect())
+    )
+    assert "AUTO_INCREMENT" not in compiled
+    assert "ck_md_visibility_sequence_allocator_singleton" in compiled
+    assert "ck_md_visibility_sequence_allocator_next_positive" in compiled
+
+
+def test_constraint_portability_normalizes_mysql_reflected_check_text() -> None:
+    """MySQL 9 rewrites CHECK text (backticks, clause parens, lowercase tokens).
+
+    The portability drift check must compare the MySQL reflection of a
+    reviewed SHA-length check against its source expression without a false
+    ``SCHEMA_DRIFT`` failure, while still rejecting a genuinely different
+    expression such as a wrong length bound.
+    """
+    migration_path = (
+        BACKEND_ROOT
+        / "alembic"
+        / "versions"
+        / "20260909_market_data_constraint_name_portability.py"
+    )
+    spec = importlib.util.spec_from_file_location(
+        "iteration197_constraint_portability_migration", migration_path
+    )
+    assert spec is not None and spec.loader is not None
+    migration = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(migration)
+
+    mysql_reflected = (
+        "((`provider_request_fingerprint_sha256`isnull)"
+        "or(length(`provider_request_fingerprint_sha256`)=64))"
+    )
+    source_expression = (
+        "provider_request_fingerprint_sha256 IS NULL OR "
+        "length(provider_request_fingerprint_sha256) = 64"
+    )
+
+    assert migration._normalized_expression(mysql_reflected) == migration._normalized_expression(
+        source_expression
+    )
+
+    drifted = (
+        "((`provider_request_fingerprint_sha256`isnull)"
+        "or(length(`provider_request_fingerprint_sha256`)=63))"
+    )
+    assert migration._normalized_expression(drifted) != migration._normalized_expression(
+        source_expression
+    )

@@ -260,7 +260,10 @@ class MdVisibilitySequenceAllocator(Base):
         ),
     )
 
-    singleton_id = Column(Integer, primary_key=True)
+    # A fixed singleton row (``singleton_id = 1``): autoincrement must stay
+    # off, or the MySQL dialect renders AUTO_INCREMENT and then rejects the
+    # singleton CHECK constraint with error 3818.
+    singleton_id = Column(Integer, primary_key=True, autoincrement=False)
     next_visibility_sequence = Column(BigInteger, nullable=False)
     last_visible_at = Column(PITDateTime, nullable=True)
     created_at = Column(PITDateTime, default=_utcnow, nullable=False)
