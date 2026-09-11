@@ -15,7 +15,7 @@ from app.db.database import Base, async_session_maker
 
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
 ITERATION_196_HEAD = "20260908_ai_research_approval_authority"
-INTEGRATED_HEAD = "20260911_market_data_semantic_record_keys"
+INTEGRATED_HEAD = "20260911_market_data_b2_completeness_evidence"
 RESEARCH_BINDING_RECEIPT_TABLES = {
     "md_research_data_bindings",
     "md_research_data_binding_scopes",

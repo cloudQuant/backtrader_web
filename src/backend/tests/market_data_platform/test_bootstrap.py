@@ -254,6 +254,8 @@ def test_bootstrap_schema_contract_covers_every_iteration197_market_table() -> N
         "md_instrument_lookup_keys",
         "md_data_series",
         "md_source_snapshots",
+        "md_b2_completeness_receipts",
+        "md_b2_completeness_manifest_entries",
         "md_observation_revisions",
         "md_calendar_snapshots",
         "md_calendar_events",

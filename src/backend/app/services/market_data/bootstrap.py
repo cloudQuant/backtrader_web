@@ -26,6 +26,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.data_governance import DgDataset, DgDatasetStorage, DgProvider, DgStorageTarget
 from app.models.market_data_platform import (
+    MdB2CompletenessManifestEntry,
+    MdB2CompletenessReceipt,
     MdCalendarEvent,
     MdCalendarImportLock,
     MdCalendarSnapshot,
@@ -220,6 +222,8 @@ _REQUIRED_MARKET_TABLES: Mapping[str, _MarketTableRequirement] = {
         MdInstrumentLookupKey,
         MdDataSeries,
         MdSourceSnapshot,
+        MdB2CompletenessReceipt,
+        MdB2CompletenessManifestEntry,
         MdObservationRevision,
         MdCalendarSnapshot,
         MdCalendarEvent,

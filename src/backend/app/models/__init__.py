@@ -102,6 +102,8 @@ from app.models.knowledge_base import (
 )
 from app.models.market_data_platform import (
     ImmutableMarketDataRecordError,
+    MdB2CompletenessManifestEntry,
+    MdB2CompletenessReceipt,
     MdCalendarEvent,
     MdCalendarImportLock,
     MdCalendarSnapshot,
@@ -243,6 +245,8 @@ __all__ = [
     "MarketDataCoverageModel",
     "MarketDataQualityReportModel",
     "ImmutableMarketDataRecordError",
+    "MdB2CompletenessManifestEntry",
+    "MdB2CompletenessReceipt",
     "MdCalendarEvent",
     "MdCalendarImportLock",
     "MdCalendarSnapshot",

@@ -596,6 +596,11 @@ class MdDataSeries(Base):
         back_populates="series",
         passive_deletes=True,
     )
+    b2_completeness_receipts = relationship(
+        "MdB2CompletenessReceipt",
+        back_populates="series",
+        passive_deletes=True,
+    )
 
 
 class MdSourcePayload(Base):
@@ -784,6 +789,11 @@ class MdSourceSnapshot(Base):
         passive_deletes=True,
         uselist=False,
     )
+    b2_completeness_receipts = relationship(
+        "MdB2CompletenessReceipt",
+        back_populates="source_snapshot",
+        passive_deletes=True,
+    )
 
 
 class MdSourceSnapshotPayloadRef(Base):
@@ -831,6 +841,136 @@ class MdSourceSnapshotPayloadRef(Base):
 
     source_snapshot = relationship("MdSourceSnapshot", back_populates="shared_source_payload_ref")
     source_payload = relationship("MdSourcePayload", back_populates="source_snapshot_references")
+
+
+class MdB2CompletenessReceipt(Base):
+    """Immutable internal evidence for one B2 selector's exact local result.
+
+    The receipt binds the reviewed family contract, selector dimensions,
+    expected semantic-key manifest, source receipt, and event coordinate.  A
+    zero-row assertion additionally needs an opaque evidence digest; callers
+    cannot represent an empty slice/report as complete merely by omitting
+    manifest entries.  Public B2 routes are intentionally outside this model.
+    """
+
+    __tablename__ = "md_b2_completeness_receipts"
+    __table_args__ = (
+        UniqueConstraint(
+            "series_id",
+            "event_at",
+            "selector_digest",
+            name="uq_md_b2_completeness_receipt_series_event_selector",
+        ),
+        UniqueConstraint("receipt_sha256", name="uq_md_b2_completeness_receipt_sha256"),
+        CheckConstraint(
+            "length(family_id) > 0",
+            name="ck_md_b2_completeness_receipt_family_nonempty",
+        ),
+        CheckConstraint(
+            "length(family_contract_version) > 0",
+            name="ck_md_b2_completeness_receipt_contract_nonempty",
+        ),
+        CheckConstraint(
+            "selector_kind IN ('slice', 'report')",
+            name="ck_md_b2_completeness_receipt_selector_kind",
+        ),
+        CheckConstraint(
+            f"length(selector_digest) = {_SHA256_LENGTH}",
+            name="ck_md_b2_completeness_receipt_selector_digest_length",
+        ),
+        CheckConstraint(
+            f"length(manifest_sha256) = {_SHA256_LENGTH}",
+            name="ck_md_b2_completeness_receipt_manifest_sha256_length",
+        ),
+        CheckConstraint(
+            f"length(receipt_sha256) = {_SHA256_LENGTH}",
+            name="ck_md_b2_completeness_receipt_sha256_length",
+        ),
+        CheckConstraint(
+            "zero_record_evidence_sha256 IS NULL OR "
+            f"length(zero_record_evidence_sha256) = {_SHA256_LENGTH}",
+            name="ck_md_b2_completeness_receipt_zero_evidence_length",
+        ),
+        CheckConstraint(
+            "expected_record_count >= 0 AND expected_record_count <= 50000",
+            name="ck_md_b2_completeness_receipt_expected_count_range",
+        ),
+        CheckConstraint(
+            "(expected_record_count = 0 AND zero_record_evidence_sha256 IS NOT NULL) OR "
+            "(expected_record_count > 0 AND zero_record_evidence_sha256 IS NULL)",
+            name="ck_md_b2_completeness_receipt_zero_evidence_state",
+        ),
+        Index(
+            "ix_md_b2_completeness_receipt_source",
+            "source_snapshot_id",
+            "event_at",
+        ),
+    )
+
+    id = Column(String(36), primary_key=True, default=_uuid)
+    series_id = Column(
+        String(36),
+        ForeignKey(
+            "md_data_series.id",
+            name="fk_md_b2_completeness_receipt_series",
+            ondelete="RESTRICT",
+        ),
+        nullable=False,
+    )
+    source_snapshot_id = Column(
+        String(36),
+        ForeignKey(
+            "md_source_snapshots.id",
+            name="fk_md_b2_completeness_receipt_source_snapshot",
+            ondelete="RESTRICT",
+        ),
+        nullable=False,
+    )
+    family_id = Column(String(128), nullable=False)
+    family_contract_version = Column(String(128), nullable=False)
+    selector_kind = Column(String(16), nullable=False)
+    event_at = Column(PITDateTime, nullable=False)
+    selector_dimensions_json = Column(JSON, default=dict, nullable=False)
+    selector_digest = Column(String(_SHA256_LENGTH), nullable=False)
+    manifest_sha256 = Column(String(_SHA256_LENGTH), nullable=False)
+    expected_record_count = Column(Integer, nullable=False)
+    zero_record_evidence_sha256 = Column(String(_SHA256_LENGTH), nullable=True)
+    receipt_sha256 = Column(String(_SHA256_LENGTH), nullable=False)
+    created_at = Column(PITDateTime, default=_utcnow, nullable=False)
+
+    series = relationship("MdDataSeries", back_populates="b2_completeness_receipts")
+    source_snapshot = relationship("MdSourceSnapshot", back_populates="b2_completeness_receipts")
+    manifest_entries = relationship(
+        "MdB2CompletenessManifestEntry",
+        back_populates="receipt",
+        passive_deletes=True,
+    )
+
+
+class MdB2CompletenessManifestEntry(Base):
+    """One expected semantic record key belonging to a B2 completeness receipt."""
+
+    __tablename__ = "md_b2_completeness_manifest_entries"
+    __table_args__ = (
+        CheckConstraint(
+            f"length(semantic_record_key_sha256) = {_SHA256_LENGTH}",
+            name="ck_md_b2_completeness_entry_key_sha256_length",
+        ),
+    )
+
+    receipt_id = Column(
+        String(36),
+        ForeignKey(
+            "md_b2_completeness_receipts.id",
+            name="fk_md_b2_completeness_entry_receipt",
+            ondelete="RESTRICT",
+        ),
+        primary_key=True,
+    )
+    semantic_record_key_sha256 = Column(String(_SHA256_LENGTH), primary_key=True)
+    created_at = Column(PITDateTime, default=_utcnow, nullable=False)
+
+    receipt = relationship("MdB2CompletenessReceipt", back_populates="manifest_entries")
 
 
 class MdObservationRevision(Base):
@@ -1345,6 +1485,8 @@ for _immutable_model in (
     MdSourcePayload,
     MdSourceSnapshot,
     MdSourceSnapshotPayloadRef,
+    MdB2CompletenessReceipt,
+    MdB2CompletenessManifestEntry,
     MdObservationRevision,
     MdCalendarSnapshot,
     MdCalendarEvent,

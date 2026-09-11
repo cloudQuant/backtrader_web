@@ -41,7 +41,8 @@ SHARED_SOURCE_PAYLOADS_REVISION = "20260910_market_data_shared_source_payloads"
 CAPABILITY_LEDGER_REVISION = "20260910_market_data_capability_ledger"
 DEFERRED_PUBLICATIONS_REVISION = "20260911_market_data_deferred_publications"
 SEMANTIC_RECORD_KEYS_REVISION = "20260911_market_data_semantic_record_keys"
-INTEGRATED_HEAD_REVISION = SEMANTIC_RECORD_KEYS_REVISION
+B2_COMPLETENESS_EVIDENCE_REVISION = "20260911_market_data_b2_completeness_evidence"
+INTEGRATED_HEAD_REVISION = B2_COMPLETENESS_EVIDENCE_REVISION
 OBSERVATION_STORAGE_TABLES = {
     "md_instrument_lookup_keys",
     "md_data_series",

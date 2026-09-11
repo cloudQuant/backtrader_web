@@ -29,6 +29,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.market_data_platform import (
+    MdB2CompletenessReceipt,
     MdCalendarSnapshot,
     MdInstrumentIdentityRevision,
     MdPublication,
@@ -46,6 +47,7 @@ UTC = timezone.utc
 PUBLICATION_SOURCE_SNAPSHOT = "source_snapshot"
 PUBLICATION_CALENDAR_SNAPSHOT = "calendar_snapshot"
 PUBLICATION_INSTRUMENT_IDENTITY = "instrument_identity_revision"
+PUBLICATION_B2_COMPLETENESS_RECEIPT = "b2_completeness_receipt"
 PUBLICATION_RELEASE_HOLD_WORKFLOW_LEGACY_STOCK_DAILY_IMPORT = "legacy_stock_daily_import"
 PUBLICATION_RELEASE_HOLD_STATE_DEFERRED = "DEFERRED"
 PUBLICATION_RELEASE_HOLD_STATE_QUARANTINED = "QUARANTINED"
@@ -55,6 +57,7 @@ _ENTITY_TYPES = frozenset(
         PUBLICATION_SOURCE_SNAPSHOT,
         PUBLICATION_CALENDAR_SNAPSHOT,
         PUBLICATION_INSTRUMENT_IDENTITY,
+        PUBLICATION_B2_COMPLETENESS_RECEIPT,
     }
 )
 _RELEASE_HOLD_WORKFLOWS = frozenset({PUBLICATION_RELEASE_HOLD_WORKFLOW_LEGACY_STOCK_DAILY_IMPORT})
@@ -1001,6 +1004,10 @@ class MarketDataPublicationManager:
             PUBLICATION_INSTRUMENT_IDENTITY: (
                 MdInstrumentIdentityRevision,
                 MdInstrumentIdentityRevision.revision_sha256,
+            ),
+            PUBLICATION_B2_COMPLETENESS_RECEIPT: (
+                MdB2CompletenessReceipt,
+                MdB2CompletenessReceipt.receipt_sha256,
             ),
         }
         for entity_type, receipts in by_type.items():

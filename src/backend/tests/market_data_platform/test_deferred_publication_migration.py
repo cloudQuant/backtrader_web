@@ -17,7 +17,7 @@ from alembic import command
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
 PREVIOUS_REVISION = "20260910_market_data_capability_ledger"
 REVISION = "20260911_market_data_deferred_publications"
-INTEGRATED_HEAD_REVISION = "20260911_market_data_semantic_record_keys"
+INTEGRATED_HEAD_REVISION = "20260911_market_data_b2_completeness_evidence"
 TABLE = "md_publication_release_holds"
 UTC = timezone.utc
 NOW = datetime(2026, 9, 11, 12, tzinfo=UTC)
