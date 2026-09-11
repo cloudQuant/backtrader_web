@@ -73,9 +73,20 @@ def _canonical_json(payload: Mapping[str, Any]) -> str:
 
 
 def _emit(payload: Mapping[str, Any]) -> int:
-    """Write exactly one protocol document to stdout."""
-    sys.stdout.write(_canonical_json(payload))
+    """Write one receipt, then retain the group leader for parent cleanup.
+
+    The parent reads this newline-framed receipt before killing the process
+    group.  Waiting for a further stdin byte leaves this runner alive so the
+    parent never signals a process group using a PID that it has already
+    reaped.  A command-line caller that closes stdin still receives the same
+    receipt and lets the runner exit normally.
+    """
+    sys.stdout.write(_canonical_json(payload) + "\n")
     sys.stdout.flush()
+    try:
+        sys.stdin.buffer.read(1)
+    except OSError:
+        pass
     return 0
 
 
@@ -267,7 +278,7 @@ def main() -> int:
     """Read exactly one parent-built execution envelope and emit one receipt."""
     if not _has_isolated_no_site_startup():
         return _error(None, "AKSHARE_RUNNER_ISOLATION_UNAVAILABLE", "runner requires -I -S")
-    raw = sys.stdin.buffer.read(_MAX_REQUEST_BYTES + 1)
+    raw = sys.stdin.buffer.readline(_MAX_REQUEST_BYTES + 1)
     if len(raw) > _MAX_REQUEST_BYTES:
         return _error(None, "AKSHARE_RUNNER_REQUEST_TOO_LARGE", "request exceeds runner limit")
     try:

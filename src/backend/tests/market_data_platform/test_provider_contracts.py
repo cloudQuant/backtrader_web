@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import replace
 from datetime import datetime, timezone
+from typing import Any
 
 import pytest
 
@@ -23,6 +24,29 @@ from app.services.market_data.provider_contracts import (
 from app.services.market_data.providers import MarketDataProviderRequest
 
 UTC = timezone.utc
+
+
+class _TestReceiptRunner:
+    """A test-module-only replacement for the private subprocess runner."""
+
+    def __init__(self, callback: Callable[[Mapping[str, object]], Any]) -> None:
+        self._callback = callback
+
+    async def execute(
+        self,
+        envelope: Mapping[str, object],
+        *,
+        timeout_seconds: float,
+    ) -> object:
+        del timeout_seconds
+        return await self._callback(envelope)
+
+
+def _test_provider(callback: Callable[[Mapping[str, object]], Any]) -> AkShareMarketDataProvider:
+    """Keep offline receipt doubles out of the production constructor API."""
+    provider = AkShareMarketDataProvider()
+    provider._runner = _TestReceiptRunner(callback)  # type: ignore[assignment]
+    return provider
 
 
 def _request(**changes: object) -> MarketDataProviderRequest:
@@ -136,7 +160,7 @@ async def test_adapter_rejects_unknown_route_and_missing_mapping_before_provider
         calls.append("runner")
         pytest.fail("runner must not run for a rejected contract")
 
-    provider = AkShareMarketDataProvider(test_runner=runner)
+    provider = _test_provider(runner)
 
     with pytest.raises(AkShareProviderError) as unknown:
         await provider.fetch(_request(route_id="akshare-stock-unreviewed-v1"))
@@ -207,7 +231,7 @@ async def test_adapter_ignores_digest_spoofed_private_registry_before_provider_i
         runner_calls.append("runner")
         pytest.fail("runner must not run for a rejected contract")
 
-    provider = AkShareMarketDataProvider(test_runner=runner)
+    provider = _test_provider(runner)
     # The public constructor has no registry seam. This unsafe in-process
     # attribute replacement must be ignored by the import-time selector.
     provider._contracts = _digest_spoofed_stock_contract_registry()
@@ -239,7 +263,7 @@ async def test_adapter_rejects_postconstruction_reviewed_contract_mutation_befor
         reviewed.field_profile,
         mapped_fields=reviewed.field_profile.mapped_fields | {"unreviewed_metric"},
     )
-    provider = AkShareMarketDataProvider(test_runner=runner)
+    provider = _test_provider(runner)
 
     try:
         object.__setattr__(reviewed, "field_profile", widened_profile)
@@ -292,7 +316,7 @@ async def test_adapter_rechecks_reviewed_contract_integrity_after_runner_receipt
             ],
         }
 
-    provider = AkShareMarketDataProvider(test_runner=runner)
+    provider = _test_provider(runner)
     try:
         with pytest.raises(AkShareProviderError) as mismatch:
             await provider.fetch(_request())
@@ -313,7 +337,7 @@ async def test_adapter_rejects_provider_endpoint_descriptor_drift_before_provide
         calls.append("runner")
         pytest.fail("descriptor mismatch must not invoke the runner")
 
-    provider = AkShareMarketDataProvider(test_runner=runner)
+    provider = _test_provider(runner)
 
     with pytest.raises(AkShareProviderError) as mismatch:
         await provider.fetch(_request(provider_endpoint="fund_etf_hist_em"))

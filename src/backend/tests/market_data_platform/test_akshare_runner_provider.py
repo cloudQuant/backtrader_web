@@ -7,6 +7,7 @@ import inspect
 import json
 import os
 import runpy
+import signal
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -76,9 +77,14 @@ def _runner_configuration(tmp_path: Path) -> tuple[dict[str, str], str]:
     )
 
 
-def test_akshare_provider_exposes_no_in_process_source_callable_seam() -> None:
-    """Only the receipt runner is injectable; endpoint execution stays isolated."""
-    assert "callable_resolver" not in inspect.signature(AkShareMarketDataProvider).parameters
+def test_akshare_provider_exposes_no_in_process_source_or_receipt_seam() -> None:
+    """No public constructor callback can bypass the POSIX runner boundary."""
+    parameters = inspect.signature(AkShareMarketDataProvider).parameters
+    assert "callable_resolver" not in parameters
+    assert "test_runner" not in parameters
+
+    with pytest.raises(TypeError, match="test_runner"):
+        AkShareMarketDataProvider(test_runner=lambda _: {})  # type: ignore[call-arg]
 
 
 def test_runner_endpoint_allowlist_matches_static_provider_contracts() -> None:
@@ -115,7 +121,7 @@ _VALID_RESPONSE_SCRIPT = """
 import json
 import sys
 
-envelope = json.load(sys.stdin)
+envelope = json.loads(sys.stdin.buffer.readline())
 json.dump(
     {
         "protocol_version": "akshare-market-data-v1",
@@ -129,6 +135,9 @@ json.dump(
     },
     sys.stdout,
 )
+sys.stdout.write("\\n")
+sys.stdout.flush()
+sys.stdin.buffer.read(1)
 """
 
 
@@ -321,7 +330,7 @@ async def test_missing_process_group_capability_fails_closed_before_spawn(
 from pathlib import Path
 import sys
 
-sys.stdin.read()
+sys.stdin.buffer.readline()
 Path({str(started)!r}).touch()
 """,
     )
@@ -344,7 +353,7 @@ async def test_route_rejection_happens_before_runner_spawn(tmp_path: Path) -> No
 from pathlib import Path
 import sys
 
-sys.stdin.read()
+sys.stdin.buffer.readline()
 Path({str(started)!r}).touch()
 """,
     )
@@ -370,8 +379,10 @@ async def test_akshare_runner_bounds_every_output_pipe(
         f"""
 import sys
 
-sys.stdin.read()
+sys.stdin.buffer.readline()
 sys.{stream_name}.write("x" * 256)
+sys.{stream_name}.flush()
+sys.stdin.buffer.read(1)
 """,
     )
 
@@ -409,7 +420,7 @@ async def test_akshare_runner_rejects_protocol_echo_and_result_tampering(
 import json
 import sys
 
-envelope = json.load(sys.stdin)
+envelope = json.loads(sys.stdin.buffer.readline())
 result = {{
     "protocol_version": "akshare-market-data-v1",
     "request_id": envelope["request_id"],
@@ -422,6 +433,9 @@ result = {{
 }}
 {mutation}
 json.dump(result, sys.stdout)
+sys.stdout.write("\\n")
+sys.stdout.flush()
+sys.stdin.buffer.read(1)
 """,
     )
 
@@ -442,7 +456,7 @@ async def test_akshare_runner_authenticates_an_error_receipt_before_propagating_
 import json
 import sys
 
-envelope = json.load(sys.stdin)
+envelope = json.loads(sys.stdin.buffer.readline())
 json.dump(
     {
         "protocol_version": "akshare-market-data-v1",
@@ -454,6 +468,9 @@ json.dump(
     },
     sys.stdout,
 )
+sys.stdout.write("\\n")
+sys.stdout.flush()
+sys.stdin.buffer.read(1)
 """,
     )
 
@@ -461,6 +478,185 @@ json.dump(
         await provider.fetch(_request())
 
     assert rejected.value.code == "AKSHARE_FETCH_FAILED"
+
+
+@pytest.mark.asyncio
+async def test_isolated_runner_rejects_an_independent_akshare_revision_mismatch(
+    tmp_path: Path,
+) -> None:
+    """The child must refuse a receipt when its installed AkShare differs from the parent."""
+    environment, workdir = _runner_configuration(tmp_path)
+    site_packages = Path(environment["AKSHARE_RUNNER_SITE_PACKAGES"])
+    endpoint = "stock_zh_a_hist"
+    parent_revision = akshare_provider._source_revision(endpoint)
+    child_version = "999.0.0"
+    if parent_revision == f"akshare-{child_version}:{endpoint}":
+        child_version = "998.0.0"
+    distribution = site_packages / f"akshare-{child_version}.dist-info"
+    distribution.mkdir()
+    (distribution / "METADATA").write_text(
+        f"Metadata-Version: 2.1\nName: akshare\nVersion: {child_version}\n",
+        encoding="utf-8",
+    )
+    (site_packages / "akshare.py").write_text(
+        "def stock_zh_a_hist(**kwargs):\n    return []\n",
+        encoding="utf-8",
+    )
+    shipped_runner = Path(__file__).resolve().parents[2] / "scripts" / "akshare_market_data_runner.py"
+    provider = AkShareMarketDataProvider(
+        command=_runner_command(shipped_runner),
+        runner_environment=environment,
+        runner_workdir=workdir,
+    )
+
+    with pytest.raises(AkShareProviderError) as rejected:
+        await provider.fetch(_request())
+
+    assert rejected.value.code == "AKSHARE_RUNNER_SOURCE_REVISION_MISMATCH"
+
+
+def test_runner_cleanup_orders_group_kill_before_direct_child_reap() -> None:
+    """The implementation must never signal a numeric process group after reaping it."""
+    cleanup_source = inspect.getsource(akshare_provider._cleanup_owned_runner_group)
+    runner_source = inspect.getsource(akshare_provider._AkShareSubprocessRunner.execute)
+
+    assert cleanup_source.index("_kill_owned_runner_group") < cleanup_source.index(
+        "_reap_owned_runner_process"
+    )
+    assert "subprocess.Popen" in runner_source
+    assert "asyncio.create_subprocess_exec" not in runner_source
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(os.name != "posix", reason="requires a POSIX process group")
+async def test_akshare_runner_success_reaps_descendants_before_return(tmp_path: Path) -> None:
+    """A successful receipt cannot leave a child behind after its leader is reaped."""
+    ready = tmp_path / "success-child-ready"
+    survived = tmp_path / "success-child-survived"
+    runner_pid = tmp_path / "success-runner-pid"
+    provider = _provider(
+        tmp_path,
+        f"""
+import json
+import os
+from pathlib import Path
+import sys
+import time
+
+envelope = json.loads(sys.stdin.buffer.readline())
+Path({str(runner_pid)!r}).write_text(str(os.getpid()), encoding="utf-8")
+child = os.fork()
+if child == 0:
+    Path({str(ready)!r}).touch()
+    time.sleep(0.35)
+    Path({str(survived)!r}).touch()
+    time.sleep(10)
+    os._exit(0)
+while not Path({str(ready)!r}).exists():
+    time.sleep(0.01)
+json.dump(
+    {{
+        "protocol_version": "akshare-market-data-v1",
+        "request_id": envelope["request_id"],
+        "request": envelope["request"],
+        "execution": envelope["execution"],
+        "source_revision": envelope["execution"]["source_revision"],
+        "response_rows": [
+            {{"日期": "2026-01-02", "股票代码": "000001", "开盘": 10.0, "收盘": 10.5}}
+        ],
+    }},
+    sys.stdout,
+)
+sys.stdout.write("\\n")
+sys.stdout.flush()
+sys.stdin.buffer.read(1)
+""",
+    )
+
+    result = await provider.fetch(_request())
+
+    await asyncio.sleep(0.45)
+    assert result.provider_id == "akshare"
+    assert ready.exists()
+    assert not survived.exists()
+    assert not _process_is_alive(int(runner_pid.read_text(encoding="utf-8")))
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(os.name != "posix", reason="requires a POSIX process group")
+async def test_akshare_runner_permission_denied_cleanup_fails_closed_after_confirmation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A live group after denied signaling cannot become a successful fetch."""
+    permission_denied = asyncio.Event()
+    group_was_live = asyncio.Event()
+    group_confirmed = asyncio.Event()
+    actual_killpg = os.killpg
+    signal_attempted = False
+    process_group_id: int | None = None
+
+    def signal_with_audited_denial(group_id: int, value: int) -> None:
+        nonlocal process_group_id, signal_attempted
+        if value == signal.SIGKILL and not signal_attempted:
+            signal_attempted = True
+            process_group_id = group_id
+            permission_denied.set()
+            raise PermissionError("synthetic group permission denial")
+        if value == 0:
+            try:
+                actual_killpg(group_id, value)
+            except ProcessLookupError:
+                group_confirmed.set()
+                raise
+            return
+        actual_killpg(group_id, value)
+
+    async def external_operator_terminates_confirmed_live_group() -> None:
+        await asyncio.wait_for(permission_denied.wait(), timeout=1.0)
+        assert process_group_id is not None
+        assert actual_killpg(process_group_id, 0) is None
+        group_was_live.set()
+        await asyncio.sleep(0.05)
+        actual_killpg(process_group_id, signal.SIGKILL)
+
+    monkeypatch.setattr(akshare_provider.os, "killpg", signal_with_audited_denial)
+    provider = _provider(
+        tmp_path,
+        """
+import json
+import sys
+import time
+
+envelope = json.loads(sys.stdin.buffer.readline())
+json.dump(
+    {
+        "protocol_version": "akshare-market-data-v1",
+        "request_id": envelope["request_id"],
+        "request": envelope["request"],
+        "execution": envelope["execution"],
+        "source_revision": envelope["execution"]["source_revision"],
+        "response_rows": [
+            {"日期": "2026-01-02", "股票代码": "000001", "开盘": 10.0, "收盘": 10.5}
+        ],
+    },
+    sys.stdout,
+)
+sys.stdout.write("\\n")
+sys.stdout.flush()
+time.sleep(10)
+""",
+    )
+    operator_task = asyncio.create_task(external_operator_terminates_confirmed_live_group())
+
+    with pytest.raises(AkShareProviderError) as rejected:
+        await provider.fetch(_request())
+    await operator_task
+
+    assert signal_attempted
+    assert group_was_live.is_set()
+    assert group_confirmed.is_set()
+    assert rejected.value.code == "AKSHARE_RUNNER_CLEANUP_FAILED"
 
 
 @pytest.mark.asyncio
@@ -478,7 +674,7 @@ from pathlib import Path
 import sys
 import time
 
-sys.stdin.read()
+sys.stdin.buffer.readline()
 Path({str(runner_pid)!r}).write_text(str(os.getpid()), encoding="utf-8")
 child = os.fork()
 if child == 0:
@@ -521,7 +717,7 @@ from pathlib import Path
 import sys
 import time
 
-sys.stdin.read()
+sys.stdin.buffer.readline()
 Path({str(runner_pid)!r}).write_text(str(os.getpid()), encoding="utf-8")
 child = os.fork()
 if child == 0:
@@ -548,6 +744,81 @@ time.sleep(10)
         await task
 
     await asyncio.sleep(0.45)
+    assert not survived.exists()
+    assert not _process_is_alive(int(runner_pid.read_text(encoding="utf-8")))
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(os.name != "posix", reason="requires a POSIX process group")
+async def test_akshare_runner_double_cancellation_waits_for_kill_reap_and_drain(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A second cancellation cannot bypass the shielded runner cleanup boundary."""
+    ready = tmp_path / "double-cancel-child-ready"
+    survived = tmp_path / "double-cancel-child-survived"
+    drained_marker = tmp_path / "double-cancel-stderr-written"
+    runner_pid = tmp_path / "double-cancel-runner-pid"
+    cleanup_started = asyncio.Event()
+    cleanup_finished = asyncio.Event()
+    original_cleanup = akshare_provider._cleanup_owned_runner_group
+    original_confirmation = akshare_provider._confirm_runner_group_terminated
+
+    async def delayed_confirmation(process_group_id: int) -> None:
+        await original_confirmation(process_group_id)
+        await asyncio.sleep(0.05)
+
+    async def observed_cleanup(*args: object, **kwargs: object) -> object:
+        cleanup_started.set()
+        result = await original_cleanup(*args, **kwargs)
+        cleanup_finished.set()
+        return result
+
+    monkeypatch.setattr(akshare_provider, "_confirm_runner_group_terminated", delayed_confirmation)
+    monkeypatch.setattr(akshare_provider, "_cleanup_owned_runner_group", observed_cleanup)
+    provider = _provider(
+        tmp_path,
+        f"""
+import os
+from pathlib import Path
+import sys
+import time
+
+sys.stdin.buffer.readline()
+Path({str(runner_pid)!r}).write_text(str(os.getpid()), encoding="utf-8")
+child = os.fork()
+if child == 0:
+    Path({str(ready)!r}).touch()
+    time.sleep(0.35)
+    Path({str(survived)!r}).touch()
+    time.sleep(10)
+    os._exit(0)
+while not Path({str(ready)!r}).exists():
+    time.sleep(0.01)
+sys.stderr.write("drain-marker\\n")
+sys.stderr.flush()
+Path({str(drained_marker)!r}).touch()
+time.sleep(10)
+""",
+        timeout_seconds=5.0,
+    )
+
+    task = asyncio.create_task(provider.fetch(_request()))
+    for _ in range(100):
+        if ready.exists() and drained_marker.exists():
+            break
+        await asyncio.sleep(0.01)
+    assert ready.exists()
+    assert drained_marker.exists()
+
+    task.cancel()
+    await asyncio.wait_for(cleanup_started.wait(), timeout=1.0)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    await asyncio.sleep(0.45)
+    assert cleanup_finished.is_set()
     assert not survived.exists()
     assert not _process_is_alive(int(runner_pid.read_text(encoding="utf-8")))
 

@@ -5,9 +5,12 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+import os
+import sys
 from collections.abc import Callable
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from types import MappingProxyType
 from typing import Any
 
@@ -15,6 +18,7 @@ import pytest
 
 from app.schemas.asset_research import InstrumentIdentity, StockIdentityDetails
 from app.schemas.market_data_platform import MarketDataQueryRequest, ResolvedMarketDataQuery
+from app.services.market_data import akshare_provider
 from app.services.market_data.access import (
     MarketDataAccessAuthorizer,
     MarketDataAccessGrant,
@@ -68,6 +72,61 @@ METADATA_VERSION = "stock-v1"
 _CURSOR_SIGNING_KEY = "test-market-data-cursor-hmac-key-material-0000000000000000000001"
 _OTHER_CURSOR_SIGNING_KEY = "test-market-data-cursor-hmac-key-material-0000000000000000000002"
 _DEFAULT_FETCH_LEASES = object()
+
+
+class _TestAkShareReceiptRunner:
+    """Test-only private runner double for query lease-boundary coverage."""
+
+    def __init__(self, callback: Callable[[dict[str, Any]], Any]) -> None:
+        self._callback = callback
+
+    async def execute(
+        self,
+        envelope: dict[str, Any],
+        *,
+        timeout_seconds: float,
+    ) -> object:
+        del timeout_seconds
+        return await self._callback(envelope)
+
+
+def _test_akshare_provider(
+    callback: Callable[[dict[str, Any]], Any],
+) -> AkShareMarketDataProvider:
+    """Attach a receipt double outside the production provider constructor."""
+    provider = AkShareMarketDataProvider()
+    provider._runner = _TestAkShareReceiptRunner(callback)  # type: ignore[assignment]
+    return provider
+
+
+def _runner_provider_for_lease_test(tmp_path: Path, script_body: str) -> AkShareMarketDataProvider:
+    """Build a real subprocess adapter for query lease-boundary coverage."""
+    home = tmp_path / "runner-home"
+    workdir = tmp_path / "runner-workdir"
+    site_packages = tmp_path / "runner-site-packages"
+    script = tmp_path / "lease-runner.py"
+    home.mkdir()
+    workdir.mkdir()
+    site_packages.mkdir()
+    script.write_text(script_body, encoding="utf-8")
+    return AkShareMarketDataProvider(
+        command=(str(Path(sys.executable).resolve()), "-I", "-S", str(script.resolve())),
+        runner_environment={
+            "HOME": str(home),
+            "AKSHARE_RUNNER_SITE_PACKAGES": str(site_packages),
+        },
+        runner_workdir=str(workdir),
+        timeout_seconds=5.0,
+    )
+
+
+def _process_is_alive(process_id: int) -> bool:
+    """Return whether a same-user runner leader remains after query cleanup."""
+    try:
+        os.kill(process_id, 0)
+    except ProcessLookupError:
+        return False
+    return True
 
 
 def _at(hour: int, minute: int = 0, *, day: int = 8) -> datetime:
@@ -1408,7 +1467,7 @@ async def test_query_fetch_lease_release_waits_for_fake_runner_shutdown() -> Non
             ],
         }
 
-    provider = AkShareMarketDataProvider(test_runner=fake_runner)
+    provider = _test_akshare_provider(fake_runner)
     handle = MarketDataFetchLeaseHandle(
         lease_key_sha256="c" * 64,
         owner_token="owner-reaped-runner",
@@ -1430,6 +1489,117 @@ async def test_query_fetch_lease_release_waits_for_fake_runner_shutdown() -> Non
     assert runner_shutdown_complete.is_set()
     assert owner.released_handles == [handle]
     assert result.fetches[0].provider_id == "akshare"
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(os.name != "posix", reason="requires a POSIX process group")
+async def test_query_fetch_lease_release_waits_for_double_cancelled_runner_cleanup(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The query lease stays held through a real runner's shielded cleanup."""
+    context = _context()
+    context = replace(
+        context,
+        query=context.query.model_copy(
+            update={
+                "family_id": "stock.realtime",
+                "family_contract_version": FAMILY_CONTRACT_VERSION,
+            }
+        ),
+        coverage_identity=replace(
+            context.coverage_identity,
+            family_id="stock.realtime",
+            family_contract_version=FAMILY_CONTRACT_VERSION,
+        ),
+    )
+    ready = tmp_path / "lease-double-cancel-ready"
+    survived = tmp_path / "lease-double-cancel-survived"
+    drained_marker = tmp_path / "lease-double-cancel-stderr-written"
+    runner_pid = tmp_path / "lease-double-cancel-runner-pid"
+    cleanup_started = asyncio.Event()
+    cleanup_finished = asyncio.Event()
+    original_cleanup = akshare_provider._cleanup_owned_runner_group
+    original_confirmation = akshare_provider._confirm_runner_group_terminated
+
+    async def delayed_confirmation(process_group_id: int) -> None:
+        await original_confirmation(process_group_id)
+        await asyncio.sleep(0.05)
+
+    async def observed_cleanup(*args: object, **kwargs: object) -> object:
+        cleanup_started.set()
+        result = await original_cleanup(*args, **kwargs)
+        cleanup_finished.set()
+        return result
+
+    monkeypatch.setattr(akshare_provider, "_confirm_runner_group_terminated", delayed_confirmation)
+    monkeypatch.setattr(akshare_provider, "_cleanup_owned_runner_group", observed_cleanup)
+    provider = _runner_provider_for_lease_test(
+        tmp_path,
+        f"""
+import json
+import os
+from pathlib import Path
+import sys
+import time
+
+json.loads(sys.stdin.buffer.readline())
+Path({str(runner_pid)!r}).write_text(str(os.getpid()), encoding="utf-8")
+child = os.fork()
+if child == 0:
+    Path({str(ready)!r}).touch()
+    time.sleep(0.35)
+    Path({str(survived)!r}).touch()
+    time.sleep(10)
+    os._exit(0)
+while not Path({str(ready)!r}).exists():
+    time.sleep(0.01)
+sys.stderr.write("drain-marker\\n")
+sys.stderr.flush()
+Path({str(drained_marker)!r}).touch()
+time.sleep(10)
+""",
+    )
+    handle = MarketDataFetchLeaseHandle(
+        lease_key_sha256="d" * 64,
+        owner_token="owner-double-cancelled-runner",
+        fence_token=10,
+        expires_at=_at(12) + timedelta(minutes=5),
+    )
+
+    def assert_cleanup_precedes_lease_release() -> None:
+        assert cleanup_finished.is_set()
+        assert drained_marker.exists()
+        assert runner_pid.exists()
+        assert not _process_is_alive(int(runner_pid.read_text(encoding="utf-8")))
+        assert not survived.exists()
+
+    owner = _FetchLeases(handle=handle, on_release=assert_cleanup_precedes_lease_release)
+    service = _service(
+        context=context,
+        store=_Store(calendar=_calendar(), revisions=[]),
+        provider_routes=(_akshare_stock_primary_route(provider),),
+        fetch_leases=owner,
+    )
+    task = asyncio.create_task(service.execute(_request()))
+    for _ in range(100):
+        if ready.exists() and drained_marker.exists():
+            break
+        await asyncio.sleep(0.01)
+    assert ready.exists()
+    assert drained_marker.exists()
+
+    task.cancel()
+    await asyncio.wait_for(cleanup_started.wait(), timeout=1.0)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert cleanup_finished.is_set()
+    assert owner.released_handles == [handle]
+    await asyncio.sleep(0.45)
+    assert not survived.exists()
+    assert not _process_is_alive(int(runner_pid.read_text(encoding="utf-8")))
 
 
 @pytest.mark.asyncio

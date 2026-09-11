@@ -14,13 +14,13 @@ existing normalization and provenance logic.
 from __future__ import annotations
 
 import asyncio
-import inspect
 import json
 import math
 import os
 import re
 import shlex
 import signal
+import subprocess
 import tempfile
 from collections.abc import Callable, Mapping, Sequence
 from contextlib import suppress
@@ -126,8 +126,6 @@ _FIELD_ALIASES = AKSHARE_RESPONSE_FIELD_ALIASES
 RouteArgumentBuilder = Callable[[MarketDataProviderRequest], Mapping[str, Any]]
 RouteRequestValidator = Callable[[MarketDataProviderRequest], None]
 RouteEndpointResolver = Callable[[MarketDataProviderRequest], str]
-AkShareTestRunner = Callable[[Mapping[str, Any]], Any]
-
 _RUNNER_BASE_ENVIRONMENT_KEYS = (
     "LANG",
     "LC_ALL",
@@ -879,6 +877,15 @@ class _BoundedRunnerStream:
     exceeded_limit: bool
 
 
+@dataclass(frozen=True, slots=True)
+class _RunnerReceipt:
+    """One newline-framed runner receipt retained before group shutdown."""
+
+    data: bytes
+    trailing: bytes
+    exceeded_limit: bool
+
+
 def _has_safe_akshare_process_group() -> bool:
     """Return whether this process can create and terminate an isolated group.
 
@@ -890,54 +897,297 @@ def _has_safe_akshare_process_group() -> bool:
         os.name == "posix"
         and callable(getattr(os, "setsid", None))
         and callable(getattr(os, "killpg", None))
+        and callable(getattr(os, "set_blocking", None))
+        and callable(getattr(os, "waitpid", None))
+        and hasattr(os, "WNOHANG")
         and hasattr(signal, "SIGKILL")
     )
 
 
+def _has_safe_akshare_runner_event_loop() -> bool:
+    """Return whether this loop can drain raw Popen pipes without a worker."""
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return False
+    return callable(getattr(loop, "add_reader", None)) and callable(
+        getattr(loop, "add_writer", None)
+    )
+
+
 async def _read_runner_stream_bounded(
-    stream: asyncio.StreamReader,
+    stream: Any,
     *,
     maximum_bytes: int,
+    initial_data: bytes = b"",
+    initial_exceeded_limit: bool = False,
+    stop_when_limit_exceeded: bool = False,
+    close_stream: bool = True,
 ) -> _BoundedRunnerStream:
-    """Drain one pipe even when its retained evidence exceeds the hard cap."""
+    """Drain one raw Popen pipe without delegating I/O to the web process."""
+    loop = asyncio.get_running_loop()
+    try:
+        file_descriptor = stream.fileno()
+        os.set_blocking(file_descriptor, False)
+    except (AttributeError, OSError, ValueError) as exc:
+        raise AkShareProviderError("AKSHARE_RUNNER_PROCESS_GROUP_UNSUPPORTED") from exc
+
     retained: list[bytes] = []
-    remaining = maximum_bytes
-    exceeded_limit = False
-    while chunk := await stream.read(_RUNNER_READ_CHUNK_BYTES):
-        if remaining <= 0:
-            exceeded_limit = True
-            continue
-        if len(chunk) <= remaining:
-            retained.append(chunk)
-            remaining -= len(chunk)
-            continue
-        retained.append(chunk[:remaining])
+    if len(initial_data) <= maximum_bytes:
+        retained.append(initial_data)
+        remaining = maximum_bytes - len(initial_data)
+        exceeded_limit = initial_exceeded_limit
+    else:
+        retained.append(initial_data[:maximum_bytes])
         remaining = 0
         exceeded_limit = True
-    return _BoundedRunnerStream(data=b"".join(retained), exceeded_limit=exceeded_limit)
+    completed: asyncio.Future[_BoundedRunnerStream] = loop.create_future()
+
+    def read_available() -> None:
+        nonlocal remaining, exceeded_limit
+        while True:
+            try:
+                chunk = os.read(file_descriptor, _RUNNER_READ_CHUNK_BYTES)
+            except BlockingIOError:
+                return
+            except InterruptedError:
+                continue
+            except OSError as exc:
+                if not completed.done():
+                    completed.set_exception(exc)
+                return
+            if not chunk:
+                if not completed.done():
+                    completed.set_result(
+                        _BoundedRunnerStream(
+                            data=b"".join(retained),
+                            exceeded_limit=exceeded_limit,
+                        )
+                    )
+                return
+            if remaining <= 0:
+                exceeded_limit = True
+                if stop_when_limit_exceeded and not completed.done():
+                    completed.set_result(
+                        _BoundedRunnerStream(
+                            data=b"".join(retained),
+                            exceeded_limit=True,
+                        )
+                    )
+                    return
+            elif len(chunk) <= remaining:
+                retained.append(chunk)
+                remaining -= len(chunk)
+            else:
+                retained.append(chunk[:remaining])
+                remaining = 0
+                exceeded_limit = True
+                if stop_when_limit_exceeded and not completed.done():
+                    completed.set_result(
+                        _BoundedRunnerStream(
+                            data=b"".join(retained),
+                            exceeded_limit=True,
+                        )
+                    )
+                    return
+
+    loop.add_reader(file_descriptor, read_available)
+    try:
+        return await completed
+    finally:
+        loop.remove_reader(file_descriptor)
+        if close_stream:
+            with suppress(OSError):
+                stream.close()
 
 
-async def _terminate_runner_group(
-    process: asyncio.subprocess.Process,
+async def _read_runner_receipt(
+    stream: Any,
     *,
-    process_group_id: int,
-) -> None:
-    """Kill a POSIX runner session and wait for its direct child to exit.
+    maximum_bytes: int,
+) -> _RunnerReceipt:
+    """Read one newline-framed receipt while intentionally keeping stdout open.
 
-    The known session leader PID remains usable even after the direct child
-    exits.  This is deliberate: a descendant can otherwise retain a pipe or
-    continue source I/O after the web request releases its durable fetch
-    lease.
+    The shipped runner waits for parent cleanup after writing this frame.  That
+    leaves its session leader alive while the parent kills the owned process
+    group, avoiding any signal based on a reaped PID.
+    """
+    loop = asyncio.get_running_loop()
+    try:
+        file_descriptor = stream.fileno()
+        os.set_blocking(file_descriptor, False)
+    except (AttributeError, OSError, ValueError) as exc:
+        raise AkShareProviderError("AKSHARE_RUNNER_PROCESS_GROUP_UNSUPPORTED") from exc
+
+    retained: list[bytes] = []
+    retained_length = 0
+    completed: asyncio.Future[_RunnerReceipt] = loop.create_future()
+
+    def finish(*, trailing: bytes = b"", exceeded_limit: bool = False) -> None:
+        if not completed.done():
+            completed.set_result(
+                _RunnerReceipt(
+                    data=b"".join(retained),
+                    trailing=trailing,
+                    exceeded_limit=exceeded_limit,
+                )
+            )
+
+    def read_available() -> None:
+        nonlocal retained_length
+        while True:
+            try:
+                chunk = os.read(file_descriptor, _RUNNER_READ_CHUNK_BYTES)
+            except BlockingIOError:
+                return
+            except InterruptedError:
+                continue
+            except OSError as exc:
+                if not completed.done():
+                    completed.set_exception(exc)
+                return
+            if not chunk:
+                finish(exceeded_limit=False)
+                return
+            newline_index = chunk.find(b"\n")
+            receipt_chunk = chunk if newline_index < 0 else chunk[: newline_index + 1]
+            remaining = maximum_bytes - retained_length
+            if len(receipt_chunk) > remaining:
+                if remaining > 0:
+                    retained.append(receipt_chunk[:remaining])
+                    retained_length += remaining
+                finish(exceeded_limit=True)
+                return
+            retained.append(receipt_chunk)
+            retained_length += len(receipt_chunk)
+            if newline_index >= 0:
+                finish(trailing=chunk[newline_index + 1 :])
+                return
+
+    loop.add_reader(file_descriptor, read_available)
+    try:
+        return await completed
+    finally:
+        loop.remove_reader(file_descriptor)
+
+
+async def _write_runner_input(
+    stream: Any,
+    payload: bytes,
+    *,
+    close_after_write: bool = True,
+) -> None:
+    """Write one bounded envelope, optionally holding stdin for the receipt ACK."""
+    loop = asyncio.get_running_loop()
+    try:
+        file_descriptor = stream.fileno()
+        os.set_blocking(file_descriptor, False)
+    except (AttributeError, OSError, ValueError) as exc:
+        raise AkShareProviderError("AKSHARE_RUNNER_PROCESS_GROUP_UNSUPPORTED") from exc
+
+    if not payload:
+        if close_after_write:
+            with suppress(OSError):
+                stream.close()
+        return
+    completed: asyncio.Future[None] = loop.create_future()
+    position = 0
+
+    def write_available() -> None:
+        nonlocal position
+        try:
+            written = os.write(file_descriptor, payload[position:])
+        except BlockingIOError:
+            return
+        except InterruptedError:
+            return
+        except (BrokenPipeError, ConnectionResetError):
+            if not completed.done():
+                completed.set_result(None)
+            return
+        except OSError as exc:
+            if not completed.done():
+                completed.set_exception(exc)
+            return
+        if written <= 0:
+            if not completed.done():
+                completed.set_exception(OSError("runner stdin accepted no bytes"))
+            return
+        position += written
+        if position == len(payload) and not completed.done():
+            completed.set_result(None)
+
+    loop.add_writer(file_descriptor, write_available)
+    try:
+        await completed
+    finally:
+        loop.remove_writer(file_descriptor)
+        if close_after_write:
+            with suppress(OSError):
+                stream.close()
+
+
+def _kill_owned_runner_group(process_group_id: int) -> AkShareProviderError | None:
+    """Kill a session while its leader PID is deliberately still unreaped.
+
+    ``subprocess.Popen`` is used instead of asyncio's child watcher so this
+    process has not called ``waitpid`` before this operation.  A zombie leader
+    retains its PID/process-group identity, preventing a post-reap PID reuse
+    from turning this kill into a signal for an unrelated process group.
     """
     try:
         os.killpg(process_group_id, signal.SIGKILL)
-    except (ProcessLookupError, PermissionError):
-        pass
-    with suppress(ProcessLookupError):
-        await process.wait()
+    except ProcessLookupError:
+        # The still-unreaped leader proves this is not a reused PID.  No live
+        # member remains in the original group, so cleanup can continue.
+        return None
+    except PermissionError as exc:
+        # Do not treat a partial/denied group signal as a successful cleanup.
+        # The caller will keep the request inside the cleanup boundary until a
+        # zero-signal probe proves the whole group is gone.
+        return AkShareProviderError("AKSHARE_RUNNER_CLEANUP_FAILED", detail=_error_detail(exc))
+    return None
 
 
-async def _await_runner_cleanup(*tasks: asyncio.Future[Any]) -> None:
+async def _reap_owned_runner_process(process: subprocess.Popen[bytes]) -> int:
+    """Reap the direct runner only after its owned group was terminated."""
+    while True:
+        try:
+            process_id, status = os.waitpid(process.pid, os.WNOHANG)
+        except InterruptedError:
+            continue
+        except ChildProcessError as exc:
+            raise AkShareProviderError("AKSHARE_RUNNER_REAP_FAILED") from exc
+        if process_id == process.pid:
+            process.returncode = os.waitstatus_to_exitcode(status)
+            return int(process.returncode)
+        await asyncio.sleep(0.005)
+
+
+async def _confirm_runner_group_terminated(process_group_id: int) -> None:
+    """Wait until a zero-signal probe proves no member remains in the group.
+
+    Once the direct leader is reaped, this function never sends another
+    destructive signal using its numeric group id.  That avoids converting a
+    later PID reuse into a kill of an unrelated process while still refusing
+    to let a lease release before the original group has disappeared.
+    """
+    while True:
+        try:
+            os.killpg(process_group_id, 0)
+        except ProcessLookupError:
+            return
+        except PermissionError:
+            # Lack of permission means the group cannot be proven gone.  Stay
+            # in the shielded cleanup boundary instead of releasing the lease.
+            pass
+        await asyncio.sleep(0.005)
+
+
+async def _await_runner_cleanup(
+    *tasks: asyncio.Future[Any],
+    ignore_cancelled: bool = False,
+) -> bool:
     """Wait for reaping/draining even when request cancellation repeats.
 
     ``fetch`` re-raises its original cancellation after this helper returns.
@@ -947,14 +1197,123 @@ async def _await_runner_cleanup(*tasks: asyncio.Future[Any]) -> None:
     """
     pending = [task for task in tasks if task is not None]
     if not pending:
-        return
+        return False
     cleanup = asyncio.gather(*pending, return_exceptions=True)
+    cancellation_requested = False
     while not cleanup.done():
         try:
             await asyncio.shield(cleanup)
         except asyncio.CancelledError:
+            cancellation_requested = True
             continue
-    await cleanup
+    results = await cleanup
+    errors = [
+        result
+        for result in results
+        if isinstance(result, BaseException)
+        and not (ignore_cancelled and isinstance(result, asyncio.CancelledError))
+    ]
+    if errors:
+        error = errors[0]
+        if isinstance(error, AkShareProviderError):
+            raise error
+        raise AkShareProviderError("AKSHARE_RUNNER_CLEANUP_FAILED", detail=_error_detail(error))
+    return cancellation_requested
+
+
+async def _cleanup_owned_runner_group(
+    process: subprocess.Popen[bytes],
+    *,
+    stdin: Any | None,
+    input_task: asyncio.Future[Any] | None,
+    collector_task: asyncio.Future[Any] | None,
+    completion_task: asyncio.Future[Any] | None,
+    receipt_task: asyncio.Future[Any] | None,
+    receipt: _RunnerReceipt | None,
+    stdout: Any | None,
+    stderr: Any | None,
+    stderr_task: asyncio.Future[Any] | None,
+    stderr_prefix: _BoundedRunnerStream | None,
+) -> tuple[int, _BoundedRunnerStream, _BoundedRunnerStream]:
+    """Kill, reap, and drain a raw-Popen group in its ownership order."""
+    signal_error = _kill_owned_runner_group(process.pid)
+    if stdin is not None:
+        with suppress(OSError):
+            stdin.close()
+    returncode = await _reap_owned_runner_process(process)
+
+    if receipt_task is not None and not receipt_task.done():
+        receipt_task.cancel()
+    if completion_task is not None and not completion_task.done():
+        completion_task.cancel()
+    if receipt_task is not None:
+        # The collector is allowed to finish with the expected receipt-reader
+        # cancellation after timeout/caller cancellation; all pipe errors are
+        # still checked by the explicit drain tasks below.
+        await asyncio.gather(receipt_task, return_exceptions=True)
+
+    if stdout is None:
+        raise AkShareProviderError("AKSHARE_RUNNER_CLEANUP_FAILED")
+    receipt_prefix = receipt.data if receipt is not None else b""
+    remaining_stdout_bytes = max(0, _MAX_RUNNER_OUTPUT_BYTES - len(receipt_prefix))
+    stdout_task = asyncio.create_task(
+        _read_runner_stream_bounded(
+            stdout,
+            maximum_bytes=remaining_stdout_bytes,
+            initial_data=receipt.trailing if receipt is not None else b"",
+            initial_exceeded_limit=receipt.exceeded_limit if receipt is not None else False,
+        )
+    )
+    stderr_drain_task: asyncio.Future[_BoundedRunnerStream] | None = stderr_task
+    if stderr_prefix is not None:
+        if stderr is None:
+            raise AkShareProviderError("AKSHARE_RUNNER_CLEANUP_FAILED")
+        stderr_drain_task = asyncio.create_task(
+            _read_runner_stream_bounded(
+                stderr,
+                maximum_bytes=max(0, _MAX_RUNNER_OUTPUT_BYTES - len(stderr_prefix.data)),
+            )
+        )
+    await _await_runner_cleanup(
+        *(
+            task
+            for task in (
+                input_task,
+                collector_task,
+                completion_task,
+                stderr_task,
+                stdout_task,
+                stderr_drain_task,
+            )
+            if task is not None
+        ),
+        ignore_cancelled=True,
+    )
+    await _confirm_runner_group_terminated(process.pid)
+    if signal_error is not None:
+        raise signal_error
+    stdout_drain = stdout_task.result()
+    stderr_drain = (
+        stderr_drain_task.result()
+        if stderr_drain_task is not None
+        else _BoundedRunnerStream(b"", False)
+    )
+    final_stderr = (
+        _BoundedRunnerStream(
+            data=stderr_prefix.data + stderr_drain.data,
+            exceeded_limit=stderr_prefix.exceeded_limit or stderr_drain.exceeded_limit,
+        )
+        if stderr_prefix is not None
+        else stderr_drain
+    )
+    return (
+        returncode,
+        _BoundedRunnerStream(
+            data=receipt_prefix + stdout_drain.data,
+            exceeded_limit=stdout_drain.exceeded_limit,
+        ),
+        final_stderr,
+    )
 
 
 def _strict_json_loads(value: bytes) -> object:
@@ -991,68 +1350,134 @@ class _AkShareSubprocessRunner:
         """Exchange one bounded JSON receipt, reaping the group before return."""
         if self._configuration_error is not None:
             raise AkShareProviderError(self._configuration_error)
-        if not _has_safe_akshare_process_group():
+        if not _has_safe_akshare_process_group() or not _has_safe_akshare_runner_event_loop():
             raise AkShareProviderError("AKSHARE_RUNNER_PROCESS_GROUP_UNSUPPORTED")
         if self._command is None or self._environment is None or self._workdir is None:
             raise AkShareProviderError("AKSHARE_RUNNER_ENV_UNCONFIGURED")
 
         try:
-            process = await asyncio.create_subprocess_exec(
-                *self._command,
-                stdin=asyncio.subprocess.PIPE,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
+            # Do not use asyncio's child watcher here. It may reap a finished
+            # direct child before the parent can signal the original process
+            # group, creating a PID/PGID reuse hazard. Raw Popen leaves the
+            # leader unreaped until _cleanup_owned_runner_group kills its
+            # group and then performs this process's own waitpid.
+            process = subprocess.Popen(
+                self._command,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
                 env=self._environment,
                 cwd=self._workdir,
                 start_new_session=True,
+                close_fds=True,
             )
         except OSError as exc:
             raise AkShareProviderError("AKSHARE_RUNNER_UNAVAILABLE", detail=_error_detail(exc)) from exc
 
         if process.stdin is None or process.stdout is None or process.stderr is None:
-            await _terminate_runner_group(process, process_group_id=process.pid)
+            cleanup_task = asyncio.create_task(
+                _cleanup_owned_runner_group(
+                    process,
+                    stdin=process.stdin,
+                    input_task=None,
+                    collector_task=None,
+                    completion_task=None,
+                    receipt_task=None,
+                    receipt=None,
+                    stdout=process.stdout,
+                    stderr=process.stderr,
+                    stderr_task=None,
+                    stderr_prefix=None,
+                )
+            )
+            await _await_runner_cleanup(cleanup_task)
             raise AkShareProviderError("AKSHARE_RUNNER_UNAVAILABLE")
 
-        stdout_task = asyncio.create_task(
-            _read_runner_stream_bounded(process.stdout, maximum_bytes=_MAX_RUNNER_OUTPUT_BYTES)
+        input_task = asyncio.create_task(
+            _write_runner_input(
+                process.stdin,
+                (_canonical_json(dict(envelope)) + "\n").encode("utf-8"),
+                close_after_write=False,
+            )
+        )
+        receipt_task = asyncio.create_task(
+            _read_runner_receipt(process.stdout, maximum_bytes=_MAX_RUNNER_OUTPUT_BYTES)
         )
         stderr_task = asyncio.create_task(
-            _read_runner_stream_bounded(process.stderr, maximum_bytes=_MAX_RUNNER_OUTPUT_BYTES)
+            _read_runner_stream_bounded(
+                process.stderr,
+                maximum_bytes=_MAX_RUNNER_OUTPUT_BYTES,
+                stop_when_limit_exceeded=True,
+                close_stream=False,
+            )
         )
 
-        async def send_and_collect() -> tuple[int, _BoundedRunnerStream, _BoundedRunnerStream]:
-            try:
-                process.stdin.write(_canonical_json(dict(envelope)).encode("utf-8"))
-                await process.stdin.drain()
-            except (BrokenPipeError, ConnectionResetError):
-                # The runner may reject input and exit. Its bounded receipt and
-                # exit status still select the fail-closed provider outcome.
-                pass
-            finally:
-                process.stdin.close()
-                with suppress(BrokenPipeError, ConnectionResetError):
-                    await process.stdin.wait_closed()
-            returncode = await process.wait()
-            stdout, stderr = await asyncio.gather(stdout_task, stderr_task)
-            return int(returncode), stdout, stderr
+        async def send_and_collect() -> _RunnerReceipt:
+            await input_task
+            return await receipt_task
+
+        async def collect_receipt_or_stderr_limit() -> tuple[
+            _RunnerReceipt | None,
+            _BoundedRunnerStream | None,
+        ]:
+            done, _pending = await asyncio.wait(
+                (collector_task, stderr_task),
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            if collector_task in done:
+                return await collector_task, None
+            stderr_prefix = await stderr_task
+            if stderr_prefix.exceeded_limit:
+                return None, stderr_prefix
+            return await collector_task, None
 
         collector_task = asyncio.create_task(send_and_collect())
+        completion_task = asyncio.create_task(collect_receipt_or_stderr_limit())
+        initial_cancellation = False
+        cleanup_cancellation = False
+        receipt: _RunnerReceipt | None = None
+        stderr_prefix: _BoundedRunnerStream | None = None
+        cleanup_result: tuple[int, _BoundedRunnerStream, _BoundedRunnerStream] | None = None
         try:
-            returncode, stdout, stderr = await asyncio.wait_for(
-                asyncio.shield(collector_task), timeout=timeout_seconds
+            receipt, stderr_prefix = await asyncio.wait_for(
+                asyncio.shield(completion_task), timeout=timeout_seconds
             )
         except TimeoutError as exc:
             raise AkShareProviderError("AKSHARE_TIMEOUT") from exc
+        except asyncio.CancelledError:
+            initial_cancellation = True
+            raise
         finally:
-            # This is intentionally also executed after a successful direct
-            # child exit. A detached descendant that no longer owns a pipe
-            # must not survive a successful fetch and outlive its lease.
-            await _terminate_runner_group(process, process_group_id=process.pid)
-            await _await_runner_cleanup(collector_task, stdout_task, stderr_task)
+            # Cleanup owns a raw Popen whose PID cannot be reused until this
+            # task explicitly reaps it. Shielding the separate cleanup task
+            # makes repeated request cancellation wait for kill/reap/drain.
+            cleanup_task = asyncio.create_task(
+                _cleanup_owned_runner_group(
+                    process,
+                    stdin=process.stdin,
+                    input_task=input_task,
+                    collector_task=collector_task,
+                    completion_task=completion_task,
+                    receipt_task=receipt_task,
+                    receipt=receipt,
+                    stdout=process.stdout,
+                    stderr=process.stderr,
+                    stderr_task=stderr_task,
+                    stderr_prefix=stderr_prefix,
+                )
+            )
+            cleanup_cancellation = await _await_runner_cleanup(cleanup_task)
+            cleanup_result = cleanup_task.result()
+        if cleanup_cancellation and not initial_cancellation:
+            raise asyncio.CancelledError
+
+        if cleanup_result is None:
+            raise AkShareProviderError("AKSHARE_RUNNER_REAP_FAILED")
+        returncode, stdout, stderr = cleanup_result
 
         if stdout.exceeded_limit or stderr.exceeded_limit:
             raise AkShareProviderError("AKSHARE_RUNNER_OUTPUT_TOO_LARGE")
-        if returncode != 0:
+        if returncode != 0 and receipt is None:
             detail = stderr.data.decode("utf-8", errors="replace")[:2048] or None
             raise AkShareProviderError("AKSHARE_RUNNER_FAILED", detail=detail)
         try:
@@ -1068,8 +1493,7 @@ class AkShareMarketDataProvider:
     """Fetch a reviewed AkShare contract through a reaped subprocess runner.
 
     Production construction uses :meth:`from_environment`; it never imports
-    AkShare or invokes an endpoint in the FastAPI process. ``test_runner`` is
-    an explicit, non-production receipt seam for parent-side protocol tests.
+    AkShare or invokes an endpoint in the FastAPI process.
     """
 
     def __init__(
@@ -1080,7 +1504,6 @@ class AkShareMarketDataProvider:
         runner_environment: Mapping[str, str] | None = None,
         runner_workdir: str | None = None,
         configuration_error: str | None = None,
-        test_runner: AkShareTestRunner | None = None,
         timeout_seconds: float = 30.0,
         max_concurrency: int = 4,
     ) -> None:
@@ -1094,13 +1517,10 @@ class AkShareMarketDataProvider:
             )
         if configuration_error is not None and command is not None:
             raise ValueError("configured runner command cannot carry a configuration error")
-        if test_runner is not None and (command is not None or configuration_error is not None):
-            raise ValueError("test runner seam cannot carry production runner configuration")
         self._routes = tuple(routes)
         self._validate_routes(self._routes)
         self._timeout_seconds = timeout_seconds
         self._semaphore = asyncio.BoundedSemaphore(max_concurrency)
-        self._test_runner = test_runner
         self._runner = _AkShareSubprocessRunner(
             command=command,
             environment=runner_environment,
@@ -1256,17 +1676,10 @@ class AkShareMarketDataProvider:
                 "request": request.dto_payload,
                 "execution": execution,
             }
-            if self._test_runner is not None:
-                response = self._test_runner(envelope)
-                if inspect.isawaitable(response):
-                    response = await asyncio.wait_for(response, timeout=self._timeout_seconds)
-                if not isinstance(response, Mapping):
-                    raise AkShareProviderError("AKSHARE_RUNNER_INVALID_RESPONSE")
-            else:
-                response = await self._runner.execute(
-                    envelope,
-                    timeout_seconds=self._timeout_seconds,
-                )
+            response = await self._runner.execute(
+                envelope,
+                timeout_seconds=self._timeout_seconds,
+            )
             return _validate_runner_response(
                 response=response,
                 request=request,

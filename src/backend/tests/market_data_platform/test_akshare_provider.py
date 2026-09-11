@@ -159,6 +159,39 @@ def _fake_runner_from_callable_resolver(
     return fake_runner
 
 
+class _TestReceiptRunner:
+    """Test-only private-runner replacement; never a provider constructor seam."""
+
+    def __init__(self, callback: Callable[[Mapping[str, Any]], object]) -> None:
+        self._callback = callback
+
+    async def execute(
+        self,
+        envelope: Mapping[str, Any],
+        *,
+        timeout_seconds: float,
+    ) -> object:
+        response = self._callback(envelope)
+        if inspect.isawaitable(response):
+            return await asyncio.wait_for(response, timeout=timeout_seconds)
+        return response
+
+
+def _test_provider(
+    callback: Callable[[Mapping[str, Any]], object],
+    **kwargs: object,
+) -> AkShareMarketDataProvider:
+    """Install a receipt double through test-private state after construction.
+
+    Production construction has no callback parameter: it can only create the
+    POSIX subprocess runner.  This helper lives exclusively in the test module
+    so focused parent-validation tests can remain offline.
+    """
+    provider = AkShareMarketDataProvider(**kwargs)
+    provider._runner = _TestReceiptRunner(callback)  # type: ignore[assignment]
+    return provider
+
+
 def test_akshare_registry_declares_each_current_asset_type_explicitly() -> None:
     """Every currently supported asset type has a deliberate route decision."""
     assert {route.asset_type for route in AKSHARE_ROUTE_REGISTRY} == {
@@ -357,7 +390,7 @@ async def test_akshare_provider_uses_exact_symbol_route_and_preserves_provenance
             },
         ]
 
-    provider = AkShareMarketDataProvider(test_runner=_fake_runner_from_callable_resolver(lambda _: fake_stock_route))
+    provider = _test_provider(_fake_runner_from_callable_resolver(lambda _: fake_stock_route))
     request = _request()
     result = await provider.fetch(request)
 
@@ -414,7 +447,7 @@ async def test_akshare_provider_uses_the_current_market_page_field_contract() ->
             }
         ]
 
-    provider = AkShareMarketDataProvider(test_runner=_fake_runner_from_callable_resolver(lambda _: fake_stock_route))
+    provider = _test_provider(_fake_runner_from_callable_resolver(lambda _: fake_stock_route))
     result = await provider.fetch(
         _request(required_fields=frozenset({"open", "close", "change_pct", "settle"}))
     )
@@ -443,7 +476,7 @@ async def test_akshare_provider_routes_private_kline_only_with_its_exact_pair() 
             }
         ]
 
-    provider = AkShareMarketDataProvider(test_runner=_fake_runner_from_callable_resolver(lambda _: fake_stock_route))
+    provider = _test_provider(_fake_runner_from_callable_resolver(lambda _: fake_stock_route))
     kline_request = _request(
         required_fields=frozenset({"open", "high", "low", "close", "volume", "change_pct"}),
         adjustment="qfq",
@@ -495,7 +528,7 @@ async def test_akshare_provider_fetches_exact_stock_liquidity_reference_series()
             },
         ]
 
-    provider = AkShareMarketDataProvider(test_runner=_fake_runner_from_callable_resolver(lambda _: fake_stock_route))
+    provider = _test_provider(_fake_runner_from_callable_resolver(lambda _: fake_stock_route))
     result = await provider.fetch(
         _request(
             data_kind="reference_series",
@@ -542,7 +575,7 @@ async def test_akshare_provider_fetches_exact_etf_liquidity_reference_series() -
             }
         ]
 
-    provider = AkShareMarketDataProvider(test_runner=_fake_runner_from_callable_resolver(lambda _: fake_fund_route))
+    provider = _test_provider(_fake_runner_from_callable_resolver(lambda _: fake_fund_route))
     result = await provider.fetch(
         _request(
             asset_type="fund",
@@ -591,7 +624,7 @@ async def test_akshare_provider_fetches_exact_etf_nav_reference_series() -> None
             }
         ]
 
-    provider = AkShareMarketDataProvider(test_runner=_fake_runner_from_callable_resolver(lambda _: fake_fund_nav_route))
+    provider = _test_provider(_fake_runner_from_callable_resolver(lambda _: fake_fund_nav_route))
     result = await provider.fetch(
         _request(
             asset_type="fund",
@@ -644,8 +677,7 @@ async def test_akshare_provider_rejects_nav_requests_without_an_etf_listing_iden
     fund_identity_kind: str | None,
 ) -> None:
     """The dedicated ETF NAV endpoint must reject every nearby fund product before I/O."""
-    provider = AkShareMarketDataProvider(
-        test_runner=_fake_runner_from_callable_resolver(lambda _: pytest.fail(
+    provider = _test_provider(_fake_runner_from_callable_resolver(lambda _: pytest.fail(
             "invalid identity must not resolve a source callable"
         ))
     )
@@ -674,8 +706,7 @@ async def test_akshare_provider_rejects_nav_requests_without_an_etf_listing_iden
 @pytest.mark.asyncio
 async def test_akshare_provider_rejects_an_unbound_request_before_endpoint_selection() -> None:
     """A retained caller cannot use endpoint resemblance after policy routes are family-bound."""
-    provider = AkShareMarketDataProvider(
-        test_runner=_fake_runner_from_callable_resolver(lambda _: pytest.fail("unbound request must not fetch"))
+    provider = _test_provider(_fake_runner_from_callable_resolver(lambda _: pytest.fail("unbound request must not fetch"))
     )
 
     with pytest.raises(AkShareProviderError) as rejected:
@@ -706,8 +737,7 @@ async def test_akshare_provider_rejects_an_unbound_request_before_endpoint_selec
 @pytest.mark.asyncio
 async def test_akshare_provider_rejects_a_source_policy_route_id_for_another_product() -> None:
     """A broad reference-series data kind cannot bypass the exact route binding."""
-    provider = AkShareMarketDataProvider(
-        test_runner=_fake_runner_from_callable_resolver(lambda _: pytest.fail("mismatched route IDs must not fetch"))
+    provider = _test_provider(_fake_runner_from_callable_resolver(lambda _: pytest.fail("mismatched route IDs must not fetch"))
     )
 
     with pytest.raises(AkShareProviderError) as rejected:
@@ -736,7 +766,7 @@ async def test_akshare_provider_rejects_a_response_for_a_different_symbol() -> N
             }
         ]
 
-    provider = AkShareMarketDataProvider(test_runner=_fake_runner_from_callable_resolver(lambda _: fake_stock_route))
+    provider = _test_provider(_fake_runner_from_callable_resolver(lambda _: fake_stock_route))
 
     with pytest.raises(AkShareProviderError) as mismatch:
         await provider.fetch(_request())
@@ -770,7 +800,7 @@ async def test_akshare_provider_filters_an_inclusive_endpoint_to_the_half_open_w
             },
         ]
 
-    provider = AkShareMarketDataProvider(test_runner=_fake_runner_from_callable_resolver(lambda _: fake_stock_route))
+    provider = _test_provider(_fake_runner_from_callable_resolver(lambda _: fake_stock_route))
     result = await provider.fetch(_request())
 
     assert [item.event_at for item in result.observations] == [datetime(2026, 1, 2, tzinfo=UTC)]
@@ -787,7 +817,7 @@ async def test_akshare_provider_filters_the_known_full_history_route_to_the_wind
             {"date": "2026-01-04", "open": 10.5, "close": 11.0},
         ]
 
-    provider = AkShareMarketDataProvider(test_runner=_fake_runner_from_callable_resolver(lambda _: fake_futures_route))
+    provider = _test_provider(_fake_runner_from_callable_resolver(lambda _: fake_futures_route))
     result = await provider.fetch(
         _request(asset_type="futures", provider_symbol="IF2609", market="CFFEX")
     )
@@ -815,7 +845,7 @@ async def test_akshare_provider_selects_cffex_option_history_from_an_exact_contr
 
         return fake_option_route
 
-    provider = AkShareMarketDataProvider(test_runner=_fake_runner_from_callable_resolver(callable_resolver))
+    provider = _test_provider(_fake_runner_from_callable_resolver(callable_resolver))
     result = await provider.fetch(
         _request(
             asset_type="option",
@@ -839,8 +869,7 @@ async def test_akshare_provider_selects_cffex_option_history_from_an_exact_contr
 @pytest.mark.asyncio
 async def test_akshare_provider_rejects_an_unapproved_market_before_calling_the_source() -> None:
     """A provider route cannot overwrite a US identity with China-market source data."""
-    provider = AkShareMarketDataProvider(
-        test_runner=_fake_runner_from_callable_resolver(lambda _: pytest.fail("unsupported markets must not invoke AkShare"))
+    provider = _test_provider(_fake_runner_from_callable_resolver(lambda _: pytest.fail("unsupported markets must not invoke AkShare"))
     )
 
     with pytest.raises(AkShareProviderError) as unsupported_market:
@@ -852,8 +881,7 @@ async def test_akshare_provider_rejects_an_unapproved_market_before_calling_the_
 @pytest.mark.asyncio
 async def test_akshare_provider_rejects_a_symbol_that_contradicts_its_market() -> None:
     """The China stock route validates the exchange implied by its source symbol."""
-    provider = AkShareMarketDataProvider(
-        test_runner=_fake_runner_from_callable_resolver(lambda _: pytest.fail("invalid exchange symbols must not invoke AkShare"))
+    provider = _test_provider(_fake_runner_from_callable_resolver(lambda _: pytest.fail("invalid exchange symbols must not invoke AkShare"))
     )
 
     with pytest.raises(AkShareProviderError) as mismatch:
@@ -875,8 +903,7 @@ async def test_akshare_provider_rejects_request_bound_routes_with_an_invalid_ven
     provider_request: MarketDataProviderRequest,
 ) -> None:
     """No-returned-symbol routes use explicit AkShare venue maps before a fetch."""
-    provider = AkShareMarketDataProvider(
-        test_runner=_fake_runner_from_callable_resolver(lambda _: pytest.fail("invalid venue mappings must not invoke AkShare"))
+    provider = _test_provider(_fake_runner_from_callable_resolver(lambda _: pytest.fail("invalid venue mappings must not invoke AkShare"))
     )
 
     with pytest.raises(AkShareProviderError) as mismatch:
@@ -901,7 +928,7 @@ async def test_akshare_provider_passes_the_explicit_adjustment_and_price_basis()
             }
         ]
 
-    provider = AkShareMarketDataProvider(test_runner=_fake_runner_from_callable_resolver(lambda _: fake_stock_route))
+    provider = _test_provider(_fake_runner_from_callable_resolver(lambda _: fake_stock_route))
     await provider.fetch(
         _request(adjustment="qfq", price_basis="close", currency="CNY", unit="share")
     )
@@ -924,8 +951,7 @@ async def test_akshare_provider_rejects_unmapped_query_semantics(
     expected_code: str,
 ) -> None:
     """Unsupported semantic dimensions fail before any source call can occur."""
-    provider = AkShareMarketDataProvider(
-        test_runner=_fake_runner_from_callable_resolver(lambda _: pytest.fail("unsupported semantics must not invoke AkShare"))
+    provider = _test_provider(_fake_runner_from_callable_resolver(lambda _: pytest.fail("unsupported semantics must not invoke AkShare"))
     )
 
     with pytest.raises(AkShareProviderError) as unsupported:
@@ -937,8 +963,7 @@ async def test_akshare_provider_rejects_unmapped_query_semantics(
 @pytest.mark.asyncio
 async def test_akshare_provider_requires_a_policy_for_request_bound_identity_routes() -> None:
     """Routes that omit a returned symbol require an explicit source-policy decision."""
-    provider = AkShareMarketDataProvider(
-        test_runner=_fake_runner_from_callable_resolver(lambda _: pytest.fail("missing source policy must not invoke AkShare"))
+    provider = _test_provider(_fake_runner_from_callable_resolver(lambda _: pytest.fail("missing source policy must not invoke AkShare"))
     )
 
     with pytest.raises(AkShareProviderError) as missing_policy:
@@ -968,7 +993,7 @@ async def test_akshare_provider_rejects_a_mismatched_forex_response_symbol() -> 
             }
         ]
 
-    provider = AkShareMarketDataProvider(test_runner=_fake_runner_from_callable_resolver(lambda _: fake_forex_route))
+    provider = _test_provider(_fake_runner_from_callable_resolver(lambda _: fake_forex_route))
 
     with pytest.raises(AkShareProviderError) as mismatch:
         await provider.fetch(_request(asset_type="fx", provider_symbol="USDCNH", market="OTC"))
@@ -994,7 +1019,7 @@ async def test_akshare_provider_fetches_the_exact_fx_range_ohlc_shape() -> None:
             }
         ]
 
-    provider = AkShareMarketDataProvider(test_runner=_fake_runner_from_callable_resolver(lambda _: fake_forex_route))
+    provider = _test_provider(_fake_runner_from_callable_resolver(lambda _: fake_forex_route))
     result = await provider.fetch(
         _request(
             asset_type="fx",
@@ -1031,8 +1056,7 @@ async def test_akshare_provider_times_out_bounded_worker_calls() -> None:
             raise
         return {}
 
-    provider = AkShareMarketDataProvider(
-        test_runner=slow_runner,
+    provider = _test_provider(slow_runner,
         timeout_seconds=0.02,
         max_concurrency=1,
     )
@@ -1058,8 +1082,7 @@ async def test_akshare_provider_times_out_while_all_worker_slots_are_held() -> N
             raise
         return {}
 
-    provider = AkShareMarketDataProvider(
-        test_runner=slow_runner,
+    provider = _test_provider(slow_runner,
         timeout_seconds=0.02,
         max_concurrency=1,
     )
@@ -1085,8 +1108,7 @@ async def test_akshare_provider_rejects_oversized_dataframe_before_materializing
         def to_dict(self, *, orient: str) -> list[dict[str, Any]]:
             pytest.fail(f"to_dict must not run for an oversized response: {orient}")
 
-    provider = AkShareMarketDataProvider(
-        test_runner=_fake_runner_from_callable_resolver(lambda _: lambda **_: OversizedDataframe())
+    provider = _test_provider(_fake_runner_from_callable_resolver(lambda _: lambda **_: OversizedDataframe())
     )
 
     with pytest.raises(AkShareProviderError) as oversized:
@@ -1112,7 +1134,7 @@ async def test_akshare_provider_rejects_provenance_larger_than_the_store_contrac
             }
         ]
 
-    provider = AkShareMarketDataProvider(test_runner=_fake_runner_from_callable_resolver(lambda _: fake_stock_route))
+    provider = _test_provider(_fake_runner_from_callable_resolver(lambda _: fake_stock_route))
 
     with pytest.raises(AkShareProviderError) as oversized:
         await provider.fetch(_request())
@@ -1137,8 +1159,7 @@ async def test_akshare_provider_fails_closed_for_unapproved_routes_or_sources(
     expected_code: str,
 ) -> None:
     """The adapter never guesses an endpoint or silently switches providers."""
-    provider = AkShareMarketDataProvider(
-        test_runner=_fake_runner_from_callable_resolver(lambda _: pytest.fail("a disallowed route must not be invoked"))
+    provider = _test_provider(_fake_runner_from_callable_resolver(lambda _: pytest.fail("a disallowed route must not be invoked"))
     )
 
     with pytest.raises(AkShareProviderError) as rejected:
