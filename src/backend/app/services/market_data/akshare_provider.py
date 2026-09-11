@@ -30,6 +30,13 @@ from app.services.market_data.dataset_contracts import (
     KLINE_LEGACY_CONTRACT_VERSION,
     KLINE_LEGACY_FAMILY_ID,
 )
+from app.services.market_data.provider_contracts import (
+    AKSHARE_PROVIDER_CONTRACT_REGISTRY,
+    AKSHARE_RESPONSE_FIELD_ALIASES,
+    ProviderContract,
+    ProviderContractError,
+    ProviderContractRegistry,
+)
 from app.services.market_data.providers import (
     MarketDataProviderRequest,
     ProviderFetchResult,
@@ -49,33 +56,10 @@ _PERIOD_BY_FREQUENCY = {
     "1mo": "monthly",
 }
 
-_FIELD_ALIASES = {
-    "开盘": "open",
-    "今开": "open",
-    "open": "open",
-    "收盘": "close",
-    "最新价": "close",
-    "close": "close",
-    "最高": "high",
-    "high": "high",
-    "最低": "low",
-    "low": "low",
-    "成交量": "volume",
-    "volume": "volume",
-    "成交额": "turnover",
-    "turnover": "turnover",
-    "振幅": "amplitude",
-    "涨跌幅": "change_pct",
-    "涨跌额": "change",
-    "换手率": "turnover_rate",
-    "持仓量": "open_interest",
-    "hold": "open_interest",
-    "结算价": "settle",
-    "settle": "settle",
-    "单位净值": "nav",
-    "累计净值": "cumulative_nav",
-    "日增长率": "daily_growth_rate",
-}
+# The response normalizer obtains its reviewed aliases from the immutable
+# ProviderContract.  Keep this module-level alias for the schedule-only wide
+# table schemas below, which deliberately remain outside request-time routes.
+_FIELD_ALIASES = AKSHARE_RESPONSE_FIELD_ALIASES
 
 RouteArgumentBuilder = Callable[[MarketDataProviderRequest], Mapping[str, Any]]
 RouteRequestValidator = Callable[[MarketDataProviderRequest], None]
@@ -582,6 +566,17 @@ def _resolve_cffex_option_endpoint(request: MarketDataProviderRequest) -> str:
     raise AkShareProviderError("AKSHARE_SYMBOL_MARKET_MISMATCH")
 
 
+_AKSHARE_REQUEST_VALIDATORS: Mapping[str | None, RouteRequestValidator | None] = MappingProxyType(
+    {
+        None: None,
+        "akshare.cn-stock-symbol-v1": _validate_cn_stock_symbol,
+        "akshare.cn-bond-symbol-v1": _validate_cn_bond_symbol,
+        "akshare.cffex-futures-symbol-v1": _validate_cffex_futures_symbol,
+        "akshare.cn-etf-symbol-v1": _validate_cn_etf_symbol,
+    }
+)
+
+
 # The registry is intentionally small and source-specific. CFFEX option
 # contracts have three reviewed exact-code history functions; their selector
 # never resolves a dominant alias or option chain. Crypto remains explicitly
@@ -808,6 +803,9 @@ class AkShareMarketDataProvider:
         self,
         *,
         routes: Sequence[AkShareRoute] = AKSHARE_ROUTE_REGISTRY,
+        contracts: ProviderContractRegistry | Sequence[ProviderContract] = (
+            AKSHARE_PROVIDER_CONTRACT_REGISTRY
+        ),
         callable_resolver: AkShareCallableResolver | None = None,
         timeout_seconds: float = 30.0,
         max_concurrency: int = 4,
@@ -818,6 +816,11 @@ class AkShareMarketDataProvider:
             raise ValueError("AkShare max_concurrency must be between 1 and 32")
         self._routes = tuple(routes)
         self._validate_routes(self._routes)
+        self._contracts = (
+            contracts
+            if isinstance(contracts, ProviderContractRegistry)
+            else ProviderContractRegistry(contracts)
+        )
         self._callable_resolver = callable_resolver or _resolve_akshare_callable
         self._timeout_seconds = timeout_seconds
         self._semaphore = asyncio.BoundedSemaphore(max_concurrency)
@@ -827,14 +830,16 @@ class AkShareMarketDataProvider:
         if request.provider != "akshare":
             raise AkShareProviderError("AKSHARE_PROVIDER_MISMATCH")
 
-        route = self._route_for(request)
-        if route.build_call_kwargs is None:
-            raise AkShareProviderError("AKSHARE_ROUTE_UNSUPPORTED")
-        self._validate_route_request(route, request)
-
         try:
-            endpoint = _resolve_endpoint(route, request)
-            call_kwargs = dict(route.build_call_kwargs(request))
+            contract = self._contracts.select_for_request(request)
+            route = self._route_for(request)
+            self._assert_route_contract_matches(route, contract)
+            self._validate_route_request(route, request)
+            prepared_request = contract.prepare_akshare_request(request)
+            endpoint = prepared_request.endpoint
+            call_kwargs = dict(prepared_request.call_kwargs)
+        except ProviderContractError as exc:
+            raise _akshare_contract_error(exc) from exc
         except AkShareProviderError:
             raise
         except Exception as exc:
@@ -864,7 +869,7 @@ class AkShareMarketDataProvider:
             retrieved_at = datetime.now(_UTC)
             observations = await self._run_blocking(
                 _normalize_observations,
-                route,
+                contract,
                 request,
                 response_rows,
                 retrieved_at,
@@ -872,7 +877,7 @@ class AkShareMarketDataProvider:
             raw_payload = await self._run_blocking(
                 _build_raw_payload,
                 request,
-                route,
+                contract,
                 endpoint,
                 call_kwargs,
                 response_rows,
@@ -899,7 +904,7 @@ class AkShareMarketDataProvider:
             request=request,
             warnings=(
                 ("AKSHARE_IDENTITY_SOURCE_REQUEST_BOUND",)
-                if route.identity_proof == "source_request_bound"
+                if contract.identity_proof == "source_request_bound"
                 else ()
             ),
         )
@@ -989,6 +994,52 @@ class AkShareMarketDataProvider:
         if route.request_validator is not None:
             route.request_validator(request)
 
+    @staticmethod
+    def _assert_route_contract_matches(route: AkShareRoute, contract: ProviderContract) -> None:
+        """Reject registry drift before resolving an AkShare callable.
+
+        ``AKSHARE_ROUTE_REGISTRY`` still makes every asset-type decision easy
+        to review, while ProviderContract is the runtime source of request and
+        response semantics.  Compare the material declaration axes here so a
+        future route edit cannot silently retain an old contract digest.
+        """
+        expected_static_endpoint = (
+            next(iter(contract.endpoints))
+            if contract.endpoint_resolver_id == "akshare.static-endpoint-v1"
+            else None
+        )
+        expected_validator = _AKSHARE_REQUEST_VALIDATORS.get(contract.request_validator_id)
+        if (
+            contract.route_id not in route.route_ids
+            or route.asset_type != contract.asset_type
+            or route.data_kind != contract.data_kind
+            or route.frequencies != contract.frequencies
+            or route.allowed_markets != contract.markets
+            or route.timestamp_columns != contract.timestamp_columns
+            or route.symbol_columns != contract.symbol_columns
+            or route.identity_proof != contract.identity_proof
+            or route.client_filters_window != contract.client_filters_window
+            or route.supported_adjustments != contract.supported_adjustments
+            or route.supported_price_bases != contract.supported_price_bases
+            or route.supported_currencies != contract.supported_currencies
+            or route.supported_units != contract.supported_units
+            or route.supported_product_types != contract.supported_product_types
+            or route.supported_fund_identity_kinds != contract.supported_fund_identity_kinds
+            or route.family_id != contract.family_id
+            or route.family_contract_version != contract.family_contract_version
+            or route.request_validator is not expected_validator
+            or route.endpoint != expected_static_endpoint
+            or (
+                contract.endpoint_resolver_id == "akshare.cffex-option-prefix-v1"
+                and route.endpoint_resolver is not _resolve_cffex_option_endpoint
+            )
+            or (
+                contract.endpoint_resolver_id == "akshare.static-endpoint-v1"
+                and route.endpoint_resolver is not None
+            )
+        ):
+            raise AkShareProviderError("AKSHARE_PROVIDER_CONTRACT_DESCRIPTOR_MISMATCH")
+
     async def _run_blocking(
         self,
         function: Callable[..., Any],
@@ -1059,6 +1110,34 @@ def _resolve_endpoint(route: AkShareRoute, request: MarketDataProviderRequest) -
     return endpoint
 
 
+def _akshare_contract_error(exc: ProviderContractError) -> AkShareProviderError:
+    """Translate provider-neutral static contract failures to adapter codes."""
+    code_by_contract_code = {
+        "PROVIDER_CONTRACT_PROVIDER_MISMATCH": "AKSHARE_PROVIDER_MISMATCH",
+        "PROVIDER_CONTRACT_ROUTE_REQUIRED": "AKSHARE_ROUTE_UNSUPPORTED",
+        "PROVIDER_CONTRACT_UNREGISTERED": "AKSHARE_ROUTE_UNSUPPORTED",
+        "PROVIDER_CONTRACT_ROUTE_MISMATCH": "AKSHARE_ROUTE_UNSUPPORTED",
+        "PROVIDER_CONTRACT_FAMILY_MISMATCH": "AKSHARE_ROUTE_UNSUPPORTED",
+        "PROVIDER_CONTRACT_REQUEST_MISMATCH": "AKSHARE_ROUTE_UNSUPPORTED",
+        "PROVIDER_CONTRACT_FREQUENCY_UNSUPPORTED": "AKSHARE_ROUTE_UNSUPPORTED",
+        "PROVIDER_CONTRACT_MARKET_UNSUPPORTED": "AKSHARE_MARKET_UNSUPPORTED",
+        "PROVIDER_CONTRACT_ADJUSTMENT_UNSUPPORTED": "AKSHARE_ADJUSTMENT_UNSUPPORTED",
+        "PROVIDER_CONTRACT_PRICE_BASIS_UNSUPPORTED": "AKSHARE_PRICE_BASIS_UNSUPPORTED",
+        "PROVIDER_CONTRACT_CURRENCY_UNSUPPORTED": "AKSHARE_CURRENCY_UNSUPPORTED",
+        "PROVIDER_CONTRACT_UNIT_UNSUPPORTED": "AKSHARE_UNIT_UNSUPPORTED",
+        "PROVIDER_CONTRACT_PRODUCT_IDENTITY_UNSUPPORTED": "AKSHARE_PRODUCT_IDENTITY_UNSUPPORTED",
+        "PROVIDER_CONTRACT_SOURCE_POLICY_REQUIRED": "AKSHARE_SOURCE_POLICY_REQUIRED",
+        "PROVIDER_CONTRACT_ENDPOINT_UNSUPPORTED": "AKSHARE_SYMBOL_MARKET_MISMATCH",
+        "PROVIDER_CONTRACT_DESCRIPTOR_MISMATCH": "AKSHARE_PROVIDER_CONTRACT_DESCRIPTOR_MISMATCH",
+        "PROVIDER_CONTRACT_FIELD_MAPPING_MISSING": "AKSHARE_PROVIDER_CONTRACT_FIELD_MAPPING_MISSING",
+        "PROVIDER_CONTRACT_TRANSFORM_UNSUPPORTED": "AKSHARE_PROVIDER_CONTRACT_INVALID",
+    }
+    return AkShareProviderError(
+        code_by_contract_code.get(exc.code, "AKSHARE_PROVIDER_CONTRACT_INVALID"),
+        detail=exc.detail,
+    )
+
+
 def _resolve_akshare_callable(endpoint: str) -> AkShareCallable:
     """Load only a registry-approved public AkShare callable on first use."""
     try:
@@ -1127,7 +1206,7 @@ def _coerce_response_rows(response: object) -> list[dict[str, Any]]:
 
 def _build_raw_payload(
     request: MarketDataProviderRequest,
-    route: AkShareRoute,
+    contract: ProviderContract,
     endpoint: str,
     call_kwargs: Mapping[str, Any],
     response_rows: Sequence[Mapping[str, Any]],
@@ -1143,9 +1222,10 @@ def _build_raw_payload(
         "route": {
             "endpoint": endpoint,
             "call_kwargs": _json_safe(call_kwargs),
-            "identity_proof": route.identity_proof,
-            "client_filters_window": route.client_filters_window,
+            "identity_proof": contract.identity_proof,
+            "client_filters_window": contract.client_filters_window,
         },
+        "provider_contract": _json_safe(contract.summary),
         "response_rows": [_json_safe(row) for row in response_rows],
     }
     encoded = json.dumps(payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode(
@@ -1157,7 +1237,7 @@ def _build_raw_payload(
 
 
 def _normalize_observations(
-    route: AkShareRoute,
+    contract: ProviderContract,
     request: MarketDataProviderRequest,
     response_rows: Sequence[Mapping[str, Any]],
     retrieved_at: datetime,
@@ -1166,8 +1246,8 @@ def _normalize_observations(
     observations: list[ProviderMarketObservation] = []
     seen_events: set[datetime] = set()
     for row in response_rows:
-        _validate_response_identity(route, request, row)
-        timestamps = _present_columns(row, route.timestamp_columns)
+        _validate_response_identity(contract, request, row)
+        timestamps = _present_columns(row, contract.timestamp_columns)
         if not timestamps:
             raise AkShareProviderError("AKSHARE_TIMESTAMP_MISSING")
         if len(timestamps) != 1:
@@ -1175,7 +1255,7 @@ def _normalize_observations(
         _, timestamp_value = timestamps[0]
         event_at = _parse_event_at(timestamp_value)
         if not request.start_at <= event_at < request.end_at:
-            if route.client_filters_window:
+            if contract.client_filters_window:
                 continue
             raise AkShareProviderError("AKSHARE_RESPONSE_OUT_OF_WINDOW")
         if event_at in seen_events:
@@ -1183,8 +1263,7 @@ def _normalize_observations(
         seen_events.add(event_at)
         fields = _normalize_fields(
             row,
-            timestamp_columns=route.timestamp_columns,
-            symbol_columns=route.symbol_columns,
+            contract=contract,
             required_fields=request.required_fields,
         )
         observations.append(
@@ -1198,14 +1277,14 @@ def _normalize_observations(
 
 
 def _validate_response_identity(
-    route: AkShareRoute,
+    contract: ProviderContract,
     request: MarketDataProviderRequest,
     row: Mapping[str, Any],
 ) -> None:
     """Require an exact returned symbol where the source route exposes one."""
-    if route.identity_proof == "source_request_bound":
+    if contract.identity_proof == "source_request_bound":
         return
-    source_symbols = _present_columns(row, route.symbol_columns)
+    source_symbols = _present_columns(row, contract.symbol_columns)
     if not source_symbols:
         raise AkShareProviderError("AKSHARE_IDENTITY_UNVERIFIABLE")
     for _, source_symbol in source_symbols:
@@ -1249,12 +1328,11 @@ def _parse_event_at(value: object) -> datetime:
 def _normalize_fields(
     row: Mapping[str, Any],
     *,
-    timestamp_columns: Sequence[str],
-    symbol_columns: Sequence[str],
+    contract: ProviderContract,
     required_fields: frozenset[str],
 ) -> dict[str, Any]:
     """Map approved source labels while preserving other fields exactly."""
-    excluded_columns = {*timestamp_columns, *symbol_columns}
+    excluded_columns = {*contract.timestamp_columns, *contract.symbol_columns}
     fields: dict[str, Any] = {}
     for raw_name, raw_value in row.items():
         if not isinstance(raw_name, str):
@@ -1264,7 +1342,7 @@ def _normalize_fields(
             raise AkShareProviderError("AKSHARE_RESPONSE_INVALID")
         if raw_name in excluded_columns:
             continue
-        field_name = _FIELD_ALIASES.get(source_name, source_name)
+        field_name = contract.normalized_field_name(source_name)
         if field_name in fields:
             raise AkShareProviderError("AKSHARE_RESPONSE_AMBIGUOUS_FIELDS")
         fields[field_name] = _json_safe(raw_value)

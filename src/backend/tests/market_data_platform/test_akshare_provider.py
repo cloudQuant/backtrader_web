@@ -24,9 +24,25 @@ from app.services.market_data.dataset_contracts import (
     DEFAULT_DATASET_CONTRACT_REGISTRY,
     FAMILY_CONTRACT_VERSION,
 )
+from app.services.market_data.provider_contracts import AKSHARE_PROVIDER_CONTRACT_REGISTRY
 from app.services.market_data.providers import MarketDataProviderRequest
 
 UTC = timezone.utc
+_AUTO_ROUTE_ID = object()
+
+_DEFAULT_ROUTE_BY_FAMILY_ID = {
+    "stock.realtime": "akshare-stock-primary-v1",
+    "stock.kline_legacy": "akshare-stock-kline-legacy-v1",
+    "stock.liquidity": "akshare-stock-liquidity-primary-v1",
+    "futures.realtime": "akshare-futures-primary-v1",
+    "bond.realtime": "akshare-bond-primary-v1",
+    "fund.realtime": "akshare-fund-primary-v1",
+    "fund.liquidity": "akshare-fund-liquidity-primary-v1",
+    "fund.nav": "akshare-fund-nav-primary-v1",
+    "option.realtime": "akshare-cffex-option-primary-v1",
+    "fx.realtime": "akshare-fx-primary-v1",
+    "fx.range": "akshare-fx-range-primary-v1",
+}
 
 
 def _default_family_binding(
@@ -44,9 +60,7 @@ def _default_family_binding(
             "bond": "bond.realtime",
             "fund": "fund.realtime",
             "option": "option.realtime",
-            "fx": "fx.range"
-            if route_id == "akshare-fx-range-primary-v1"
-            else "fx.realtime",
+            "fx": "fx.range" if route_id == "akshare-fx-range-primary-v1" else "fx.realtime",
         }.get(asset_type)
     if data_kind == "reference_series":
         if asset_type == "stock":
@@ -72,21 +86,24 @@ def _request(
     currency: str | None = None,
     unit: str | None = None,
     source_policy_id: str | None = "akshare-v2",
-    route_id: str | None = None,
+    route_id: str | None | object = _AUTO_ROUTE_ID,
     family_id: str | None = None,
     family_contract_version: str | None = None,
     product_type: str | None = None,
     fund_identity_kind: str | None = None,
 ) -> MarketDataProviderRequest:
+    selected_route_id = route_id
     if family_id is None:
         family_id = _default_family_binding(
             asset_type=asset_type,
             data_kind=data_kind,
-            route_id=route_id,
+            route_id=route_id if isinstance(route_id, str) else None,
             price_basis=price_basis,
         )
         if family_id is not None:
             family_contract_version = FAMILY_CONTRACT_VERSION
+    if selected_route_id is _AUTO_ROUTE_ID:
+        selected_route_id = _DEFAULT_ROUTE_BY_FAMILY_ID.get(family_id)
     return MarketDataProviderRequest(
         query_fingerprint="b" * 64,
         canonical_id=f"instrument:{asset_type}:{market}:{provider_symbol}",
@@ -104,7 +121,7 @@ def _request(
         currency=currency,
         unit=unit,
         source_policy_id=source_policy_id,
-        route_id=route_id,
+        route_id=selected_route_id if isinstance(selected_route_id, str) else None,
         family_id=family_id,
         family_contract_version=family_contract_version,
         product_type=product_type,
@@ -124,8 +141,7 @@ def test_akshare_registry_declares_each_current_asset_type_explicitly() -> None:
         "crypto",
     }
     assert {
-        (route.asset_type, route.data_kind, route.endpoint)
-        for route in AKSHARE_ROUTE_REGISTRY
+        (route.asset_type, route.data_kind, route.endpoint) for route in AKSHARE_ROUTE_REGISTRY
     } >= {
         ("stock", "reference_series", "stock_zh_a_hist"),
         ("fund", "reference_series", "fund_etf_hist_em"),
@@ -257,9 +273,7 @@ def test_akshare_provider_selects_only_the_exact_family_version_pair(
     assert selected.family_id == family_id
     assert selected.family_contract_version == FAMILY_CONTRACT_VERSION
     with pytest.raises(AkShareProviderError) as mismatch:
-        provider._route_for(
-            replace(request, family_contract_version="market-data-family-v2")
-        )
+        provider._route_for(replace(request, family_contract_version="market-data-family-v2"))
 
     assert mismatch.value.code == "AKSHARE_ROUTE_UNSUPPORTED"
 
@@ -336,6 +350,12 @@ async def test_akshare_provider_uses_exact_symbol_route_and_preserves_provenance
     assert result.raw_payload["request"]["canonical_id"] == "instrument:stock:CN-SZSE:000001"
     assert result.raw_payload["request"]["provider_symbol"] == "000001"
     assert result.raw_payload["route"]["endpoint"] == "stock_zh_a_hist"
+    assert result.raw_payload["provider_contract"] == dict(
+        AKSHARE_PROVIDER_CONTRACT_REGISTRY.contract_for(
+            provider="akshare",
+            route_id="akshare-stock-primary-v1",
+        ).summary
+    )
     assert result.raw_payload["response_rows"][0]["股票代码"] == "000001"
     expected_payload_hash = hashlib.sha256(
         json.dumps(
@@ -395,9 +415,7 @@ async def test_akshare_provider_routes_private_kline_only_with_its_exact_pair() 
 
     provider = AkShareMarketDataProvider(callable_resolver=lambda _: fake_stock_route)
     kline_request = _request(
-        required_fields=frozenset(
-            {"open", "high", "low", "close", "volume", "change_pct"}
-        ),
+        required_fields=frozenset({"open", "high", "low", "close", "volume", "change_pct"}),
         adjustment="qfq",
         price_basis="close",
         currency="CNY",
@@ -597,7 +615,9 @@ async def test_akshare_provider_rejects_nav_requests_without_an_etf_listing_iden
 ) -> None:
     """The dedicated ETF NAV endpoint must reject every nearby fund product before I/O."""
     provider = AkShareMarketDataProvider(
-        callable_resolver=lambda _: pytest.fail("invalid identity must not resolve a source callable")
+        callable_resolver=lambda _: pytest.fail(
+            "invalid identity must not resolve a source callable"
+        )
     )
 
     with pytest.raises(AkShareProviderError) as rejected:
