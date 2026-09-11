@@ -1729,17 +1729,17 @@ async def _stop_two_process_workers(processes: tuple[Any, ...]) -> None:
         for process in survivors:
             kill = getattr(process, "kill", None)
             if not callable(kill):
-                raise PostgresAcceptanceHarnessError("POSTGRES_ACCEPTANCE_WORKER_CLEANUP_FAILED")
+                raise PostgresAcceptanceHarnessError("POSTGRES_ACCEPTANCE_TWO_PROCESS_EXIT_FAILED")
             kill()
         for process in survivors:
             await asyncio.to_thread(process.join, _PROCESS_EVENT_TIMEOUT_SECONDS)
     except PostgresAcceptanceHarnessError:
         raise
     except Exception as exc:
-        raise PostgresAcceptanceHarnessError("POSTGRES_ACCEPTANCE_WORKER_CLEANUP_FAILED") from exc
+        raise PostgresAcceptanceHarnessError("POSTGRES_ACCEPTANCE_TWO_PROCESS_EXIT_FAILED") from exc
 
     if any(process.pid is not None and process.is_alive() for process in processes):
-        raise PostgresAcceptanceHarnessError("POSTGRES_ACCEPTANCE_WORKER_CLEANUP_FAILED")
+        raise PostgresAcceptanceHarnessError("POSTGRES_ACCEPTANCE_TWO_PROCESS_EXIT_FAILED")
 
 
 def _close_process_queue(channel: Any) -> None:

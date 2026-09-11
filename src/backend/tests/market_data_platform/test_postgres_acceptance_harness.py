@@ -122,24 +122,28 @@ class _HarnessOwnedProcess:
         self.terminate_calls = 0
         self.kill_calls = 0
         self.join_timeouts: list[float] = []
+        self.lifecycle_events: list[str] = []
 
     def is_alive(self) -> bool:
         return self._alive
 
     def terminate(self) -> None:
         self.terminate_calls += 1
+        self.lifecycle_events.append("terminate")
         if self._terminate_exitcode is not None:
             self._alive = False
             self.exitcode = self._terminate_exitcode
 
     def kill(self) -> None:
         self.kill_calls += 1
+        self.lifecycle_events.append("kill")
         if not self._survive_kill:
             self._alive = False
             self.exitcode = -9
 
     def join(self, timeout: float) -> None:
         self.join_timeouts.append(timeout)
+        self.lifecycle_events.append("join")
 
 
 def test_admin_url_accepts_only_explicit_asyncpg_postgres_database() -> None:
@@ -256,6 +260,7 @@ async def test_worker_cleanup_escalates_to_kill_and_requires_reap_before_return(
         harness._PROCESS_EVENT_TIMEOUT_SECONDS,
         harness._PROCESS_EVENT_TIMEOUT_SECONDS,
     ]
+    assert process.lifecycle_events == ["terminate", "join", "kill", "join"]
     assert process.is_alive() is False
 
 
@@ -266,9 +271,10 @@ async def test_worker_cleanup_fails_closed_when_a_harness_child_survives_kill() 
     with pytest.raises(harness.PostgresAcceptanceHarnessError) as rejected:
         await harness._stop_two_process_workers((process,))
 
-    assert rejected.value.code == "POSTGRES_ACCEPTANCE_WORKER_CLEANUP_FAILED"
+    assert rejected.value.code == "POSTGRES_ACCEPTANCE_TWO_PROCESS_EXIT_FAILED"
     assert process.terminate_calls == 1
     assert process.kill_calls == 1
+    assert process.lifecycle_events == ["terminate", "join", "kill", "join"]
     assert process.is_alive() is True
 
 
@@ -280,12 +286,26 @@ async def test_terminated_leader_requires_parent_termination_of_a_live_worker() 
 
     assert process.terminate_calls == 1
     assert process.kill_calls == 0
+    assert process.lifecycle_events == ["terminate", "join"]
     assert process.is_alive() is False
 
 
 @pytest.mark.asyncio
-async def test_terminated_leader_rejects_a_worker_that_already_died() -> None:
+async def test_terminated_leader_escalates_to_kill_then_reaps() -> None:
+    process = _HarnessOwnedProcess()
+
+    await harness._join_terminated_fault_leader(process)
+
+    assert process.terminate_calls == 1
+    assert process.kill_calls == 1
+    assert process.lifecycle_events == ["terminate", "join", "kill", "join"]
+    assert process.is_alive() is False
+
+
+@pytest.mark.asyncio
+async def test_terminated_leader_rejects_a_nonzero_self_exit_before_parent_terminate() -> None:
     process = _HarnessOwnedProcess(alive=False)
+    assert process.exitcode == 1
 
     with pytest.raises(harness.PostgresAcceptanceHarnessError) as rejected:
         await harness._join_terminated_fault_leader(process)
