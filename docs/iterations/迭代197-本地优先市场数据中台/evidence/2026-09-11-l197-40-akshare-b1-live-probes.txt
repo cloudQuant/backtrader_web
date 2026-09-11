@@ -1,0 +1,37 @@
+# L-197-40：三条 B1 AkShare 路线真实受限探测收据
+
+日期：2026-09-11（晚间会话）
+候选提交：harness 扩展 `ce99d78b3e5a44c0ff9d0d5b50b0a34e4e06f634`（`feat(market-data): extend akshare harness to four b1 families`）
+执行环境：本机 conda base（akshare 1.18.64）、隔离 subprocess runner（`<conda python> -I -S <abs akshare_market_data_runner.py>`、专用 HOME/WORKDIR 于 `/tmp/iter197-akshare-runner/`、site-packages 指向 conda base）。每次 `--live` 运行各发起恰好一次真实网络请求（`provider_fetch_attempt_count=1`），使用一次性 SQLite 并在终态删除（`"removed":true`）；无凭据写入、无原始载荷输出。
+
+## 执行范围与命令模板
+
+```text
+cd /Users/yunjinqi/Downloads/backtrader_web/src/backend
+AKSHARE_MARKET_DATA_RUNNER="<conda>/bin/python -I -S <abs>/scripts/akshare_market_data_runner.py" \
+AKSHARE_RUNNER_HOME=/tmp/iter197-akshare-runner/home \
+AKSHARE_RUNNER_WORKDIR=/tmp/iter197-akshare-runner/workdir \
+AKSHARE_RUNNER_SITE_PACKAGES=<conda>/lib/python3.11/site-packages \
+  conda run --no-capture-output -n base python \
+  scripts/accept_iteration197_akshare_stock_liquidity.py \
+  --live --family <fund-liquidity|fund-nav|fx-range> --trading-date 2026-09-08
+```
+
+本轮先把 harness 从单 family 扩展为四个受审核 B1 profile（`stock-liquidity` 默认；新增 `fund-liquidity`、`fund-nav`、`fx-range`）：每个 profile 镜像 production dataset contract 的 dataset/kind/fields/语义轴与 AkShare route registry 的精确 route/市场/身份约束（fund.nav 的 route 声明 `product_types={ETF}`、`fund_identity_kinds={LISTING}`，fx.range 以显式 `None` 轴匹配未声明 currency/unit 的合同）。离线回归 `tests/market_data_platform/test_akshare_live_acceptance_harness.py` 为 `13 passed`（含三个新 profile 的 fake-provider 全链闭环与 production 轴镜像断言），目标 Ruff/format 通过。
+
+## 真实探测结果（全部如实 FAIL）
+
+| family / route | 结果 | 稳定码 | 直接探测证据（同环境同机） |
+| --- | --- | --- | --- |
+| `fund.liquidity` / `akshare-fund-liquidity-primary-v1` | `failed`（exit 1） | `AKSHARE_ZERO_USABLE_OBSERVATIONS` | 本会话早些时候 `fund_etf_hist_em("510300","daily","20260901","20260910","")` 曾返回 8 行真实日线（列含 日期/开盘/收盘/最高/最低/成交量/成交额/…/换手率；首行 2026-09-01 收盘 4.684、成交量 8,467,983）。随后同参数、跨标的（510050/159915/600000）与跨窗口（2025-01、2026-09 单日/多日）全部 0 行；等待 60 秒与数分钟后重试仍 0 行。判定为上游（东方财富历史行情接口）对本机的间歇性空返回/IP 级限流。runner 收到 1 个 result 但 `response_row_count=0`，harness fail-closed，未产生 observation/publication。 |
+| `fund.nav` / `akshare-fund-nav-primary-v1` | `failed`（exit 1） | `AKSHARE_RUNNER_ERROR` | 直接调用 `fund_etf_fund_info_em(fund="510300"/"510050", start_date, end_date)` 稳定抛 `ValueError: Length mismatch: Expected axis has 14 elements, new values have 13 elements`（akshare 1.18.64 `fund_em.py:1090`）：上游接口字段漂移，SDK 版本与当前返回不兼容。adapter 将 runner 异常转为稳定码并拒绝回执：`persisted_fetch_count=0`、零 observation、零 publication，符合第 8.1 节“稳定码且不落库”的要求。 |
+| `fx.range` / `akshare-fx-range-primary-v1` | `failed`（exit 1） | `AKSHARE_ZERO_USABLE_OBSERVATIONS` | 直接调用 `forex_hist_em("USDCNH")` 两次均 `rows=0`，返回 8 列快照形态（日期/代码/名称/今开/最新价/最高/最低/振幅），与该函数的历史 OHLC 期望形态不符且无任何行。runner 收到 1 个 result、0 行，harness fail-closed。 |
+
+三次 live 运行的 `first_local_first.coverage_status` 均为 `incomplete`，无一产生 observation revision 或后续 `local_only` 复读；因此没有任何一条路线可以记为成功链。
+
+## 判定
+
+- `E-197-04` 维持 **`FAIL`**：加上本轮三个子用例，四个实际启用 AkShare 路线（`stock.liquidity`、`fund.liquidity`、`fund.nav`、`fx.range`）的真实子用例均已执行且全部 FAIL。失败原因分别是：上游间歇性空返回/限流（`stock.liquidity` 2026-09-09、`fund.liquidity` 本轮）、上游字段漂移（`fund.nav`）、上游零行快照（`fx.range`）。
+- 本地控制面（profile 合同、route 镜像、身份/日历种子、稳定码、fail-closed 持久化边界）已由 13 条离线回归证明；失败全部来自真实上游当前返回形态，不是本项目适配器缺陷的直接证据。
+- 在上游恢复可用数据窗口前，不得把任何一条路线升级为 `PASS`，也不得以离线 fixture 替代重跑。后续重试建议：更换网络出口或等待上游限流解除后，按同命令模板逐条小窗口重试；`fund.nav` 还需先升级/修复 akshare 的 `fund_etf_fund_info_em` 列映射。
+- 本收据不改变 E-197-05（OpenBB `BLOCKED`）、E-197-06/E-197-07/E-197-08 等其它正式项状态。
