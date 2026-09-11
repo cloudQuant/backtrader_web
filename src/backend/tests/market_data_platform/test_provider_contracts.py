@@ -174,6 +174,21 @@ def _tampered_stock_contract_registry() -> ProviderContractRegistry:
     return ProviderContractRegistry((widened_contract,))
 
 
+def _digest_spoofed_stock_contract_registry() -> ProviderContractRegistry:
+    """Spoof the reviewed digest after registry validation to model unsafe mutation."""
+    registry = _tampered_stock_contract_registry()
+    spoofed = registry.contract_for(
+        provider="akshare",
+        route_id="akshare-stock-primary-v1",
+    )
+    reviewed = AKSHARE_PROVIDER_CONTRACT_REGISTRY.contract_for(
+        provider="akshare",
+        route_id="akshare-stock-primary-v1",
+    )
+    object.__setattr__(spoofed, "descriptor_sha256", reviewed.descriptor_sha256)
+    return registry
+
+
 def test_adapter_has_no_runtime_contract_registry_injection_seam() -> None:
     """A caller cannot replace reviewed contracts during adapter construction."""
     resolver_calls: list[str] = []
@@ -192,8 +207,8 @@ def test_adapter_has_no_runtime_contract_registry_injection_seam() -> None:
 
 
 @pytest.mark.asyncio
-async def test_adapter_rejects_tampered_field_mapping_and_alias_before_provider_io() -> None:
-    """Unsafe in-process replacement still cannot widen a reviewed response profile."""
+async def test_adapter_ignores_digest_spoofed_private_registry_before_provider_io() -> None:
+    """A spoofed private registry cannot replace the import-time reviewed table."""
     resolver_calls: list[str] = []
     source_calls: list[dict[str, object]] = []
 
@@ -207,14 +222,63 @@ async def test_adapter_rejects_tampered_field_mapping_and_alias_before_provider_
         return source_callable
 
     provider = AkShareMarketDataProvider(callable_resolver=resolver)
-    # The public constructor has no registry seam. This private mutation models
-    # an unsafe in-process integration and exercises the descriptor guard that
-    # runs before callable resolution.
-    provider._contracts = _tampered_stock_contract_registry()
+    # The public constructor has no registry seam. This unsafe in-process
+    # attribute replacement must be ignored by the import-time selector.
+    provider._contracts = _digest_spoofed_stock_contract_registry()
 
-    with pytest.raises(AkShareProviderError) as mismatch:
+    with pytest.raises(AkShareProviderError) as unmapped:
         await provider.fetch(_request(required_fields=frozenset({"unreviewed_metric"})))
 
+    assert unmapped.value.code == "AKSHARE_PROVIDER_CONTRACT_FIELD_MAPPING_MISSING"
+    assert resolver_calls == []
+    assert source_calls == []
+
+
+@pytest.mark.asyncio
+async def test_adapter_rejects_postconstruction_reviewed_contract_mutation_before_provider_io() -> None:
+    """The selected reviewed object must still match its import-time descriptor digest."""
+    resolver_calls: list[str] = []
+    source_calls: list[dict[str, object]] = []
+
+    def resolver(endpoint: str):
+        resolver_calls.append(endpoint)
+
+        def source_callable(**kwargs: object) -> list[dict[str, object]]:
+            source_calls.append(kwargs)
+            return []
+
+        return source_callable
+
+    reviewed = AKSHARE_PROVIDER_CONTRACT_REGISTRY.contract_for(
+        provider="akshare",
+        route_id="akshare-stock-primary-v1",
+    )
+    original_profile = reviewed.field_profile
+    original_aliases = reviewed.response_field_aliases
+    original_digest = reviewed.descriptor_sha256
+    widened_profile = replace(
+        reviewed.field_profile,
+        mapped_fields=reviewed.field_profile.mapped_fields | {"unreviewed_metric"},
+    )
+    provider = AkShareMarketDataProvider(callable_resolver=resolver)
+
+    try:
+        object.__setattr__(reviewed, "field_profile", widened_profile)
+        object.__setattr__(
+            reviewed,
+            "response_field_aliases",
+            {**dict(reviewed.response_field_aliases), "未审核指标": "unreviewed_metric"},
+        )
+        object.__setattr__(reviewed, "descriptor_sha256", original_digest)
+
+        with pytest.raises(AkShareProviderError) as mismatch:
+            await provider.fetch(_request(required_fields=frozenset({"unreviewed_metric"})))
+    finally:
+        object.__setattr__(reviewed, "field_profile", original_profile)
+        object.__setattr__(reviewed, "response_field_aliases", original_aliases)
+        object.__setattr__(reviewed, "descriptor_sha256", original_digest)
+
+    reviewed.assert_descriptor_integrity()
     assert mismatch.value.code == "AKSHARE_PROVIDER_CONTRACT_DESCRIPTOR_MISMATCH"
     assert resolver_calls == []
     assert source_calls == []

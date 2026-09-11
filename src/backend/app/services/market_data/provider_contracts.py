@@ -415,6 +415,15 @@ class ProviderContract:
         payload["descriptor_sha256"] = self.descriptor_sha256
         return MappingProxyType(payload)
 
+    def assert_descriptor_integrity(self) -> None:
+        """Fail closed when a supposedly immutable contract changed after construction."""
+        try:
+            expected_digest = _descriptor_sha256(self._descriptor_without_digest())
+        except Exception as exc:
+            raise ProviderContractError("PROVIDER_CONTRACT_DESCRIPTOR_MISMATCH") from exc
+        if self.descriptor_sha256 != expected_digest:
+            raise ProviderContractError("PROVIDER_CONTRACT_DESCRIPTOR_MISMATCH")
+
     @property
     def summary(self) -> Mapping[str, str]:
         """Return the compact, stable receipt summary for one selected contract."""
@@ -548,10 +557,7 @@ class ProviderContractRegistry:
         for contract in normalized:
             # Recompute after construction too.  This catches any accidental
             # object-level mutation performed by an unsafe integration seam.
-            if contract.descriptor_sha256 != _descriptor_sha256(
-                contract._descriptor_without_digest()
-            ):
-                raise ProviderContractError("PROVIDER_CONTRACT_DESCRIPTOR_MISMATCH")
+            contract.assert_descriptor_integrity()
             key = (contract.provider, contract.route_id)
             if key in by_key:
                 raise ValueError(f"duplicate provider contract route: {key!r}")

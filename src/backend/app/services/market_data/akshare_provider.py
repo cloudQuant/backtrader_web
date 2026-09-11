@@ -55,21 +55,58 @@ _PERIOD_BY_FREQUENCY = {
     "1mo": "monthly",
 }
 
-# Snapshot the approved provider-contract identities at import time. The
-# adapter does not expose a runtime contract-registry seam, and this additional
-# check keeps a private object replacement from widening a reviewed field
-# mapping before provider I/O.
+# Snapshot reviewed objects and their original descriptor identities at import
+# time. The adapter selects only from this table; a later registry replacement
+# cannot widen a response profile before provider I/O.
+_AKSHARE_REVIEWED_CONTRACTS: Mapping[tuple[str, str], ProviderContract] = MappingProxyType(
+    {
+        (contract.provider, contract.route_id): contract
+        for contract in AKSHARE_PROVIDER_CONTRACT_REGISTRY.contracts
+    }
+)
 _AKSHARE_REVIEWED_CONTRACT_IDENTITIES: Mapping[tuple[str, str], tuple[str, str]] = (
     MappingProxyType(
         {
-            (contract.provider, contract.route_id): (
+            key: (
                 contract.contract_id,
                 contract.descriptor_sha256,
             )
-            for contract in AKSHARE_PROVIDER_CONTRACT_REGISTRY.contracts
+            for key, contract in _AKSHARE_REVIEWED_CONTRACTS.items()
         }
     )
 )
+
+
+def _assert_reviewed_contract_integrity(contract: ProviderContract) -> None:
+    """Reject object replacement or post-construction contract mutation."""
+    try:
+        key = (contract.provider, contract.route_id)
+        expected_contract = _AKSHARE_REVIEWED_CONTRACTS.get(key)
+        expected_identity = _AKSHARE_REVIEWED_CONTRACT_IDENTITIES.get(key)
+        if (
+            contract is not expected_contract
+            or expected_identity != (contract.contract_id, contract.descriptor_sha256)
+        ):
+            raise ProviderContractError("PROVIDER_CONTRACT_DESCRIPTOR_MISMATCH")
+        contract.assert_descriptor_integrity()
+    except ProviderContractError:
+        raise
+    except Exception as exc:
+        raise ProviderContractError("PROVIDER_CONTRACT_DESCRIPTOR_MISMATCH") from exc
+
+
+def _reviewed_contract_for_request(request: MarketDataProviderRequest) -> ProviderContract:
+    """Select exactly one import-time reviewed contract without a registry seam."""
+    if request.route_id is None:
+        raise ProviderContractError("PROVIDER_CONTRACT_ROUTE_REQUIRED")
+    contract = _AKSHARE_REVIEWED_CONTRACTS.get((request.provider, request.route_id))
+    if contract is None:
+        if any(route_id == request.route_id for _, route_id in _AKSHARE_REVIEWED_CONTRACTS):
+            raise ProviderContractError("PROVIDER_CONTRACT_PROVIDER_MISMATCH")
+        raise ProviderContractError("PROVIDER_CONTRACT_UNREGISTERED")
+    _assert_reviewed_contract_integrity(contract)
+    contract.assert_request_matches(request)
+    return contract
 
 # The response normalizer obtains its reviewed aliases from the immutable
 # ProviderContract.  Keep this module-level alias for the schedule-only wide
@@ -828,10 +865,6 @@ class AkShareMarketDataProvider:
             raise ValueError("AkShare max_concurrency must be between 1 and 32")
         self._routes = tuple(routes)
         self._validate_routes(self._routes)
-        # Provider contracts are a static, reviewed control plane. Accepting
-        # a caller-supplied registry could widen ``mapped_fields`` or response
-        # aliases and make an unreviewed metric look normalizable before I/O.
-        self._contracts = AKSHARE_PROVIDER_CONTRACT_REGISTRY
         self._callable_resolver = callable_resolver or _resolve_akshare_callable
         self._timeout_seconds = timeout_seconds
         self._semaphore = asyncio.BoundedSemaphore(max_concurrency)
@@ -842,7 +875,7 @@ class AkShareMarketDataProvider:
             raise AkShareProviderError("AKSHARE_PROVIDER_MISMATCH")
 
         try:
-            contract = self._contracts.select_for_request(request)
+            contract = _reviewed_contract_for_request(request)
             route = self._route_for(request)
             self._assert_route_contract_matches(route, contract)
             self._validate_route_request(route, request)
@@ -1014,9 +1047,10 @@ class AkShareMarketDataProvider:
         response semantics.  Compare the material declaration axes here so a
         future route edit cannot silently retain an old contract digest.
         """
-        expected_identity = _AKSHARE_REVIEWED_CONTRACT_IDENTITIES.get(
-            (contract.provider, contract.route_id)
-        )
+        try:
+            _assert_reviewed_contract_integrity(contract)
+        except ProviderContractError as exc:
+            raise AkShareProviderError("AKSHARE_PROVIDER_CONTRACT_DESCRIPTOR_MISMATCH") from exc
         expected_static_endpoint = (
             next(iter(contract.endpoints))
             if contract.endpoint_resolver_id == "akshare.static-endpoint-v1"
@@ -1024,8 +1058,7 @@ class AkShareMarketDataProvider:
         )
         expected_validator = _AKSHARE_REQUEST_VALIDATORS.get(contract.request_validator_id)
         if (
-            expected_identity != (contract.contract_id, contract.descriptor_sha256)
-            or contract.route_id not in route.route_ids
+            contract.route_id not in route.route_ids
             or route.asset_type != contract.asset_type
             or route.data_kind != contract.data_kind
             or route.frequencies != contract.frequencies
