@@ -20,6 +20,9 @@ import pytest
 from app.services.market_data.coverage import EventKey, TimeWindow
 from app.services.market_data.legacy_stock_daily_import import (
     LEGACY_STOCK_DAILY_COLUMN_MAP,
+    LEGACY_STOCK_DAILY_PROVIDER_ID,
+    LEGACY_STOCK_DAILY_ROUTE_ID,
+    LEGACY_STOCK_DAILY_SOURCE_REGISTRY_ID,
     LEGACY_STOCK_DAILY_TABLE,
     FrozenLegacyStockDailyCalendar,
     FrozenLegacyStockDailyIdentity,
@@ -86,7 +89,7 @@ def _plain_json(value: object) -> object:
 
 def _approved_attestation(**overrides: object) -> LegacyStockDailyImportAttestation:
     values: dict[str, object] = {
-        "source_id": "akshare",
+        "source_id": LEGACY_STOCK_DAILY_SOURCE_REGISTRY_ID,
         "source_revision": "stock_zh_a_hist:legacy-warehouse-v1",
         "adjustment": "qfq",
         "source_timezone": "Asia/Shanghai",
@@ -116,9 +119,9 @@ def _identity(
 
 def _read_scope_receipt(**overrides: object) -> LegacyStockDailyReadScopeReceipt:
     values: dict[str, object] = {
-        "source_registry_id": "akshare",
-        "provider_id": "akshare",
-        "route_id": "akshare-stock-kline-legacy-v1",
+        "source_registry_id": LEGACY_STOCK_DAILY_SOURCE_REGISTRY_ID,
+        "provider_id": LEGACY_STOCK_DAILY_PROVIDER_ID,
+        "route_id": LEGACY_STOCK_DAILY_ROUTE_ID,
         "authorization_receipt_id": "legacy-stock-daily-read-scope-v1",
         "source_schema_sha256": "a" * 64,
     }
@@ -129,9 +132,9 @@ def _read_scope_receipt(**overrides: object) -> LegacyStockDailyReadScopeReceipt
 def _write_permit(**overrides: object) -> LegacyStockDailyCanonicalWritePermit:
     values: dict[str, object] = {
         "canonical_id": "instrument:stock:CN-SZSE:000001",
-        "source_registry_id": "akshare",
-        "provider_id": "akshare",
-        "route_id": "akshare-stock-kline-legacy-v1",
+        "source_registry_id": LEGACY_STOCK_DAILY_SOURCE_REGISTRY_ID,
+        "provider_id": LEGACY_STOCK_DAILY_PROVIDER_ID,
+        "route_id": LEGACY_STOCK_DAILY_ROUTE_ID,
         "read_authorization_receipt_id": "legacy-stock-daily-read-scope-v1",
         "source_batch_sha256": "a" * 64,
         "import_scope_sha256": "b" * 64,
@@ -366,9 +369,9 @@ class _MismatchedLegacyEvidenceGate:
     async def certify_source_batch(self, **_kwargs: object) -> LegacyStockDailySourceBatchReceipt:
         return LegacyStockDailySourceBatchReceipt(
             source_batch_sha256="b" * 64,
-            source_registry_id="akshare",
-            provider_id="akshare",
-            route_id="akshare-stock-kline-legacy-v1",
+            source_registry_id=LEGACY_STOCK_DAILY_SOURCE_REGISTRY_ID,
+            provider_id=LEGACY_STOCK_DAILY_PROVIDER_ID,
+            route_id=LEGACY_STOCK_DAILY_ROUTE_ID,
             authorization_receipt_id="legacy-stock-daily-read-scope-v1",
             source_receipt_id="wrong-batch-receipt",
             source_schema_sha256="a" * 64,
@@ -392,9 +395,9 @@ class _SchemaMismatchedLegacyEvidenceGate:
         assert isinstance(batch, LegacyStockDailyImportBatch)
         return LegacyStockDailySourceBatchReceipt(
             source_batch_sha256=batch.content_sha256,
-            source_registry_id="akshare",
-            provider_id="akshare",
-            route_id="akshare-stock-kline-legacy-v1",
+            source_registry_id=LEGACY_STOCK_DAILY_SOURCE_REGISTRY_ID,
+            provider_id=LEGACY_STOCK_DAILY_PROVIDER_ID,
+            route_id=LEGACY_STOCK_DAILY_ROUTE_ID,
             authorization_receipt_id="legacy-stock-daily-read-scope-v1",
             source_receipt_id="wrong-schema-receipt",
             source_schema_sha256="b" * 64,
@@ -423,9 +426,9 @@ class _ReplayedScopeEvidenceGate:
         self.batch = batch
         return LegacyStockDailySourceBatchReceipt(
             source_batch_sha256=batch.content_sha256,
-            source_registry_id="akshare",
-            provider_id="akshare",
-            route_id="akshare-stock-kline-legacy-v1",
+            source_registry_id=LEGACY_STOCK_DAILY_SOURCE_REGISTRY_ID,
+            provider_id=LEGACY_STOCK_DAILY_PROVIDER_ID,
+            route_id=LEGACY_STOCK_DAILY_ROUTE_ID,
             authorization_receipt_id="legacy-stock-daily-read-scope-v1",
             source_receipt_id="replayed-scope-receipt",
             source_schema_sha256=import_scope.source_schema_sha256,
@@ -468,9 +471,9 @@ class _AllowingLegacyEvidenceGate:
         assert batch.import_scope == import_scope
         return LegacyStockDailySourceBatchReceipt(
             source_batch_sha256=batch.content_sha256,
-            source_registry_id="akshare",
-            provider_id="akshare",
-            route_id="akshare-stock-kline-legacy-v1",
+            source_registry_id=LEGACY_STOCK_DAILY_SOURCE_REGISTRY_ID,
+            provider_id=LEGACY_STOCK_DAILY_PROVIDER_ID,
+            route_id=LEGACY_STOCK_DAILY_ROUTE_ID,
             authorization_receipt_id=import_scope.read_scope_receipt.authorization_receipt_id,
             source_receipt_id="legacy-stock-daily-source-receipt-v1",
             source_schema_sha256=import_scope.source_schema_sha256,
@@ -506,9 +509,9 @@ class _SourceBatchAuthorizationReplayEvidenceGate:
         assert isinstance(import_scope, LegacyStockDailyImportScope)
         return LegacyStockDailySourceBatchReceipt(
             source_batch_sha256=batch.content_sha256,
-            source_registry_id="akshare",
-            provider_id="akshare",
-            route_id="akshare-stock-kline-legacy-v1",
+            source_registry_id=LEGACY_STOCK_DAILY_SOURCE_REGISTRY_ID,
+            provider_id=LEGACY_STOCK_DAILY_PROVIDER_ID,
+            route_id=LEGACY_STOCK_DAILY_ROUTE_ID,
             authorization_receipt_id="stale-read-authorization",
             source_receipt_id="stale-authorization-source-receipt",
             source_schema_sha256=import_scope.source_schema_sha256,
@@ -1549,9 +1552,9 @@ async def test_typed_legacy_dates_write_an_immutable_content_addressed_batch_the
     assert writer.source_batch_receipts == [
         LegacyStockDailySourceBatchReceipt(
             source_batch_sha256=batch.content_sha256,
-            source_registry_id="akshare",
-            provider_id="akshare",
-            route_id="akshare-stock-kline-legacy-v1",
+            source_registry_id=LEGACY_STOCK_DAILY_SOURCE_REGISTRY_ID,
+            provider_id=LEGACY_STOCK_DAILY_PROVIDER_ID,
+            route_id=LEGACY_STOCK_DAILY_ROUTE_ID,
             authorization_receipt_id="legacy-stock-daily-read-scope-v1",
             source_receipt_id="legacy-stock-daily-source-receipt-v1",
             source_schema_sha256="a" * 64,
