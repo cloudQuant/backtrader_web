@@ -29,6 +29,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.market_data_platform import (
+    MdB2CompletenessManifestEntry,
     MdB2CompletenessReceipt,
     MdCalendarSnapshot,
     MdInstrumentIdentityRevision,
@@ -40,6 +41,10 @@ from app.models.market_data_platform import (
 from app.services.market_data.fetch_lease import (
     MarketDataFetchLeaseHandle,
     assert_fetch_lease_held_in_transaction,
+)
+from app.services.market_data.multi_record_evidence import (
+    B2CompletenessEvidenceError,
+    assert_b2_completeness_receipt_integrity,
 )
 
 UTC = timezone.utc
@@ -1026,6 +1031,55 @@ class MarketDataPublicationManager:
                 found.get(receipt.entity_id) != receipt.entity_sha256 for receipt in receipts
             ):
                 raise MarketDataPublicationError("PUBLICATION_ENTITY_INTEGRITY")
+            if entity_type == PUBLICATION_B2_COMPLETENESS_RECEIPT:
+                await self._assert_pending_b2_completeness_receipt_integrity(entity_ids)
+
+    async def _assert_pending_b2_completeness_receipt_integrity(
+        self,
+        receipt_ids: tuple[str, ...],
+    ) -> None:
+        """Bind every B2 publication hash to its immutable child manifest rows."""
+        evidence_rows = list(
+            (
+                await self._db.execute(
+                    select(MdB2CompletenessReceipt)
+                    .where(MdB2CompletenessReceipt.id.in_(receipt_ids))
+                    .execution_options(populate_existing=True)
+                    .with_for_update()
+                )
+            )
+            .scalars()
+            .all()
+        )
+        if len(evidence_rows) != len(receipt_ids):
+            raise MarketDataPublicationError("PUBLICATION_ENTITY_INTEGRITY")
+        entry_rows = list(
+            await self._db.execute(
+                select(
+                    MdB2CompletenessManifestEntry.receipt_id,
+                    MdB2CompletenessManifestEntry.semantic_record_key_sha256,
+                )
+                .where(MdB2CompletenessManifestEntry.receipt_id.in_(receipt_ids))
+                .order_by(
+                    MdB2CompletenessManifestEntry.receipt_id,
+                    MdB2CompletenessManifestEntry.semantic_record_key_sha256,
+                )
+                .with_for_update()
+            )
+        )
+        entries_by_receipt: dict[str, list[str]] = {receipt_id: [] for receipt_id in receipt_ids}
+        for receipt_id, semantic_record_key_sha256 in entry_rows:
+            if receipt_id not in entries_by_receipt:
+                raise MarketDataPublicationError("PUBLICATION_ENTITY_INTEGRITY")
+            entries_by_receipt[receipt_id].append(semantic_record_key_sha256)
+        try:
+            for receipt in evidence_rows:
+                assert_b2_completeness_receipt_integrity(
+                    receipt,
+                    entries_by_receipt[receipt.id],
+                )
+        except (B2CompletenessEvidenceError, TypeError, ValueError) as exc:
+            raise MarketDataPublicationError("PUBLICATION_ENTITY_INTEGRITY") from exc
 
 
 def _is_sha256(value: object) -> bool:
