@@ -1,0 +1,85 @@
+# L-197-39：统一矩阵 offline G1 覆盖扩展的干净候选收据
+
+日期：2026-09-11
+候选提交：`98644bc8ee8e0280625fcd7d61c56fa76542222a`（`feat(market-data): map remaining offline G1 matrix slices`）
+工作树：`/tmp/iter197-clean-98644bc8`（主工作树的干净 detached worktree，指向同一提交）
+候选洁净性：执行前 worktree `git status --short` 为空；acceptance runner 记录 `CANDIDATE_CLEAN_OR_ALLOWLISTED`、`dirty_count=0`、`unallowlisted_dirty_count=0`。
+
+## 执行范围
+
+本收据把统一矩阵中当前具有确定性 offline G1 驱动的全部 24 个 case（`AC-01`、`AC-03`—`AC-18`、`AC-22`、`AC-30`、`AC-32`、`AC-35`—`AC-37`、`AC-39`、`AC-40`）在干净候选上一次性执行；每个 case 按其有映射的资产 slice 运行精确 pytest node，其余资产 slice 保持 fail-closed `NOT_RUN`。`AC-36`（sealed URI / 运行环境隔离）刻意无 offline 驱动，其 7 个资产 slice 全部 `NOT_RUN` 且不启动任何子 pytest。
+
+```text
+cd /tmp/iter197-clean-98644bc8/src/backend
+/Users/yunjinqi/opt/anaconda3/bin/conda run --no-capture-output -n base python \
+  scripts/acceptance/iteration197_data_platform.py \
+  --mode offline \
+  --case AC-01,AC-03,AC-04,AC-05,AC-06,AC-07,AC-08,AC-09,AC-10,AC-11,AC-12 \
+  --case AC-13,AC-14,AC-15,AC-16,AC-17,AC-18,AC-22,AC-30,AC-32,AC-35,AC-36,AC-37,AC-39,AC-40 \
+  --asset-type all \
+  --output /tmp/iter197-offline-g1-all-98644bc8-b \
+  --project-root /tmp/iter197-clean-98644bc8
+```
+
+不传 `--case` 的全量选择会被运行器拒绝：G2-only case 触发 `ACCEPTANCE_CASE_MODE_INCOMPATIBLE`，整个选择 fail-closed 为 `ACCEPTANCE_SELECTION_INCOMPLETE` 且不执行任何 pytest（已用同候选验证，结果目录 `/tmp/iter197-offline-g1-all-98644bc8-a`，exit 3 / `NOT_RUN`）。
+
+运行器和候选元数据：
+
+- `case_mapping_version=iteration197-unified-matrix-id-v4-offline-g1-coverage`
+- `case_map_sha256=2f7664e65312c53cf10cea44a5bcac4615f9e928935ad7d80ec902c6d9840b1a`
+- `runner_sha256=7d151e59d2cf8424484befc3dec8f2bc9aaf685939131c86f5dc58654f1ec5f3`
+- `run_id=iteration197-8d0ab879aa47467d9c0dd240c35c542b`
+- 唯一 Alembic head：`20260911_market_data_b2_completeness_evidence`（`ALEMBIC_HEAD_AND_ANCESTRY_VALID`，required ancestry 无缺失）
+- 迭代 196 基线溯源 `ITER196_BASELINE_PROVENANCE_VALID`（baseline `3ebe7717a0bfe7ebf1cde2dfc501d6842034c253`；更正收据 SHA-256 `a02197ce712fdd43e7f85aeb88420865ab161d83d29b85e80959305e4af27f39`）
+- scope manifest `SCOPE_MANIFEST_VALID`，21 family、七类资产
+- 结果 JSON 的 SHA-256：`d15cd2c96b57ce48568b9ba8350df464f4d9883051899b697850a8dc59b4687a`
+
+## 本次新增映射的 case 与所选 offline 证据面
+
+新增 17 个 case 的 offline 映射（`AC-03`—`AC-08`、`AC-10`—`AC-14`、`AC-16`、`AC-18`、`AC-22`、`AC-30`、`AC-37`、`AC-40`），连同既有 `AC-01`、`AC-09`、`AC-15`、`AC-17`、`AC-32`、`AC-35`、`AC-39` 共 24 个 case、55 个资产 slice：
+
+| case | G1 PASS 资产 slice | 证据面（每个 slice 1—3 个精确 pytest node） |
+| --- | --- | --- |
+| AC-01 | fund, stock | 既有 local-first 持久化/复读（未改动） |
+| AC-03 | fund, stock | head/middle/tail 精确 gap、PIT 合格观测、reference-series 网格 |
+| AC-04 | fund, stock | legacy 占位不能证明 complete、分页 PIT 边界、naive 时间拒绝 |
+| AC-05 | crypto, stock | unknown calendar typed 状态、按频率独立网格、排序事件键、空默认日历不能证明 complete |
+| AC-06 | fund, stock | 已知空窗不触发 provider、请求窗交集、历史 quote miss 不抓现值 |
+| AC-07 | fund, stock | 过期 quote 单一 full-window gap、过期快照只补一次、freshness policy |
+| AC-08 | fund, stock | placeholder 负缓存 typed policy、错配回执不落库且下一 route 可补、错误空结果不标 complete |
+| AC-09 | futures, stock | 既有 exact identity（未改动） |
+| AC-10 | futures, stock | 完整精确三元组不替换邻近标的、错配响应/市场拒绝 |
+| AC-11 | fund, stock | 显式复权/价格基准、source provenance+normalized revisions、窄修订不遮蔽宽修订 |
+| AC-12 | fund, stock | 半开区间+无歧义频率、kind/frequency 组合拒绝、独立网格 |
+| AC-13 | crypto, option | 未配置多记录 shape 在本地/provider 前失败、option 维度合同、report selector |
+| AC-14 | fund, stock | NaN/Inf/占位拒绝、单位语义拒绝、数值/日期唯一 canonical 形式 |
+| AC-15 | fund, futures, fx, option, stock | 既有 21-family registry + 精确 route（未改动） |
+| AC-16 | fund, fx, stock | fallback 在前一 route 事务关闭后启动、inactive provider 拒绝、授权 fallback preflight |
+| AC-17 | 七资产 | 既有 OpenBB runner/permit/socket（未改动，L-197-38 已记录） |
+| AC-18 | fund, fx, stock | 有界 worker 超时、满槽超时、超大 dataframe 拒绝、runner 输出管道上限 |
+| AC-22 | fund, stock | 仅隔离无效已知数值行、未注册/越窗/重复事件拒绝、inline raw payload 上限、shared payload 段拒绝 |
+| AC-30 | fund, stock | 等价 local_first miss 共享一次 fetch+commit、refresh 不复用 singleflight follower、follower 回滚后重验证 |
+| AC-32 | crypto, stock | 既有 legacy bridge（未改动） |
+| AC-35 | stock | 既有 research binding digest（未改动） |
+| AC-36 | （无） | 刻意无 offline 驱动，7 slice fail-closed `NOT_RUN` |
+| AC-37 | fund, stock | local receipt 时间而非 provider 声明、visibility sequence 排除晚回执、cutoff 后回填 identity 拒绝 |
+| AC-39 | stock | 既有读取授权重检（未改动） |
+| AC-40 | stock | runner 环境不转发应用密钥、v2 错误映射稳定码无 traceback |
+
+## 本地 G1 结果
+
+55 个映射 slice 均产生 1 个 JUnit 文件：合计 `115` 个 testcase、`0` failures、`0` errors、`0` skipped；全部 slice 的 Python child socket audit `network_attempt_count=0`。每个 slice 的 `mode_slice_status=PASS`（`OFFLINE_PYTEST_PASSED`）。
+
+剩余 gates 分布：`('G2',)` 119 个 slice、`('G3',)` 28 个、`('G2','G3')` 21 个、无剩余 7 个（AC-36 的 `NOT_RUN` slice）。运行器顶层按预期返回 exit `3` / `NOT_RUN`：任何仍要求 G2/G3 的 case 不能由 G1 slice 升级为整体通过；summary 为 `PASS=55, NOT_RUN=120, FAIL=0, BLOCKED=0`（120 为无 offline 驱动资产 slice 的 fail-closed 记录）。
+
+## G1 覆盖的精确边界
+
+- 所有映射目标都是确定性离线 pytest node（SQLite/内存 fixture、fake provider/runner）；不证明真实 AkShare/OpenBB、共享 MySQL/PostgreSQL、多进程并发、浏览器或生产验收。
+- 机制类测试按其 fixture 资产映射（多数为 stock、fund 语义）；未映射资产保持 `NOT_RUN`，不以股票 fixture 冒充其它资产通过。七资产的逐项产品覆盖仍由 `AC-15`（G2/G3）承担。
+- `AC-16`/`AC-17`/`AC-35`/`AC-37`/`AC-39` 的 G3（真实后备、真实 OpenBB、真实工件/授权、真实 PIT 环境）与全部 G2/G4 均未运行。
+- `AC-18` 的 Retry-After/共享额度/熔断预算合同尚无确定性 offline 测试，本收据只覆盖超时、并发槽、输入/输出上限的离线面，不声明完整 provider 限频验收。
+- 无映射 slice 与 AC-36 的 fail-closed `NOT_RUN` 是设计行为，不因本收据改变。
+
+## 未覆盖和继续阻断项
+
+本次没有安装 OpenBB 扩展、创建 permit/route、执行真实网络请求、写入市场数据或访问真实数据库。E-197-04（真实 AkShare）、E-197-05（真实 OpenBB，`BLOCKED`）、E-197-07/E-197-08（真实数据库/多进程）、E-197-06（浏览器三方）等正式项保持原状态；发布签收条件不变。
