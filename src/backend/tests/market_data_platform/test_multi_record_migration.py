@@ -23,6 +23,7 @@ from alembic import command
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
 PREVIOUS_HEAD_REVISION = "20260911_market_data_deferred_publications"
 SEMANTIC_RECORD_KEYS_REVISION = "20260911_market_data_semantic_record_keys"
+B2_COMPLETENESS_EVIDENCE_REVISION = "20260911_market_data_b2_completeness_evidence"
 SINGLE_RECORD_SEMANTIC_KEY_CANONICAL_JSON = (
     '{"record_identity_contract_version":"market-data-semantic-record-key-v1","scope":"singleton"}'
 )
@@ -632,11 +633,14 @@ def test_singleton_constants_stay_aligned_with_the_pure_identity_contract() -> N
     assert _sha(SINGLE_RECORD_SEMANTIC_KEY_CANONICAL_JSON) == SINGLE_RECORD_SEMANTIC_KEY_SHA256
 
 
-def test_semantic_record_key_revision_extends_the_only_integrated_head() -> None:
-    """The B2 physical identity migration remains a single-child graph extension."""
+def test_semantic_record_key_revision_remains_the_b2_evidence_predecessor() -> None:
+    """The physical B2 identity revision stays on the single integrated graph."""
     script = ScriptDirectory.from_config(_config("sqlite://"))
 
     revision = script.get_revision(SEMANTIC_RECORD_KEYS_REVISION)
+    evidence_revision = script.get_revision(B2_COMPLETENESS_EVIDENCE_REVISION)
     assert revision is not None
     assert revision.down_revision == PREVIOUS_HEAD_REVISION
-    assert script.get_heads() == [SEMANTIC_RECORD_KEYS_REVISION]
+    assert evidence_revision is not None
+    assert evidence_revision.down_revision == SEMANTIC_RECORD_KEYS_REVISION
+    assert script.get_heads() == [B2_COMPLETENESS_EVIDENCE_REVISION]
