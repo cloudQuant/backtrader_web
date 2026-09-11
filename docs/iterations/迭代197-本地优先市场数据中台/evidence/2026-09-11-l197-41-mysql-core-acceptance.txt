@@ -1,0 +1,56 @@
+# L-197-41：MySQL 9.4 真实迁移链与 E-197-07 核心验收收据
+
+日期：2026-09-11（深夜会话）
+候选提交：harness `83d01792…`（`feat(market-data): add mysql acceptance harness`）与迁移修复 `d46e1a84…`（`fix(market-data): make migration chain runnable on mysql 9.4`）
+执行环境：本机 Homebrew MySQL 9.4.0（127.0.0.1:3306）、conda base（aiomysql 0.3.2 / pymysql 1.4.6）。root 凭据仅由操作员在命令行提供，未写入任何仓库文件或本收据；`--apply` 只创建 UUID 临时库 `iter197_mysql_acceptance_<12hex>` 并在 `finally` 删除，未触碰 `backtrader_web`/`akshare_data` 应用库（该用户在本轮未获得任何新授权）。
+
+## 执行命令（密码以 `<root-password>` 占位）
+
+```text
+cd /Users/yunjinqi/Downloads/backtrader_web/src/backend
+conda run --no-capture-output -n base python \
+  scripts/verify_iteration197_mysql_acceptance.py \
+  --apply --mysql-admin-url "mysql://root:<root-password>@127.0.0.1:3306/mysql"
+```
+
+## 验收驱动的四个真实迁移缺陷（全部先写失败测试再修复）
+
+在真实 MySQL 9.4 上第一次 `--apply` 起，迁移链连续暴露四个方言缺陷；每个都按“离线失败测试 → 修复 → 全量回归”处理：
+
+1. **`md_visibility_sequence_allocator` 建表失败（MySQL 3818）**：整数主键未标注 `autoincrement=False`，MySQL 方言渲染 AUTO_INCREMENT，而 singleton CHECK 引用该列被 MySQL 拒绝。修复：模型与迁移（`20260908_market_data_visibility_anchor`）同时固定 `autoincrement=False`；新增 `test_visibility_allocator_singleton_has_no_mysql_autoincrement`（MySQL 方言 DDL 编译断言）。
+2. **`20260909_market_data_constraint_name_portability` 误报 drift**：`_normalized_expression` 只处理 PostgreSQL `::text`，不认 MySQL 反射的反引号与子句括号形态。修复：两侧统一去反引号与分组括号（该迁移的 3 个 CHECK 均为线性布尔，token 序列保留语义）；新增 `test_constraint_portability_normalizes_mysql_reflected_check_text`（含 63 长度的真漂移反例）。
+3. **`20260908_ai_research_holdout_executions` 误报 `HOLDOUT_EXECUTION_ACCESS_SCHEMA_CONFLICT`**：MySQL 9 把每个字符串字面量反射为 `_utf8mb4'...'` 字符集引入符形态并给子句加括号。修复：`_sql_matches` 剥离 `_[A-Za-z0-9]+'` 引入符与全部分组括号；新增 `test_sql_matches_accepts_mysql_clause_parentheses`（含不同操作数反例）。
+4. **`20260908_ai_research_approval_authority` 双缺陷**：(a) `_normalize_sql` 同样不认字符集引入符；(b) 完整性探针原生 SQL 使用 MySQL 保留字 `grant` 作别名导致 1064 语法错误。修复：tokenize 前剥离引入符；全部原生探针别名 `grant` 改为 `issued_grant`（同步更新既有渲染断言）；新增 `test_normalize_sql_accepts_mysql_charset_introducers`（含不同字面量反例）。
+
+修复后完整迁移链在一次性空库上从 base 升级到唯一 head `20260911_market_data_b2_completeness_evidence` 成功；`tests/market_data_platform tests/test_config.py` 全量回归 `1175 passed`，196 迁移相关回归 `153 passed, 3 skipped`（MySQL contract 为 opt-in skip），目标 Ruff 全部通过，`alembic heads` 保持单 head。
+
+## 最终 `--apply` 结果（PASS）
+
+```json
+{"admin_connection":{"backend":"mysql","database":"mysql","has_password":true},
+ "code":"MYSQL_ACCEPTANCE_CORE_PASSED","credential_writes":false,
+ "evidence":{
+   "case_distinct_identity":{"resolved_canonical_ids":["instrument:futures:SHFE:RB0","instrument:futures:SHFE:rb0"]},
+   "identity_pit_boundary":{"hidden_one_microsecond_before":true,
+     "published_at":"2026-09-11T15:38:22.772868+00:00","visible_at_instant":true},
+   "nonempty_downgrade_refused":{"alembic_head_after_refusal":"20260911_market_data_b2_completeness_evidence",
+     "asset_instrument_rows_retained":3,"rejection_type":"RuntimeError"},
+   "schema":{"binary_collation_column_count":9,"microsecond_datetime_column_count":7,"required_table_count":16},
+   "utc":{"session_time_zone":"SYSTEM"}},
+ "network_called":true,"status":"pass",
+ "temporary_database":"iter197_mysql_acceptance_14a304bf0621"}
+```
+
+证据解读（每项独立断言，全部通过才输出 `MYSQL_ACCEPTANCE_CORE_PASSED`）：
+
+- **迁移与结构**：16 张必需表存在；`asset_instruments`/`md_instrument_identity_revisions`/`md_instrument_lookup_keys` 的 9 个身份列实测 `utf8mb4_bin`；`md_observation_revisions`/`md_publications`/`md_calendar_events`/`md_fetch_leases` 的 7 个 PIT 列实测 `DATETIME(6)`。
+- **UTC/微秒**：aware UTC 微秒时刻经 `CAST(... AS DATETIME(6))` 往返无漂移（session `time_zone=SYSTEM` 被如实记录；DATETIME(6) 本身无时区，UTC 语义由应用层规范化保证，此探针验证存储精度）。
+- **RB0/rb0 case-distinct**：两个仅大小写不同的期货身份各自解析为不同 canonical_id；错误大小写 `Rb0` 稳定失败——MySQL `utf8mb4_bin` 下无 `*_ci` 折叠。
+- **identity PIT 微秒边界**：`published_at=…22.772868+00:00` 的投影在其前 1µs cutoff 不可见、恰在该时刻可见（DATETIME(6) 微秒精度真实生效）。
+- **受治理 downgrade**：对已有 3 行身份数据的库执行 `alembic downgrade -1` 被拒绝（RuntimeError），head 未移动、数据行保留。
+
+## 边界与未覆盖项
+
+- 本收据只覆盖 **E-197-07 的 MySQL 侧核心**。E-197-07 的 PostgreSQL 侧演练（`scripts/verify_iteration197_postgres_acceptance.py`）仍未运行（本机无 PG 实例/URL），E-197-07 整体保持未完成。
+- 未包含：真实多 worker/并发/fault takeover（E-197-08 的 MySQL 侧）、真实 AkShare/OpenBB 写入、备份恢复演练（E-197-45 的 MySQL 侧）与页面灰度；`20260910_market_data_shared_source_payloads` 等迁移的“MySQL `BLOB`≠`MEDIUMBLOB` drift 拒绝”仍只有离线断言。
+- root 凭据来自操作员口头提供的候选密码（三个中第三个验证通过），未落盘、未写入任何环境文件；建议操作员在方便时轮换该密码（它曾在对话中出现）。
