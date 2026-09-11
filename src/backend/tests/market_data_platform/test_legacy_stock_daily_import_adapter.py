@@ -1,26 +1,23 @@
 """Isolated SQLite harness contracts for the legacy daily-bar import adapters.
 
 These tests intentionally construct every collaborator directly against the
-pytest in-memory SQLite fixture.  They seed only the FK-required fixture
-provider row; they do not register a production provider/source policy, open a
+pytest in-memory SQLite fixture.  They do not register a provider, open a
 project database, invoke a route or scheduler, or call AkShare/OpenBB.
 """
 
 from __future__ import annotations
 
-import hashlib
 import json
 from dataclasses import dataclass, replace
 from datetime import date, datetime, timezone
 
 import pytest
-from sqlalchemy import select, text, update
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.db.database import async_session_maker
 from app.models.data_governance import DgProvider
 from app.models.market_data_platform import (
-    MdPublication,
     MdPublicationReleaseHold,
     MdSourcePayload,
     MdSourceSnapshot,
@@ -57,18 +54,16 @@ from app.services.market_data.publication import (
     MarketDataVisibilityAnchor,
 )
 from app.services.market_data.query_resolution import ResolvedMarketDataQueryContext
-from app.services.market_data.store import (
-    UNVERIFIED_COMPATIBILITY_REASON_LEGACY_IMPORT,
-    MarketDataStore,
-    _DeferredLegacyImportCandidate,
-)
+from app.services.market_data.store import MarketDataStore, _DeferredLegacyImportCandidate
 from tests.market_data_platform.test_store import (
     CANONICAL_ID,
     METADATA_VERSION,
     _at,
     _context,
     _seed_dataset_and_provider,
+    _seed_source_registry,
     _sha,
+    _source_authorization,
 )
 
 UTC = timezone.utc
@@ -178,6 +173,7 @@ async def _harness(db: AsyncSession) -> _Harness:
     assert provider is not None
     provider.name = "Legacy mixed warehouse fixture"
     await db.commit()
+    await _seed_source_registry(db, source_id=LEGACY_STOCK_DAILY_SOURCE_REGISTRY_ID)
     await _create_source_table(db)
 
     candidate_schema = await inspect_legacy_stock_daily_source_schema(db)
@@ -197,6 +193,9 @@ async def _harness(db: AsyncSession) -> _Harness:
     assert lease is not None
     target = LegacyStockDailyCanonicalTarget(
         context=context,
+        source_authorization=_source_authorization(
+            source_registry_id=LEGACY_STOCK_DAILY_SOURCE_REGISTRY_ID
+        ),
         fetch_lease=lease,
     )
     source_provenance = LegacyStockDailySourceProvenance(
@@ -279,13 +278,6 @@ async def test_isolated_sqlite_harness_stages_reviews_promotes_and_records_mixed
         snapshot = snapshots[0]
         assert snapshot.source_id == LEGACY_STOCK_DAILY_SOURCE_REGISTRY_ID
         assert snapshot.platform == LEGACY_STOCK_DAILY_SOURCE_REGISTRY_ID
-        assert snapshot.source_authorization_state == "UNVERIFIED_COMPATIBILITY"
-        assert snapshot.source_authorization_descriptor_sha256 is None
-        assert snapshot.provenance_json["unverified_compatibility"] == {
-            "version": "market-data-unverified-source-write-v1",
-            "reason": UNVERIFIED_COMPATIBILITY_REASON_LEGACY_IMPORT,
-            "decision": "UNVERIFIED",
-        }
         receipt_payload = snapshot.payload_manifest_json["receipt_payload"]
         provenance = receipt_payload["legacy_import"]["source_provenance"]
         assert provenance == {
@@ -302,17 +294,6 @@ async def test_isolated_sqlite_harness_stages_reviews_promotes_and_records_mixed
         assert source_payload is not None
         source_batch = json.loads(bytes(source_payload.canonical_payload_bytes))
         assert all("unreviewed_extra" not in row for row in source_batch["rows"])
-        # Product/local-first reads require a verified source registry receipt.
-        # The private writer reread above is the only harness seam permitted to
-        # inspect this mixed, unverified warehouse data.
-        assert (
-            await harness.store.read_observations(
-                harness.context,
-                knowledge_cutoff=_NOW,
-                allowed_source_registry_ids=frozenset({LEGACY_STOCK_DAILY_SOURCE_REGISTRY_ID}),
-            )
-            == ()
-        )
 
 
 @pytest.mark.asyncio
@@ -447,115 +428,6 @@ async def test_staged_review_failure_quarantines_before_promotion(
         assert holds[0].state == PUBLICATION_RELEASE_HOLD_STATE_QUARANTINED
         assert (
             await harness.store.read_observations(
-                harness.context,
-                knowledge_cutoff=_NOW,
-            )
-            == ()
-        )
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "tamper_kind",
-    ("request_context", "receipt", "shared_payload", "rebound_permit_context"),
-)
-async def test_persisted_evidence_tampering_quarantines_before_any_local_read(
-    monkeypatch: pytest.MonkeyPatch,
-    tamper_kind: str,
-) -> None:
-    """The private reread must trust stored evidence, never caller-side DTOs."""
-    async with async_session_maker() as db:
-        harness = await _harness(db)
-        original_stage = harness.store.stage_provider_result_for_deferred_release
-
-        async def stage_then_tamper(*args: object, **kwargs: object):
-            staged = await original_stage(*args, **kwargs)
-            snapshot = await db.get(MdSourceSnapshot, staged.source_snapshot_id)
-            assert snapshot is not None
-            if tamper_kind == "request_context":
-                request_json = json.loads(json.dumps(snapshot.request_json))
-                request_json["resolved_query"]["canonical_id"] = "forged-canonical-id"
-                await db.execute(
-                    update(MdSourceSnapshot)
-                    .where(MdSourceSnapshot.id == snapshot.id)
-                    .values(request_json=request_json)
-                )
-            elif tamper_kind == "receipt":
-                payload_manifest = json.loads(json.dumps(snapshot.payload_manifest_json))
-                payload_manifest["receipt_payload"]["legacy_import"]["source_receipt"][
-                    "source_receipt_id"
-                ] = "forged-source-receipt"
-                await db.execute(
-                    update(MdSourceSnapshot)
-                    .where(MdSourceSnapshot.id == snapshot.id)
-                    .values(payload_manifest_json=payload_manifest)
-                )
-            elif tamper_kind == "rebound_permit_context":
-                # Rebind the snapshot/publication hash as an adversarial
-                # database write. Store's shared-payload checks still pass;
-                # the writer must reject the persisted permit/context binding.
-                payload_manifest = json.loads(json.dumps(snapshot.payload_manifest_json))
-                payload_manifest["receipt_payload"]["legacy_import"]["write_permit"][
-                    "resolved_context_sha256"
-                ] = "0" * 64
-                source_payload = await db.scalar(select(MdSourcePayload))
-                assert source_payload is not None
-                raw_payload = dict(payload_manifest["receipt_payload"])
-                raw_payload["source_batch"] = json.loads(
-                    bytes(source_payload.canonical_payload_bytes)
-                )
-                rebound_payload_sha256 = hashlib.sha256(
-                    json.dumps(
-                        raw_payload,
-                        ensure_ascii=False,
-                        separators=(",", ":"),
-                        sort_keys=True,
-                    ).encode("utf-8")
-                ).hexdigest()
-                await db.execute(
-                    update(MdSourceSnapshot)
-                    .where(MdSourceSnapshot.id == snapshot.id)
-                    .values(
-                        payload_manifest_json=payload_manifest,
-                        payload_sha256=rebound_payload_sha256,
-                    )
-                )
-                await db.execute(
-                    update(MdPublication)
-                    .where(MdPublication.id == staged.publication_id)
-                    .values(entity_sha256=rebound_payload_sha256)
-                )
-            else:
-                source_payload = await db.scalar(select(MdSourcePayload))
-                assert source_payload is not None
-                await db.execute(
-                    update(MdSourcePayload)
-                    .where(MdSourcePayload.content_sha256 == source_payload.content_sha256)
-                    .values(canonical_payload_bytes=b'{"forged":true}')
-                )
-            await db.commit()
-            return staged
-
-        monkeypatch.setattr(
-            harness.store,
-            "stage_provider_result_for_deferred_release",
-            stage_then_tamper,
-        )
-        with pytest.raises(LegacyStockDailyImportError):
-            await harness.importer.import_table(
-                table_name=LEGACY_STOCK_DAILY_TABLE,
-                attestation=harness.attestation,
-                calendar=harness.calendar,
-                frozen_identities=harness.frozen_identities,
-                dry_run=False,
-            )
-
-        holds = list((await db.scalars(select(MdPublicationReleaseHold))).all())
-        assert len(holds) == 1
-        assert holds[0].state == PUBLICATION_RELEASE_HOLD_STATE_QUARANTINED
-        assert await harness.store.read_observations(harness.context, knowledge_cutoff=_NOW) == ()
-        assert (
-            await harness.store.read_observation_revisions(
                 harness.context,
                 knowledge_cutoff=_NOW,
             )

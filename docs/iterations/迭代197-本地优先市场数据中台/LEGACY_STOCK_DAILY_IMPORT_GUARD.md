@@ -4,7 +4,7 @@
 > 状态：`IN_PROGRESS / NO-GO`
 > 关联需求：迭代 197 本地优先数据中台；`L-197-32`、`AC-197-032`
 
-本文件约束遗留 `STOCK_ZH_A_HIST` 表未来如何才能成为规范化 `market.bars / 1d` 的**离线证据输入**。当前实现提供 fail-closed 的归一化、回执和本地重读协议，以及只接受显式注入的内存 SQLite fixture 的 private reader/gate/writer harness；它们不注册为 production capability，并且只能以 `UNVERIFIED_COMPATIBILITY` 写入。没有 Alembic 回填、provider route、页面入口或 scheduler 注册。因此它不能读取任何真实表，也不能让 `/data/market`、`/investment/strategies` 或 legacy `/api/v1/data/kline` 把该表当作已验证的 AkShare 数据。
+本文件约束遗留 `STOCK_ZH_A_HIST` 表未来如何才能成为规范化 `market.bars / 1d` 的**离线证据输入**。当前实现只提供 fail-closed 的归一化、回执和本地重读协议；没有 production reader、evidence gate、canonical writer、Alembic 回填、provider route、页面入口或 scheduler 注册。因此它不能读取任何真实表，也不能让 `/data/market`、`/investment/strategies` 或 legacy `/api/v1/data/kline` 把该表当作已验证的 AkShare 数据。
 
 ## 1. 已核实的遗留表事实
 
@@ -37,7 +37,7 @@ flowchart LR
 | `LegacyStockDailyImportScope` | 用 canonical JSON 计算独立 `import_scope_sha256`，锁定表、逻辑列投影/语义列映射、raw 格式与排序、route、**read-authorization receipt identity**、attestation 的稳定语义、读表前 calendar PIT、日期到 `EventKey` 映射、coverage、identity canonical ID、identity revision、metadata version 和 `bars/1d/qfq` 合同。`retrieved_at`、source-batch receipt ID、extracted time、输入行顺序和 publication ID 不进入该 hash。 |
 | `LegacyStockDailyImportBatch` | `source_batch_sha256` 仅描述选定原始单元格；它与 `import_scope_sha256` 分开，前者不能代替后者。原始行按派生的 EventKey/canonical ID/provider symbol 稳定排序，scope 保存了重建这些派生排序键所需的 calendar/identity 语义。 |
 | `LegacyStockDailySourceBatchReceipt` | 必须同时重复 raw-batch hash、import-scope hash、物理 schema hash、registry/provider/route、**read-authorization receipt identity** 和 extraction time。任何不一致在 canonical writer 前拒绝。`extracted_at` 只绑定 source bar 的 `source_available_at`；调用方 `retrieved_at` 仅为描述元数据。 |
-| `LegacyStockDailyCanonicalWritePermit` | gate 在 source-batch receipt 后、writer 前按 **每个 canonical target** 签发一个 permit。每个 permit 同时锁定 canonical ID、相同 route/read identity、`source_batch_sha256`、`import_scope_sha256`、`source_receipt_id`、write descriptor、resolved-context digest 与 fetch-lease key/fence。内存 SQLite harness 的 descriptor 明确表示 `UNVERIFIED_COMPATIBILITY` fixture isolation，不是 source authorization，也不是 AkShare/provider 证明；future production adapter 才必须在同一受控写边界中用 `MarketDataAccessAuthorizer.reauthorize_route_for_write` 和真实 `MarketDataFetchLeaseHandle` 生成并复核真实授权。缺少任一 target 的 permit 或复用另一 target 的 context/lease 均在 writer 前拒绝。 |
+| `LegacyStockDailyCanonicalWritePermit` | gate 在 source-batch receipt 后、writer 前按 **每个 canonical target** 签发一个 permit。每个 permit 同时锁定 canonical ID、相同 route/read-authorization identity、`source_batch_sha256`、`import_scope_sha256`、`source_receipt_id`、当前 write-authorization descriptor、resolved-context digest 与 fetch-lease key/fence。它不是调用方构造的授权替身；future adapter 必须在同一受控写边界中用 `MarketDataAccessAuthorizer.reauthorize_route_for_write` 和真实 `MarketDataFetchLeaseHandle` 生成并复核它。缺少任一 target 的 permit 或复用另一 target 的 context/lease 均在 writer 前拒绝。 |
 | 写后 reread 协议 | writer 必须回显 source-batch/scope/source-receipt digest、逐 target permit evidence、revision-to-source-snapshot map、source snapshot、observation revision、publication receipt 的 ID/visible time/sequence，及 Store 实际使用的 `local_observation_available_at`。每条 bar 还必须以 `(canonical_id,event_at) → (observation_revision_id,source_snapshot_id)` 不可变绑定，且同一 observation revision 不得被两条 bar 共用；单纯相同的 revision/source ID 集合不足以证明对应关系；一个 source snapshot 也不可证明两个 target。每个 source snapshot 对应的 publication receipt `visible_at` 都不得早于该 Store local receipt。新写入的 Store v2 revision identity（`market-data-observation-revision-v2`）必须把规范化 UTC `provider_available_at` 封入 `revision_key_sha256`；reread 重建并核验该 identity，哪怕将 provenance 改为格式合法但更早的来源时间也必须失败关闭。精确匹配的历史 v1 identity 没有封存该字段，只能返回 `source_available_at=None`；future adapter 必须拒绝该值，不能从 v1 provenance 猜测来源时间。新建 `local_only` reread 的 visibility anchor 必须可见本次每一个 publication receipt；它比较业务字段和 `source_available_at`，要求每条 canonical `available_at` 精确等于该本地 receipt 时间，并逐条核对上述 revision/snapshot binding，不能把 source extraction time 伪造成 Store 可见时间。 |
 
 候选测试替身里的 SQLite reader 也只选择固定投影，用于确认协议不会因 `SELECT *` 而在回执外带入额外列。它不连接项目数据库。
@@ -72,7 +72,7 @@ flowchart LR
 | 验收项 | 当前结论 | 证据边界 |
 | --- | --- | --- |
 | `L-197-32` 协议与离线拒绝回归 | `PASS` | 仅本地 Python/SQLite fixture；不读项目数据库、不联网。 |
-| `AC-197-032` 真实遗留表导入 | `NOT_RUN / NO-GO` | 仅有 `UNVERIFIED_COMPATIBILITY` 的内存 SQLite harness；仍缺 production 注册、真实 schema/source receipt、逐 target 真实来源授权、迁移和独立验收库。 |
+| `AC-197-032` 真实遗留表导入 | `NOT_RUN / NO-GO` | 缺少 concrete gate、逐 target context/auth/lease adapter、deferred-publication/quarantine、canonical writer、迁移、真实 schema/source receipt 和独立验收库。 |
 | `/data/market` 本地命中/缺口补齐 | `NOT_RUN / NO-GO` | 本模块未注册 route 或页面查询。 |
 | `/investment/strategies` 严格 PIT 绑定 | `NOT_RUN / NO-GO` | 本模块未生成 research binding 或回测工件。 |
 

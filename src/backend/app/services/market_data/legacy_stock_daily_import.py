@@ -202,17 +202,13 @@ class LegacyStockDailySourceBatchReceipt:
 
 @dataclass(frozen=True, slots=True)
 class LegacyStockDailyCanonicalWritePermit:
-    """Gate-owned write evidence and lease binding for one canonical target.
+    """Gate-owned current authorization and lease evidence for one canonical target.
 
     A concrete gate may create this only after it has reauthorized the exact
     route for the exact resolved context, canonical target, and principal
     immediately before the write.  The opaque descriptor hashes let this
     protocol bind that decision without accepting a caller-constructed
-    authorization object.  The isolated SQLite harness has no real source
-    authorization: it records an explicit ``UNVERIFIED_COMPATIBILITY``
-    fixture descriptor in ``write_authorization_descriptor_sha256`` solely to
-    keep this protocol shape stable.  That descriptor must never be copied to
-    a source-authorization field or interpreted as an AkShare/provider grant.
+    authorization object.
     """
 
     canonical_id: str
