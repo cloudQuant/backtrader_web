@@ -263,11 +263,41 @@ class _DeferredLegacyImportObservation:
 
 
 @dataclass(frozen=True, slots=True)
+class _LegacyStockDailyPersistedEvidence:
+    """Persisted-only legacy receipt evidence for the isolated harness.
+
+    This type is intentionally private.  It is populated only after Store has
+    reread the exact held/promoted source snapshot, its content-addressed
+    source batch, and its release hold.  It is not a product local-read DTO.
+    """
+
+    source_snapshot_id: str
+    source_id: str
+    endpoint_version: str
+    source_observed_at: datetime
+    source_authorization_state: str
+    unverified_compatibility: Mapping[str, object]
+    request_json: Mapping[str, object]
+    provider_request: Mapping[str, object]
+    resolved_query: Mapping[str, object]
+    payload_manifest: Mapping[str, object]
+    receipt_payload: Mapping[str, object]
+    source_batch: Mapping[str, object]
+    legacy_import: Mapping[str, object]
+    source_payload_content_sha256: str
+    source_payload_format: str
+    source_payload_bytes: int
+    fetch_lease_key_sha256: str
+    fetch_lease_fence_token: int
+
+
+@dataclass(frozen=True, slots=True)
 class _DeferredLegacyImportCandidate:
     """A bounded reread of exactly one deferred legacy-import receipt."""
 
     staged: DeferredProviderFetch
     observations: tuple[_DeferredLegacyImportObservation, ...]
+    evidence: _LegacyStockDailyPersistedEvidence
 
 
 @dataclass(frozen=True, slots=True)
@@ -278,6 +308,25 @@ class _PromotedLegacyImportPublicationReceipt:
     source_snapshot_id: str
     visible_at: datetime
     visibility_sequence: int
+
+
+@dataclass(frozen=True, slots=True)
+class _PromotedLegacyImportCandidate:
+    """Private reread of one promoted, still-unverified fixture receipt."""
+
+    staged: DeferredProviderFetch
+    observations: tuple[_DeferredLegacyImportObservation, ...]
+    evidence: _LegacyStockDailyPersistedEvidence
+    publication: _PromotedLegacyImportPublicationReceipt
+
+
+@dataclass(frozen=True, slots=True)
+class _LegacyStockDailyReread:
+    """Internal common result for deferred and promoted harness rereads."""
+
+    observations: tuple[_DeferredLegacyImportObservation, ...]
+    evidence: _LegacyStockDailyPersistedEvidence
+    publication: _PromotedLegacyImportPublicationReceipt | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -905,8 +954,80 @@ class MarketDataStore:
         requires the active legacy-import hold.  No API, coverage, cursor, or
         ordinary local reader can use this path to see unpublished facts.
         """
+        reread = await self._reread_legacy_stock_daily_harness_candidate(
+            context,
+            staged=staged,
+            expected_hold_state=PUBLICATION_RELEASE_HOLD_STATE_DEFERRED,
+        )
+        if reread.publication is not None:
+            raise MarketDataStoreError("DEFERRED_LEGACY_IMPORT_INTEGRITY")
+        return _DeferredLegacyImportCandidate(
+            staged=staged,
+            observations=reread.observations,
+            evidence=reread.evidence,
+        )
+
+    async def _read_promoted_legacy_import_publication(
+        self,
+        context: ResolvedMarketDataQueryContext,
+        *,
+        staged: DeferredProviderFetch,
+    ) -> _PromotedLegacyImportPublicationReceipt:
+        """Load one promoted receipt after a persisted-evidence reread."""
+        return (
+            await self._read_promoted_legacy_import_candidate(
+                context,
+                staged=staged,
+            )
+        ).publication
+
+    async def _read_promoted_legacy_import_candidate(
+        self,
+        context: ResolvedMarketDataQueryContext,
+        *,
+        staged: DeferredProviderFetch,
+    ) -> _PromotedLegacyImportCandidate:
+        """Reread a promoted unverified fixture receipt without product visibility.
+
+        The method deliberately accepts only the opaque staged handle and
+        exact resolved context.  It is the harness's local-only reread seam;
+        public Store reads, API routes, and coverage planners cannot use it.
+        """
+        reread = await self._reread_legacy_stock_daily_harness_candidate(
+            context,
+            staged=staged,
+            expected_hold_state=PUBLICATION_RELEASE_HOLD_STATE_PROMOTED,
+        )
+        if reread.publication is None:
+            raise MarketDataStoreError("DEFERRED_LEGACY_IMPORT_PUBLICATION_INTEGRITY")
+        return _PromotedLegacyImportCandidate(
+            staged=staged,
+            observations=reread.observations,
+            evidence=reread.evidence,
+            publication=reread.publication,
+        )
+
+    async def _reread_legacy_stock_daily_harness_candidate(
+        self,
+        context: ResolvedMarketDataQueryContext,
+        *,
+        staged: DeferredProviderFetch,
+        expected_hold_state: str,
+    ) -> _LegacyStockDailyReread:
+        """Reload one private legacy receipt and all of its persisted evidence.
+
+        This is intentionally the only Store path that may inspect a promoted
+        ``UNVERIFIED_COMPATIBILITY`` legacy fixture.  It rechecks the source
+        snapshot request, content-addressed shared bytes/hash, manifest, and
+        release-hold binding before returning anything to the private writer.
+        """
         if not isinstance(staged, DeferredProviderFetch):
             raise TypeError("staged must be a DeferredProviderFetch")
+        if expected_hold_state not in {
+            PUBLICATION_RELEASE_HOLD_STATE_DEFERRED,
+            PUBLICATION_RELEASE_HOLD_STATE_PROMOTED,
+        }:
+            raise TypeError("expected_hold_state must be a private legacy hold state")
         if (
             staged.intent.workflow_kind
             != PUBLICATION_RELEASE_HOLD_WORKFLOW_LEGACY_STOCK_DAILY_IMPORT
@@ -922,6 +1043,8 @@ class MarketDataStore:
                 MdSourceSnapshot,
                 MdPublication,
                 MdPublicationReleaseHold,
+                MdSourceSnapshotPayloadRef,
+                MdSourcePayload,
             )
             .join(
                 MdSourceSnapshot,
@@ -938,147 +1061,98 @@ class MarketDataStore:
                 MdPublicationReleaseHold,
                 MdPublicationReleaseHold.publication_id == MdPublication.id,
             )
+            .join(
+                MdSourceSnapshotPayloadRef,
+                MdSourceSnapshotPayloadRef.source_snapshot_id == MdSourceSnapshot.id,
+            )
+            .join(
+                MdSourcePayload,
+                MdSourcePayload.content_sha256 == MdSourceSnapshotPayloadRef.content_sha256,
+            )
             .where(
                 MdObservationRevision.series_id == staged.series_id,
                 MdObservationRevision.source_snapshot_id == staged.source_snapshot_id,
                 MdObservationRevision.id.in_(staged.observation_revision_ids),
                 MdPublication.id == staged.publication_id,
                 MdPublication.entity_sha256 == MdSourceSnapshot.payload_sha256,
-                MdPublication.published_at.is_(None),
-                MdPublication.visibility_sequence.is_(None),
                 MdPublicationReleaseHold.source_snapshot_id == staged.source_snapshot_id,
                 MdPublicationReleaseHold.workflow_kind
                 == PUBLICATION_RELEASE_HOLD_WORKFLOW_LEGACY_STOCK_DAILY_IMPORT,
-                MdPublicationReleaseHold.state == PUBLICATION_RELEASE_HOLD_STATE_DEFERRED,
+                MdPublicationReleaseHold.state == expected_hold_state,
                 MdPublicationReleaseHold.intent_sha256 == staged.intent.intent_sha256,
             )
             .order_by(MdObservationRevision.event_time, MdObservationRevision.id)
+            .execution_options(populate_existing=True)
         )
+        if expected_hold_state == PUBLICATION_RELEASE_HOLD_STATE_DEFERRED:
+            statement = statement.where(
+                MdPublication.published_at.is_(None),
+                MdPublication.visibility_sequence.is_(None),
+            )
+        else:
+            statement = statement.where(
+                MdPublication.published_at.is_not(None),
+                MdPublication.visibility_sequence.is_not(None),
+            )
         rows = list((await self._db.execute(statement)).all())
         if len(rows) != len(staged.observation_revision_ids):
             raise MarketDataStoreError("DEFERRED_LEGACY_IMPORT_NOT_AVAILABLE")
+
         observations: list[_DeferredLegacyImportObservation] = []
         seen_revision_ids: set[str] = set()
-        for revision, source_snapshot, publication, hold in rows:
+        evidence: _LegacyStockDailyPersistedEvidence | None = None
+        publication_receipt: _PromotedLegacyImportPublicationReceipt | None = None
+        for revision, source_snapshot, publication, hold, payload_ref, source_payload in rows:
             if (
                 revision.id in seen_revision_ids
                 or source_snapshot.id != staged.source_snapshot_id
                 or publication.id != staged.publication_id
                 or hold.publication_id != staged.publication_id
-                or source_snapshot.source_authorization_state != SOURCE_AUTHORIZATION_STATE_VERIFIED
+                or hold.source_snapshot_id != staged.source_snapshot_id
+                or payload_ref.source_snapshot_id != staged.source_snapshot_id
+            ):
+                raise MarketDataStoreError("DEFERRED_LEGACY_IMPORT_INTEGRITY")
+            if evidence is None:
+                evidence = _reread_legacy_stock_daily_persisted_evidence(
+                    context=context,
+                    source_snapshot=source_snapshot,
+                    payload_ref=payload_ref,
+                    source_payload=source_payload,
+                    observation_count=len(rows),
+                )
+                if expected_hold_state == PUBLICATION_RELEASE_HOLD_STATE_PROMOTED:
+                    publication_receipt = _promoted_legacy_import_publication_receipt(
+                        publication=publication,
+                        hold=hold,
+                        staged=staged,
+                    )
+            elif (
+                source_snapshot.id != evidence.source_snapshot_id
+                or payload_ref.content_sha256 != evidence.source_payload_content_sha256
+                or source_payload.content_sha256 != evidence.source_payload_content_sha256
             ):
                 raise MarketDataStoreError("DEFERRED_LEGACY_IMPORT_INTEGRITY")
             seen_revision_ids.add(revision.id)
-            event_at = _stored_utc(
-                revision.event_time,
-                field_name="deferred legacy observation event time",
-            )
-            available_at = _stored_utc(
-                revision.available_at,
-                field_name="deferred legacy observation available time",
-            )
-            try:
-                quality = ObservationQuality(revision.quality_status)
-                fields = _json_safe_mapping(
-                    revision.fields_json,
-                    field_name="deferred legacy observation fields",
-                )
-                fields_sha256 = _sha256(
-                    _canonical_json(fields, field_name="deferred legacy observation fields")
-                )
-                semantic_record_key = _persisted_semantic_record_key(revision)
-                source_available_at = _verified_revision_source_available_at(
-                    revision,
-                    context=context,
-                    event_at=event_at,
-                    available_at=available_at,
-                    fields_sha256=fields_sha256,
-                    quality=quality,
-                    revision_number=revision.revision_number,
-                    semantic_record_key=semantic_record_key,
-                )
-            except (TypeError, ValueError) as exc:
-                raise MarketDataStoreError("DEFERRED_LEGACY_IMPORT_INTEGRITY") from exc
-            if (
-                fields_sha256 != revision.fields_sha256
-                or source_available_at is None
-                or available_at != staged.local_received_at
-            ):
-                raise MarketDataStoreError("DEFERRED_LEGACY_IMPORT_INTEGRITY")
             observations.append(
-                _DeferredLegacyImportObservation(
-                    revision_id=revision.id,
-                    source_snapshot_id=revision.source_snapshot_id,
-                    event_at=event_at,
-                    available_at=available_at,
-                    source_available_at=source_available_at,
-                    quality=quality,
-                    fields=MappingProxyType(fields),
+                _reread_deferred_legacy_import_observation(
+                    revision=revision,
+                    context=context,
+                    staged=staged,
                 )
             )
-        if seen_revision_ids != set(staged.observation_revision_ids):
-            raise MarketDataStoreError("DEFERRED_LEGACY_IMPORT_INTEGRITY")
-        return _DeferredLegacyImportCandidate(staged=staged, observations=tuple(observations))
-
-    async def _read_promoted_legacy_import_publication(
-        self,
-        *,
-        staged: DeferredProviderFetch,
-    ) -> _PromotedLegacyImportPublicationReceipt:
-        """Load one promoted receipt for private legacy-import audit assembly."""
-        if not isinstance(staged, DeferredProviderFetch):
-            raise TypeError("staged must be a DeferredProviderFetch")
-        row = await self._db.execute(
-            select(MdPublication, MdPublicationReleaseHold, MdSourceSnapshot)
-            .join(
-                MdPublicationReleaseHold,
-                MdPublicationReleaseHold.publication_id == MdPublication.id,
-            )
-            .join(
-                MdSourceSnapshot,
-                MdSourceSnapshot.id == staged.source_snapshot_id,
-            )
-            .where(
-                MdPublication.id == staged.publication_id,
-                MdPublication.entity_type == PUBLICATION_SOURCE_SNAPSHOT,
-                MdPublication.entity_id == staged.source_snapshot_id,
-                MdPublication.entity_sha256 == MdSourceSnapshot.payload_sha256,
-                MdPublicationReleaseHold.source_snapshot_id == staged.source_snapshot_id,
-                MdPublicationReleaseHold.workflow_kind
-                == PUBLICATION_RELEASE_HOLD_WORKFLOW_LEGACY_STOCK_DAILY_IMPORT,
-                MdPublicationReleaseHold.intent_sha256 == staged.intent.intent_sha256,
-                MdPublicationReleaseHold.state == PUBLICATION_RELEASE_HOLD_STATE_PROMOTED,
-                MdSourceSnapshot.source_authorization_state == SOURCE_AUTHORIZATION_STATE_VERIFIED,
-            )
-            .execution_options(populate_existing=True)
-        )
-        rows = list(row.all())
-        if len(rows) != 1:
-            raise MarketDataStoreError("DEFERRED_LEGACY_IMPORT_PUBLICATION_NOT_AVAILABLE")
-        publication, hold, source_snapshot = rows[0]
         if (
-            source_snapshot.id != staged.source_snapshot_id
-            or hold.source_snapshot_id != staged.source_snapshot_id
-            or publication.published_at is None
-            or not _is_visibility_sequence(publication.visibility_sequence)
-            or hold.promoted_at is None
+            evidence is None
+            or seen_revision_ids != set(staged.observation_revision_ids)
+            or (
+                expected_hold_state == PUBLICATION_RELEASE_HOLD_STATE_PROMOTED
+                and publication_receipt is None
+            )
         ):
-            raise MarketDataStoreError("DEFERRED_LEGACY_IMPORT_PUBLICATION_INTEGRITY")
-        _require_sha256_digest(
-            hold.promotion_evidence_sha256,
-            code="DEFERRED_LEGACY_IMPORT_PUBLICATION_INTEGRITY",
-        )
-        visible_at = _stored_utc(
-            publication.published_at,
-            field_name="deferred legacy publication time",
-        )
-        if _stored_utc(hold.promoted_at, field_name="deferred legacy promotion time") != visible_at:
-            raise MarketDataStoreError("DEFERRED_LEGACY_IMPORT_PUBLICATION_INTEGRITY")
-        return _PromotedLegacyImportPublicationReceipt(
-            publication_id=publication.id,
-            source_snapshot_id=staged.source_snapshot_id,
-            visible_at=visible_at,
-            visibility_sequence=publication.visibility_sequence,
+            raise MarketDataStoreError("DEFERRED_LEGACY_IMPORT_INTEGRITY")
+        return _LegacyStockDailyReread(
+            observations=tuple(observations),
+            evidence=evidence,
+            publication=publication_receipt,
         )
 
     async def resolve_visibility_anchor(
@@ -2732,6 +2806,319 @@ def _assert_shared_source_payload_matches(
         or stored_payload != expected.canonical_payload_bytes
     ):
         raise MarketDataStoreError("SHARED_SOURCE_PAYLOAD_INTEGRITY_CONFLICT")
+
+
+def _reread_deferred_legacy_import_observation(
+    *,
+    revision: MdObservationRevision,
+    context: ResolvedMarketDataQueryContext,
+    staged: DeferredProviderFetch,
+) -> _DeferredLegacyImportObservation:
+    """Decode one persisted revision only after its private receipt is bound."""
+    try:
+        event_at = _stored_utc(
+            revision.event_time,
+            field_name="deferred legacy observation event time",
+        )
+        available_at = _stored_utc(
+            revision.available_at,
+            field_name="deferred legacy observation available time",
+        )
+        quality = ObservationQuality(revision.quality_status)
+        fields = _json_safe_mapping(
+            revision.fields_json,
+            field_name="deferred legacy observation fields",
+        )
+        fields_sha256 = _sha256(
+            _canonical_json(fields, field_name="deferred legacy observation fields")
+        )
+        semantic_record_key = _persisted_semantic_record_key(revision)
+        source_available_at = _verified_revision_source_available_at(
+            revision,
+            context=context,
+            event_at=event_at,
+            available_at=available_at,
+            fields_sha256=fields_sha256,
+            quality=quality,
+            revision_number=revision.revision_number,
+            semantic_record_key=semantic_record_key,
+        )
+    except (TypeError, ValueError) as exc:
+        raise MarketDataStoreError("DEFERRED_LEGACY_IMPORT_INTEGRITY") from exc
+    if (
+        fields_sha256 != revision.fields_sha256
+        or source_available_at is None
+        or available_at != staged.local_received_at
+    ):
+        raise MarketDataStoreError("DEFERRED_LEGACY_IMPORT_INTEGRITY")
+    return _DeferredLegacyImportObservation(
+        revision_id=revision.id,
+        source_snapshot_id=revision.source_snapshot_id,
+        event_at=event_at,
+        available_at=available_at,
+        source_available_at=source_available_at,
+        quality=quality,
+        fields=MappingProxyType(fields),
+    )
+
+
+def _reread_legacy_stock_daily_persisted_evidence(
+    *,
+    context: ResolvedMarketDataQueryContext,
+    source_snapshot: MdSourceSnapshot,
+    payload_ref: MdSourceSnapshotPayloadRef,
+    source_payload: MdSourcePayload,
+    observation_count: int,
+) -> _LegacyStockDailyPersistedEvidence:
+    """Validate the persisted source snapshot and shared bytes for the harness.
+
+    This function intentionally starts from database values, not from the
+    writer's batch DTO.  The private writer compares the returned evidence to
+    its issued permit and source receipt before promotion.  A malformed or
+    substituted payload cannot therefore be made canonical by rebuilding a
+    matching caller-side DTO.
+    """
+    code = "DEFERRED_LEGACY_IMPORT_INTEGRITY"
+    try:
+        if (
+            source_snapshot.source_authorization_state
+            != SOURCE_AUTHORIZATION_STATE_UNVERIFIED_COMPATIBILITY
+            or source_snapshot.source_authorization_descriptor_sha256 is not None
+        ):
+            raise MarketDataStoreError(code)
+        source_id = _require_text(
+            source_snapshot.source_id,
+            field_name="deferred legacy source id",
+            maximum=255,
+        )
+        endpoint_version = _require_text(
+            source_snapshot.endpoint_version,
+            field_name="deferred legacy endpoint version",
+            maximum=128,
+        )
+        source_observed_at = _stored_utc(
+            source_snapshot.source_observed_at,
+            field_name="deferred legacy source observed time",
+        )
+        fetch_lease_key_sha256 = _require_sha256_digest(
+            source_snapshot.fetch_lease_key_sha256,
+            code=code,
+        )
+        fetch_lease_fence_token = source_snapshot.fetch_lease_fence_token
+        if (
+            not isinstance(fetch_lease_fence_token, int)
+            or isinstance(fetch_lease_fence_token, bool)
+            or fetch_lease_fence_token < 1
+        ):
+            raise MarketDataStoreError(code)
+        provenance = _json_safe_mapping(
+            source_snapshot.provenance_json,
+            field_name="deferred legacy source provenance",
+        )
+        unverified_compatibility = _json_safe_mapping(
+            provenance.get("unverified_compatibility"),
+            field_name="deferred legacy unverified compatibility",
+        )
+        if unverified_compatibility != {
+            "version": _UNVERIFIED_COMPATIBILITY_PROVENANCE_VERSION,
+            "reason": UNVERIFIED_COMPATIBILITY_REASON_LEGACY_IMPORT,
+            "decision": "UNVERIFIED",
+        }:
+            raise MarketDataStoreError(code)
+
+        request_json = _json_safe_mapping(
+            source_snapshot.request_json,
+            field_name="deferred legacy source request",
+        )
+        if set(request_json) != {"provider_request", "resolved_query"}:
+            raise MarketDataStoreError(code)
+        provider_request = _json_safe_mapping(
+            request_json["provider_request"],
+            field_name="deferred legacy provider request",
+        )
+        resolved_query = _json_safe_mapping(
+            request_json["resolved_query"],
+            field_name="deferred legacy resolved query",
+        )
+        expected_query = _json_safe_mapping(
+            context.query.semantic_payload(),
+            field_name="deferred legacy expected resolved query",
+        )
+        expected_query_fingerprint = _require_sha256_digest(
+            context.query.query_fingerprint,
+            code=code,
+        )
+        if (
+            _canonical_json(resolved_query, field_name="deferred legacy resolved query")
+            != _canonical_json(expected_query, field_name="deferred legacy expected resolved query")
+            or source_snapshot.request_fingerprint_sha256 != expected_query_fingerprint
+            or source_snapshot.query_fingerprint_sha256 != expected_query_fingerprint
+            or provider_request.get("query_fingerprint") != expected_query_fingerprint
+            or provider_request.get("request_id") != source_snapshot.provider_request_id
+            or provider_request.get("provider") != source_id
+            or _require_provider_request_id(source_snapshot.provider_request_id)
+            != source_snapshot.provider_request_id
+        ):
+            raise MarketDataStoreError(code)
+        provider_request_digest = _sha256(
+            _canonical_json(provider_request, field_name="deferred legacy provider request")
+        )
+        if (
+            provider_request_digest != source_snapshot.provider_request_fingerprint_sha256
+            or source_snapshot.provider_request_fingerprint_sha256
+            != _require_sha256_digest(
+                source_snapshot.provider_request_fingerprint_sha256, code=code
+            )
+        ):
+            raise MarketDataStoreError(code)
+
+        payload_manifest = _json_safe_mapping(
+            source_snapshot.payload_manifest_json,
+            field_name="deferred legacy payload manifest",
+        )
+        if (
+            set(payload_manifest)
+            != {
+                "format",
+                "observation_count",
+                "receipt_payload",
+                "shared_source_payload",
+            }
+            or payload_manifest.get("format") != "content-addressed-source-batch-v1"
+        ):
+            raise MarketDataStoreError(code)
+        if payload_manifest.get("observation_count") != observation_count:
+            raise MarketDataStoreError(code)
+        receipt_payload = _json_safe_mapping(
+            payload_manifest["receipt_payload"],
+            field_name="deferred legacy receipt payload",
+        )
+        shared_manifest = _json_safe_mapping(
+            payload_manifest["shared_source_payload"],
+            field_name="deferred legacy shared payload manifest",
+        )
+        if set(shared_manifest) != {
+            "content_sha256",
+            "payload_format",
+            "payload_bytes",
+            "payload_role",
+        }:
+            raise MarketDataStoreError(code)
+        content_sha256 = _require_sha256_digest(shared_manifest.get("content_sha256"), code=code)
+        payload_format = _require_text(
+            shared_manifest.get("payload_format"),
+            field_name="deferred legacy shared payload format",
+            maximum=128,
+        )
+        payload_role = _require_text(
+            shared_manifest.get("payload_role"),
+            field_name="deferred legacy shared payload role",
+            maximum=128,
+        )
+        payload_bytes = shared_manifest.get("payload_bytes")
+        if (
+            not isinstance(payload_bytes, int)
+            or isinstance(payload_bytes, bool)
+            or payload_bytes < 1
+            or payload_role != "source_batch"
+            or payload_ref.source_snapshot_id != source_snapshot.id
+            or payload_ref.content_sha256 != content_sha256
+            or payload_ref.payload_role != payload_role
+            or source_payload.content_sha256 != content_sha256
+            or source_payload.payload_format != payload_format
+            or source_payload.payload_bytes != payload_bytes
+        ):
+            raise MarketDataStoreError(code)
+        shared_bytes = bytes(source_payload.canonical_payload_bytes)
+        if (
+            len(shared_bytes) != payload_bytes
+            or hashlib.sha256(shared_bytes).hexdigest() != content_sha256
+        ):
+            raise MarketDataStoreError(code)
+        decoded_source_batch = json.loads(shared_bytes.decode("utf-8"))
+        source_batch = _json_safe_mapping(
+            decoded_source_batch,
+            field_name="deferred legacy shared source batch",
+        )
+        if (
+            _canonical_json(source_batch, field_name="deferred legacy shared source batch").encode(
+                "utf-8"
+            )
+            != shared_bytes
+        ):
+            raise MarketDataStoreError(code)
+        raw_payload = dict(receipt_payload)
+        raw_payload["source_batch"] = source_batch
+        if _sha256(_canonical_json(raw_payload, field_name="deferred legacy raw payload")) != (
+            source_snapshot.payload_sha256
+        ):
+            raise MarketDataStoreError(code)
+        legacy_import = _json_safe_mapping(
+            receipt_payload.get("legacy_import"),
+            field_name="deferred legacy import evidence",
+        )
+        source_batch_sha256 = _require_sha256_digest(
+            legacy_import.get("source_batch_sha256"),
+            code=code,
+        )
+        if source_batch_sha256 != hashlib.sha256(shared_bytes).hexdigest():
+            raise MarketDataStoreError(code)
+    except (UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError) as exc:
+        raise MarketDataStoreError(code) from exc
+    return _LegacyStockDailyPersistedEvidence(
+        source_snapshot_id=source_snapshot.id,
+        source_id=source_id,
+        endpoint_version=endpoint_version,
+        source_observed_at=source_observed_at,
+        source_authorization_state=source_snapshot.source_authorization_state,
+        unverified_compatibility=MappingProxyType(unverified_compatibility),
+        request_json=MappingProxyType(request_json),
+        provider_request=MappingProxyType(provider_request),
+        resolved_query=MappingProxyType(resolved_query),
+        payload_manifest=MappingProxyType(payload_manifest),
+        receipt_payload=MappingProxyType(receipt_payload),
+        source_batch=MappingProxyType(source_batch),
+        legacy_import=MappingProxyType(legacy_import),
+        source_payload_content_sha256=content_sha256,
+        source_payload_format=payload_format,
+        source_payload_bytes=payload_bytes,
+        fetch_lease_key_sha256=fetch_lease_key_sha256,
+        fetch_lease_fence_token=fetch_lease_fence_token,
+    )
+
+
+def _promoted_legacy_import_publication_receipt(
+    *,
+    publication: MdPublication,
+    hold: MdPublicationReleaseHold,
+    staged: DeferredProviderFetch,
+) -> _PromotedLegacyImportPublicationReceipt:
+    """Validate a promoted private receipt after its evidence has been reread."""
+    if (
+        publication.id != staged.publication_id
+        or hold.publication_id != staged.publication_id
+        or hold.source_snapshot_id != staged.source_snapshot_id
+        or publication.published_at is None
+        or not _is_visibility_sequence(publication.visibility_sequence)
+        or hold.promoted_at is None
+    ):
+        raise MarketDataStoreError("DEFERRED_LEGACY_IMPORT_PUBLICATION_INTEGRITY")
+    _require_sha256_digest(
+        hold.promotion_evidence_sha256,
+        code="DEFERRED_LEGACY_IMPORT_PUBLICATION_INTEGRITY",
+    )
+    visible_at = _stored_utc(
+        publication.published_at,
+        field_name="deferred legacy publication time",
+    )
+    if _stored_utc(hold.promoted_at, field_name="deferred legacy promotion time") != visible_at:
+        raise MarketDataStoreError("DEFERRED_LEGACY_IMPORT_PUBLICATION_INTEGRITY")
+    return _PromotedLegacyImportPublicationReceipt(
+        publication_id=publication.id,
+        source_snapshot_id=staged.source_snapshot_id,
+        visible_at=visible_at,
+        visibility_sequence=publication.visibility_sequence,
+    )
 
 
 def _validated_provider_request_evidence(

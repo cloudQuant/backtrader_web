@@ -2,9 +2,10 @@
 
 The legacy warehouse does not carry trustworthy per-row upstream provenance.
 This adapter therefore records it as a *mixed legacy warehouse* source and
-requires an explicit, operator-supplied approval object for every target.  It
-does not register a source policy, construct a provider, call the network, or
-make the table readable by a product route.
+requires an explicit isolated fixture scope for every target.  It has no real
+source authorization and writes only ``UNVERIFIED_COMPATIBILITY`` receipts.
+It does not register a source policy, construct a provider, call the network,
+or make the table readable by a product route.
 """
 
 from __future__ import annotations
@@ -18,7 +19,6 @@ from types import MappingProxyType
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.services.market_data.access import MarketDataSourceAuthorization
 from app.services.market_data.fetch_lease import MarketDataFetchLeaseHandle
 from app.services.market_data.legacy_stock_daily_import import (
     LEGACY_STOCK_DAILY_PROVENANCE_CLASS,
@@ -41,6 +41,7 @@ from app.services.market_data.legacy_stock_daily_source_repository import (
 from app.services.market_data.publication import MarketDataDeferredPublicationIntent
 from app.services.market_data.query_resolution import ResolvedMarketDataQueryContext
 from app.services.market_data.store import (
+    UNVERIFIED_COMPATIBILITY_REASON_LEGACY_IMPORT,
     DeferredProviderFetch,
     MarketDataStore,
     MarketDataStoreError,
@@ -48,10 +49,11 @@ from app.services.market_data.store import (
 
 UTC = timezone.utc
 _GATE_VERSION = "legacy-stock-daily-evidence-gate-v1"
-_READ_AUTHORIZATION_VERSION = "legacy-stock-daily-read-authorization-v1"
+_READ_AUTHORIZATION_VERSION = "legacy-stock-daily-read-authorization-v2"
 _SOURCE_BATCH_RECEIPT_VERSION = "legacy-stock-daily-source-batch-receipt-v1"
 _DEFERRED_INTENT_VERSION = "legacy-stock-daily-deferred-intent-v1"
 _PROMOTION_EVIDENCE_VERSION = "legacy-stock-daily-promotion-evidence-v1"
+_UNVERIFIED_HARNESS_DESCRIPTOR_VERSION = "legacy-stock-daily-unverified-harness-v1"
 _MAX_TARGETS = 64
 
 
@@ -129,19 +131,25 @@ class LegacyStockDailySourceProvenance:
 
 @dataclass(frozen=True, slots=True)
 class LegacyStockDailyCanonicalTarget:
-    """One exact canonical series and its currently approved write evidence."""
+    """One exact canonical series for the isolated unverified harness.
+
+    This target deliberately has no ``MarketDataSourceAuthorization``.  The
+    mixed legacy table has no per-row upstream proof and must be persisted
+    through Store's explicit ``UNVERIFIED_COMPATIBILITY`` path only.  Its
+    lease is a fixture write-fence, not an entitlement or provider approval.
+    """
 
     context: ResolvedMarketDataQueryContext
-    source_authorization: MarketDataSourceAuthorization
     fetch_lease: MarketDataFetchLeaseHandle
+    unverified_compatibility_reason: str = UNVERIFIED_COMPATIBILITY_REASON_LEGACY_IMPORT
 
     def __post_init__(self) -> None:
         if not isinstance(self.context, ResolvedMarketDataQueryContext):
             raise TypeError("context must be a ResolvedMarketDataQueryContext")
-        if type(self.source_authorization) is not MarketDataSourceAuthorization:
-            raise TypeError("source_authorization must be a MarketDataSourceAuthorization")
         if not isinstance(self.fetch_lease, MarketDataFetchLeaseHandle):
             raise TypeError("fetch_lease must be a MarketDataFetchLeaseHandle")
+        if self.unverified_compatibility_reason != UNVERIFIED_COMPATIBILITY_REASON_LEGACY_IMPORT:
+            raise ValueError("legacy harness must retain the legacy_import compatibility reason")
 
 
 @dataclass(frozen=True, slots=True)
@@ -171,8 +179,9 @@ class LegacyStockDailyEvidenceGateAdapter:
 
     There is deliberately no module singleton or environment-driven factory.
     Constructing this type requires an injected source repository, canonical
-    Store, source provenance approval, target contexts, current authorizations,
-    and durable lease handles.  The application therefore has no default
+    Store, mixed-warehouse provenance, target contexts, and fixture lease
+    handles.  It requires no real source authorization because this isolated
+    harness cannot claim one.  The application therefore has no default
     capability to import ``STOCK_ZH_A_HIST``.
     """
 
@@ -239,9 +248,7 @@ class LegacyStockDailyEvidenceGateAdapter:
                 source_provenance=self._source_provenance,
                 targets_by_canonical_id=self._targets_by_canonical_id,
             )
-            await self._assert_current_target_authorizations(
-                targets=self._targets_by_canonical_id.values()
-            )
+            self._assert_isolated_unverified_targets(targets=self._targets_by_canonical_id.values())
             schema = await self._source_repository.inspect_projection_schema()
             receipt_id = _read_authorization_receipt_id(
                 source_provenance=self._source_provenance,
@@ -357,7 +364,7 @@ class LegacyStockDailyEvidenceGateAdapter:
             targets = source_approval.targets_by_canonical_id
             if frozenset(bar.canonical_id for bar in batch.bars) != frozenset(targets):
                 raise ValueError("source batch targets differ from write targets")
-            await self._assert_current_target_authorizations(targets=targets.values())
+            self._assert_isolated_unverified_targets(targets=targets.values())
             permits: dict[str, LegacyStockDailyCanonicalWritePermit] = {}
             for canonical_id, target in sorted(targets.items()):
                 permit = LegacyStockDailyCanonicalWritePermit(
@@ -369,8 +376,14 @@ class LegacyStockDailyEvidenceGateAdapter:
                     source_batch_sha256=source_batch_receipt.source_batch_sha256,
                     import_scope_sha256=import_scope.import_scope_sha256,
                     source_receipt_id=source_batch_receipt.source_receipt_id,
+                    # This protocol field predates the fixture-only adapter.
+                    # Its value is an explicit UNVERIFIED harness descriptor,
+                    # never a source authorization descriptor or AkShare proof.
                     write_authorization_descriptor_sha256=(
-                        target.source_authorization.descriptor_hash
+                        _unverified_harness_descriptor_sha256(
+                            target=target,
+                            source_provenance=self._source_provenance,
+                        )
                     ),
                     resolved_context_sha256=_resolved_context_sha256(target.context),
                     fetch_lease_key_sha256=target.fetch_lease.lease_key_sha256,
@@ -429,19 +442,20 @@ class LegacyStockDailyEvidenceGateAdapter:
         self,
         permit: LegacyStockDailyCanonicalWritePermit,
     ) -> None:
-        """Revalidate the exact source grant inside Store's promotion transaction."""
+        """Revalidate fixture isolation before Store's guarded promotion transaction.
+
+        This is intentionally not a source-grant check.  The staged snapshot
+        remains ``UNVERIFIED_COMPATIBILITY`` and ordinary product readers must
+        continue to reject it through their verified-source allow-list.
+        """
         approval = self._permit_approval(permit)
-        target = approval.target
         try:
-            await self._store.ensure_source_authorization_before_provider_io(
-                target.context,
-                target.source_authorization,
-                provider_id=self._source_provenance.provider_id,
-                checked_at=_as_utc(self._clock(), field_name="promotion authorization timestamp"),
+            self._assert_isolated_unverified_targets(
+                targets=(approval.target,),
             )
         except (MarketDataStoreError, TypeError, ValueError) as exc:
             raise LegacyStockDailyEvidenceGateAdapterError(
-                "LEGACY_STOCK_DAILY_PROMOTION_AUTHORIZATION_UNVERIFIED"
+                "LEGACY_STOCK_DAILY_PROMOTION_ISOLATION_UNVERIFIED"
             ) from exc
 
     def promotion_evidence_sha256(
@@ -484,22 +498,15 @@ class LegacyStockDailyEvidenceGateAdapter:
             )
         return approval
 
-    async def _assert_current_target_authorizations(
+    def _assert_isolated_unverified_targets(
         self,
         *,
         targets: Sequence[LegacyStockDailyCanonicalTarget],
     ) -> None:
-        checked_at = _as_utc(self._clock(), field_name="source authorization timestamp")
         for target in targets:
             _assert_target_source_binding(
                 target=target,
                 source_provenance=self._source_provenance,
-            )
-            await self._store.ensure_source_authorization_before_provider_io(
-                target.context,
-                target.source_authorization,
-                provider_id=self._source_provenance.provider_id,
-                checked_at=checked_at,
             )
 
 
@@ -579,7 +586,6 @@ def _assert_target_source_binding(
     source_provenance: LegacyStockDailySourceProvenance,
 ) -> None:
     context = target.context
-    authorization = target.source_authorization
     if (
         context.identity.asset_type != "stock"
         or context.identity.venue not in {"CN-SSE", "CN-SZSE"}
@@ -588,13 +594,9 @@ def _assert_target_source_binding(
         or context.query.adjustment != "qfq"
         or frozenset(context.query.required_fields)
         != frozenset({"open", "high", "low", "close", "volume", "change_pct"})
-        or authorization.source_registry_id != source_provenance.source_registry_id
-        or authorization.asset_type != "stock"
-        or authorization.market != context.identity.venue
-        or authorization.purpose != context.query.purpose
-        or authorization.decision != "ALLOW"
+        or target.unverified_compatibility_reason != UNVERIFIED_COMPATIBILITY_REASON_LEGACY_IMPORT
     ):
-        raise ValueError("legacy import target source binding is invalid")
+        raise ValueError("legacy import target fixture binding is invalid")
 
 
 def _read_authorization_receipt_id(
@@ -625,7 +627,11 @@ def _read_authorization_receipt_id(
         "source_provenance_sha256": source_provenance.manifest_sha256,
         "targets": [
             {
-                "authorization_descriptor_sha256": target.source_authorization.descriptor_hash,
+                "unverified_harness_descriptor_sha256": _unverified_harness_descriptor_sha256(
+                    target=target,
+                    source_provenance=source_provenance,
+                ),
+                "unverified_compatibility_reason": target.unverified_compatibility_reason,
                 "canonical_id": canonical_id,
                 "fetch_lease_fence_token": target.fetch_lease.fence_token,
                 "fetch_lease_key_sha256": target.fetch_lease.lease_key_sha256,
@@ -635,6 +641,32 @@ def _read_authorization_receipt_id(
         ],
     }
     return f"legacy-stock-daily-read:{_sha256(payload)}"
+
+
+def _unverified_harness_descriptor_sha256(
+    *,
+    target: LegacyStockDailyCanonicalTarget,
+    source_provenance: LegacyStockDailySourceProvenance,
+) -> str:
+    """Bind a fixture permit without claiming a real source authorization.
+
+    ``LegacyStockDailyCanonicalWritePermit`` retains its historic field name
+    for protocol compatibility.  This digest is deliberately based on the
+    explicit unverified state, mixed-warehouse identity, context, and lease;
+    it must never be copied to ``MdSourceSnapshot``'s authorization descriptor
+    column, which remains ``NULL`` for this harness.
+    """
+    return _sha256(
+        {
+            "contract_version": _UNVERIFIED_HARNESS_DESCRIPTOR_VERSION,
+            "canonical_id": target.context.query.canonical_id,
+            "mixed_warehouse_provenance_sha256": source_provenance.manifest_sha256,
+            "resolved_context_sha256": _resolved_context_sha256(target.context),
+            "unverified_compatibility_reason": target.unverified_compatibility_reason,
+            "fetch_lease_key_sha256": target.fetch_lease.lease_key_sha256,
+            "fetch_lease_fence_token": target.fetch_lease.fence_token,
+        }
+    )
 
 
 def _source_batch_receipt_id(

@@ -118,7 +118,7 @@ sequenceDiagram
 | DP-197-05 | SQLite migration upgrade、ORM schema、bootstrap 必需表检查、Alembic 单 head、Ruff 与目标 pytest 通过。 | `PASS`（本地开发回归） |
 | AC-197-032 | 真实表、MySQL/PostgreSQL、来源/许可、页面、策略、真实 receipt 验收。 | `NOT_RUN / NO-GO` |
 
-本地开发回归只覆盖隔离发布控制面的 SQLite/fixture 行为。测试数据以 `UNVERIFIED_COMPATIBILITY` 写入；没有提供 `allowed_source_registry_ids` 的 raw Store read 能证明 receipt seal 的可见性语义，但不能证明来源已获验证，更不能证明 v2、`/data/market`、`/investment/strategies` 或策略工件可读取候选事实。
+本地开发回归只覆盖隔离发布控制面的 SQLite/fixture 行为。测试数据以 `UNVERIFIED_COMPATIBILITY` 写入；private staged/promoted reread 会重新读取 source snapshot 的 request、payload manifest、content-addressed shared bytes/hash，并将 batch/scope/source-receipt/schema/permit/context 与持久化 evidence 逐 target 比对。它不是普通 Store/product read；带 `allowed_source_registry_ids` 的 product local read 仍为空。没有提供该 allow-list 的 raw Store read 只能证明 receipt seal 的可见性语义，不能证明来源已获验证，更不能证明 v2、`/data/market`、`/investment/strategies` 或策略工件可读取候选事实。
 
 本次本地开发收据如下：
 
@@ -130,4 +130,4 @@ sequenceDiagram
 
 ## 6. 审查结论
 
-该设计的隔离发布基础设施已实现并通过本地开发回归，但没有取得真实来源或产品读取授权。任何把 `STOCK_ZH_A_HIST` 直接接入 reader、把 attestation 当作授权、让 recovery promotion quarantine、或把 fixture 结果写成真实 AkShare/OpenBB/页面通过的变更，均不符合本审查包。后续仍须单独审查 concrete gate、reader、canonical writer、private staged reread、MySQL/PostgreSQL 演练和浏览器验收，才可重新评估 `AC-197-032`。
+该设计的隔离发布基础设施与内存 SQLite private reader/gate/writer harness 已实现并通过本地开发回归，但没有取得真实来源或产品读取授权。任何把 `STOCK_ZH_A_HIST` 直接注册为 production reader、把 attestation 或 fixture descriptor 当作授权、让 recovery promotion quarantine、或把 fixture 结果写成真实 AkShare/OpenBB/页面通过的变更，均不符合本审查包。后续仍须单独审查 production concrete adapter、真实来源授权、MySQL/PostgreSQL 演练和浏览器验收，才可重新评估 `AC-197-032`。
