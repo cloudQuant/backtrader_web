@@ -211,3 +211,47 @@ def test_b2_completeness_evidence_revision_extends_the_only_integrated_head() ->
     assert revision is not None
     assert revision.down_revision == PREVIOUS_HEAD_REVISION
     assert script.get_heads() == [B2_COMPLETENESS_EVIDENCE_REVISION]
+
+
+def test_b2_evidence_normalizer_accepts_mysql_clause_parentheses() -> None:
+    """MySQL 9 parenthesises every boolean clause of a reflected CHECK.
+
+    ``(a) and (b)`` / ``(a) or (b)`` reflections of the reviewed linear
+    boolean checks must compare equal to their authored sources, while a
+    genuinely different bound still differs.
+    """
+    import importlib.util
+    from pathlib import Path
+
+    migration_path = (
+        Path(__file__).resolve().parents[2]
+        / "alembic"
+        / "versions"
+        / "20260911_market_data_b2_completeness_evidence.py"
+    )
+    spec = importlib.util.spec_from_file_location(
+        "iteration197_b2_evidence_migration_module", migration_path
+    )
+    assert spec is not None and spec.loader is not None
+    migration = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(migration)
+
+    authored = "zero_record_evidence_sha256 IS NULL OR length(zero_record_evidence_sha256) = 64"
+    mysql_reflected = (
+        "(`zero_record_evidence_sha256` is null) or (length(`zero_record_evidence_sha256`) = 64)"
+    )
+    assert migration._normalized_expression(mysql_reflected) == migration._normalized_expression(
+        authored
+    )
+
+    drifted = (
+        "(`zero_record_evidence_sha256` is null) or (length(`zero_record_evidence_sha256`) = 63)"
+    )
+    assert migration._normalized_expression(drifted) != migration._normalized_expression(authored)
+
+    # A string-literal check reflects with charset introducers on MySQL.
+    authored_kind = "selector_kind IN ('slice', 'report')"
+    mysql_kind = "(`selector_kind` in (_utf8mb4'slice',_utf8mb4'report'))"
+    assert migration._normalized_expression(mysql_kind) == migration._normalized_expression(
+        authored_kind
+    )

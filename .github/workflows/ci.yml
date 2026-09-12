@@ -209,7 +209,12 @@ jobs:
           # ondelete fully, so a clean `alembic check` here proves the ORM
           # models and the migration chain still agree (SQLite cannot).
           alembic check
-          alembic downgrade 20260801_stock_signal_predictions
+          # Downgrade only as far as the governed boundary allows:
+          # 20260911_market_data_semantic_record_keys intentionally blocks its
+          # own downgrade on MySQL (cannot atomically prove the fact table
+          # empty), so the round-trip rolls back the B2 evidence migration
+          # and re-applies it.
+          alembic downgrade 20260911_market_data_semantic_record_keys
           alembic upgrade head
           alembic current
           pytest -q \

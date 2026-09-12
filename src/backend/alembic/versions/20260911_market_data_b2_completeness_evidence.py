@@ -189,25 +189,12 @@ def _normalized_expression(expression: object) -> str:
         r"\1in(\2)",
         normalized,
     )
-    while (
-        normalized.startswith("(")
-        and normalized.endswith(")")
-        and _outer_parentheses_wrap(normalized)
-    ):
-        normalized = normalized[1:-1]
-    return normalized
-
-
-def _outer_parentheses_wrap(expression: str) -> bool:
-    depth = 0
-    for index, character in enumerate(expression):
-        if character == "(":
-            depth += 1
-        elif character == ")":
-            depth -= 1
-            if depth == 0:
-                return index == len(expression) - 1
-    return False
+    # MySQL 9 additionally parenthesises every boolean clause
+    # (``(a) and (b)``, ``(a) or (b)``).  Every reviewed check here is a
+    # linear boolean over comparisons, so removing all grouping parentheses
+    # from both sides keeps the operand/boolean token sequence exact while a
+    # genuinely different operand still differs.
+    return normalized.replace("(", "").replace(")", "")
 
 
 def _type_signature(
@@ -497,5 +484,6 @@ def downgrade() -> None:
         _lock_downgrade_evidence_tables(bind)
         _assert_downgrade_safe(bind)
         op.drop_table(_ENTRIES)
-        op.drop_index("ix_md_b2_completeness_receipt_source", table_name=_RECEIPTS)
+        # The receipt index is dropped implicitly with its table: MySQL error
+        # 1553 refuses to drop an index a same-table foreign key still needs.
         op.drop_table(_RECEIPTS)
