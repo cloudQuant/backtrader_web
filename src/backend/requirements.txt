@@ -47,8 +47,8 @@ loguru>=0.7.2
 # 缓存（可选）
 redis>=5.0.0
 
-# 回测引擎
-backtrader>=1.9.78.123
+# 回测引擎（cloudQuant 维护版 fork，PyPI 原版已停更）
+backtrader @ git+https://github.com/cloudQuant/backtrader.git@v1.3.0
 
 # 配置
 PyYAML>=6.0.1
