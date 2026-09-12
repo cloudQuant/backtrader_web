@@ -362,9 +362,7 @@ class CandidateRegistry:
                         market_trial_count=evidence.market_trial_count,
                         search_budget_hash=evidence.search_budget_hash,
                         dataset_snapshot_hash=evidence.dataset_snapshot_hash,
-                        dataset_snapshot_identity_hash=(
-                            evidence.dataset_snapshot_identity_hash
-                        ),
+                        dataset_snapshot_identity_hash=(evidence.dataset_snapshot_identity_hash),
                         code_hash=evidence.code_hash,
                         dependency_hash=evidence.dependency_hash,
                         hypothesis_hash=evidence.hypothesis_hash,

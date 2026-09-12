@@ -275,10 +275,12 @@ async def _replay_discovery_publication(
         raise ValueError(denied)
     run = current_run
     journal = await session.scalar(
-        select(ResearchDiscoveryExecution).where(
+        select(ResearchDiscoveryExecution)
+        .where(
             ResearchDiscoveryExecution.stage_attempt_id == attempt.id,
             ResearchDiscoveryExecution.user_id == task.user_id,
-        ).execution_options(populate_existing=True)
+        )
+        .execution_options(populate_existing=True)
     )
     if journal is None or (
         (execution_id is not None and journal.id != execution_id)
@@ -344,8 +346,7 @@ async def _replay_discovery_publication(
             "object_size_bytes": dataset.object_size_bytes,
             "partition_kind": dataset.partition_kind,
         }
-        or canonical_json(snapshot["execution_policy"])
-        != canonical_json(dataset.execution_policy)
+        or canonical_json(snapshot["execution_policy"]) != canonical_json(dataset.execution_policy)
     ):
         raise ValueError(denied)
     await verify_candidate_integrity(session, candidate)

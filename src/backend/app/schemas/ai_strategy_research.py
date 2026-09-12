@@ -12,9 +12,7 @@ from app.schemas.workspace import StrategyUnitResponse, UnitStatusResponse, Work
 AIStrategyResearchWorkflowMode = Literal["auto", "prompt"]
 AIStrategyResearchWorkflowStepsSemantics = Literal["prompt_display_only"]
 MarketDataAssetType = Literal["stock", "futures", "bond", "fund", "option", "fx", "crypto"]
-MARKET_DATA_ASSET_TYPES = frozenset(
-    {"stock", "futures", "bond", "fund", "option", "fx", "crypto"}
-)
+MARKET_DATA_ASSET_TYPES = frozenset({"stock", "futures", "bond", "fund", "option", "fx", "crypto"})
 AIStrategyResearchWorkflowStep = Literal[
     "ideation",
     "generation",

@@ -130,7 +130,9 @@ def _ddl_maintenance_fence() -> Iterator[None]:
     try:
         yield
     finally:
-        bind.execute(sa.text("SELECT RELEASE_LOCK(:lock_name)"), {"lock_name": _MYSQL_MIGRATION_LOCK_NAME})
+        bind.execute(
+            sa.text("SELECT RELEASE_LOCK(:lock_name)"), {"lock_name": _MYSQL_MIGRATION_LOCK_NAME}
+        )
 
 
 def _normalized_expression(expression: object) -> str:
@@ -374,7 +376,10 @@ def _assert_downgrade_safe(bind: sa.Connection) -> None:
     for table_name in (_REFS, _PAYLOADS):
         table = sa.Table(table_name, sa.MetaData(), autoload_with=bind)
         first_column = next(iter(table.c), None)
-        if first_column is not None and bind.execute(sa.select(first_column).limit(1)).scalar() is not None:
+        if (
+            first_column is not None
+            and bind.execute(sa.select(first_column).limit(1)).scalar() is not None
+        ):
             raise RuntimeError(
                 f"{_DOWNGRADE_BLOCKED}: immutable shared source evidence exists in {table_name}"
             )
@@ -384,11 +389,7 @@ def _lock_downgrade_evidence_tables(bind: sa.Connection) -> None:
     """Prevent PostgreSQL writers from racing the irreversible empty check."""
     if bind.dialect.name != "postgresql":
         return
-    bind.execute(
-        sa.text(
-            f"LOCK TABLE {_PAYLOADS}, {_REFS} IN ACCESS EXCLUSIVE MODE"
-        )
-    )
+    bind.execute(sa.text(f"LOCK TABLE {_PAYLOADS}, {_REFS} IN ACCESS EXCLUSIVE MODE"))
 
 
 def downgrade() -> None:

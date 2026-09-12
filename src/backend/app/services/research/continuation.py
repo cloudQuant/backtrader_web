@@ -504,8 +504,7 @@ _MARKET_DATA_RUNTIME_BINDING_KEY = "market_data_binding"
 def _contains_market_data_binding_values(value: Any) -> bool:
     if isinstance(value, dict):
         return any(
-            _is_market_data_binding_key(key)
-            or _contains_market_data_binding_values(item)
+            _is_market_data_binding_key(key) or _contains_market_data_binding_values(item)
             for key, item in value.items()
         )
     if isinstance(value, list):

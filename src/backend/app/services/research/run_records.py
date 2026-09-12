@@ -990,8 +990,7 @@ def _find_trusted_run_record_in_workspace(
     # below can recover an interrupted task that never produced a run record.
     raw_runs = ai_research.get("runs")
     if isinstance(raw_runs, list) and any(
-        isinstance(raw, dict) and str(raw.get("run_id") or "").strip() == target
-        for raw in raw_runs
+        isinstance(raw, dict) and str(raw.get("run_id") or "").strip() == target for raw in raw_runs
     ):
         return None
 
@@ -1018,9 +1017,11 @@ def _trusted_run_record_signatures_from_workspace(
     if not isinstance(ai_research, dict):
         return {}
     raw_runs = ai_research.get("runs")
-    raw_candidates = [*raw_runs, ai_research.get("last_run")] if isinstance(raw_runs, list) else [
-        ai_research.get("last_run")
-    ]
+    raw_candidates = (
+        [*raw_runs, ai_research.get("last_run")]
+        if isinstance(raw_runs, list)
+        else [ai_research.get("last_run")]
+    )
     workspace_id = str(workspace.id or "").strip()
     trusted: dict[str, set[str]] = {}
     for raw in raw_candidates:

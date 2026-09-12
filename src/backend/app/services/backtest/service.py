@@ -410,13 +410,9 @@ class BacktestService:
                 f"{_WORKSPACE_RUNTIME_PATH_INVALID}: runtime_preflight must be callable"
             )
         if claim_promoter is not None and not callable(claim_promoter):
-            raise ValueError(
-                f"{_WORKSPACE_RUNTIME_PATH_INVALID}: claim_promoter must be callable"
-            )
+            raise ValueError(f"{_WORKSPACE_RUNTIME_PATH_INVALID}: claim_promoter must be callable")
         if claim_finalizer is not None and not callable(claim_finalizer):
-            raise ValueError(
-                f"{_WORKSPACE_RUNTIME_PATH_INVALID}: claim_finalizer must be callable"
-            )
+            raise ValueError(f"{_WORKSPACE_RUNTIME_PATH_INVALID}: claim_finalizer must be callable")
 
         runtime = _WorkspaceRuntimeExecution(
             workspace_id=str(workspace_id or "").strip(),

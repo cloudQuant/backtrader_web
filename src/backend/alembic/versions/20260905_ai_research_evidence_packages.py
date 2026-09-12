@@ -50,7 +50,9 @@ def upgrade() -> None:
         sa.Column("manifest", sa.JSON(), nullable=False),
         sa.Column("manifest_hash", sa.String(length=64), nullable=False),
         sa.Column("approval_binding_hash", sa.String(length=64), nullable=False),
-        sa.Column("status", sa.String(length=16), nullable=False, server_default=sa.text("'ACTIVE'")),
+        sa.Column(
+            "status", sa.String(length=16), nullable=False, server_default=sa.text("'ACTIVE'")
+        ),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.CheckConstraint(
             "status IN ('ACTIVE', 'WITHDRAWN')",

@@ -24,12 +24,16 @@ depends_on = None
 def upgrade() -> None:
     """Reject ambiguous legacy families before adding a portable uniqueness guard."""
 
-    duplicate = op.get_bind().execute(
-        sa.text(
-            "SELECT user_id, family_hash FROM ai_research_experiment_epochs "
-            "GROUP BY user_id, family_hash HAVING COUNT(*) > 1 LIMIT 1"
+    duplicate = (
+        op.get_bind()
+        .execute(
+            sa.text(
+                "SELECT user_id, family_hash FROM ai_research_experiment_epochs "
+                "GROUP BY user_id, family_hash HAVING COUNT(*) > 1 LIMIT 1"
+            )
         )
-    ).first()
+        .first()
+    )
     if duplicate is not None:
         raise RuntimeError("EXPERIMENT_EPOCH_FAMILY_DEDUPLICATION_REQUIRED")
     with op.batch_alter_table("ai_research_experiment_epochs") as batch_op:

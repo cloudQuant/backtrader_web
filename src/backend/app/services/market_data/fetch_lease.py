@@ -519,9 +519,8 @@ def _require_sha256(value: object, *, field_name: str) -> str:
     if not isinstance(value, str):
         raise ValueError(f"{field_name} must be a SHA-256 digest")
     normalized = value.strip()
-    if (
-        len(normalized) != 64
-        or any(character not in "0123456789abcdef" for character in normalized)
+    if len(normalized) != 64 or any(
+        character not in "0123456789abcdef" for character in normalized
     ):
         raise ValueError(f"{field_name} must be a lowercase SHA-256 digest")
     return normalized

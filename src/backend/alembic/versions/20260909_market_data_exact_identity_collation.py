@@ -97,24 +97,22 @@ def _ddl_maintenance_fence() -> Iterator[None]:
     try:
         yield
     finally:
-        bind.execute(sa.text("SELECT RELEASE_LOCK(:lock_name)"), {"lock_name": _MYSQL_MIGRATION_LOCK_NAME})
+        bind.execute(
+            sa.text("SELECT RELEASE_LOCK(:lock_name)"), {"lock_name": _MYSQL_MIGRATION_LOCK_NAME}
+        )
 
 
 def _require_identifier_columns(bind: sa.Connection) -> None:
     inspector = sa.inspect(bind)
     for table_name, expected_columns in _IDENTIFIER_COLUMNS.items():
         if not inspector.has_table(table_name):
-            raise RuntimeError(
-                "MARKET_DATA_EXACT_IDENTITY_SCHEMA_UNREADY: "
-                f"{table_name} missing"
-            )
+            raise RuntimeError(f"MARKET_DATA_EXACT_IDENTITY_SCHEMA_UNREADY: {table_name} missing")
         columns = {str(column["name"]): column for column in inspector.get_columns(table_name)}
         for column_name, length, nullable in expected_columns:
             actual = columns.get(column_name)
             if actual is None:
                 raise RuntimeError(
-                    "MARKET_DATA_EXACT_IDENTITY_SCHEMA_UNREADY: "
-                    f"{table_name}.{column_name} missing"
+                    f"MARKET_DATA_EXACT_IDENTITY_SCHEMA_UNREADY: {table_name}.{column_name} missing"
                 )
             actual_type = actual["type"]
             if (
@@ -123,8 +121,7 @@ def _require_identifier_columns(bind: sa.Connection) -> None:
                 or bool(actual.get("nullable")) != nullable
             ):
                 raise RuntimeError(
-                    "MARKET_DATA_EXACT_IDENTITY_SCHEMA_DRIFT: "
-                    f"{table_name}.{column_name}"
+                    f"MARKET_DATA_EXACT_IDENTITY_SCHEMA_DRIFT: {table_name}.{column_name}"
                 )
 
 
@@ -137,8 +134,7 @@ def _assert_sqlite_binary_collation(bind: sa.Connection) -> None:
         ).scalar_one_or_none()
         if not isinstance(ddl, str):
             raise RuntimeError(
-                "MARKET_DATA_EXACT_IDENTITY_SCHEMA_UNREADY: "
-                f"{table_name} definition missing"
+                f"MARKET_DATA_EXACT_IDENTITY_SCHEMA_UNREADY: {table_name} definition missing"
             )
         for column_name, _, _ in expected_columns:
             # Absence of a SQLite COLLATE clause means BINARY, which is the
@@ -146,14 +142,13 @@ def _assert_sqlite_binary_collation(bind: sa.Connection) -> None:
             # cannot be changed without a reviewed table reconstruction.
             matcher = re.compile(
                 rf'(?is)(?:"{re.escape(column_name)}"|{re.escape(column_name)})'
-                r'\s+VARCHAR\s*\(\s*\d+\s*\)\s*'
+                r"\s+VARCHAR\s*\(\s*\d+\s*\)\s*"
                 r'(?:COLLATE\s+(?:"(?P<quoted>[^"]+)"|(?P<bare>\w+)))?'
             )
             match = matcher.search(ddl)
             if match is None:
                 raise RuntimeError(
-                    "MARKET_DATA_EXACT_IDENTITY_SCHEMA_DRIFT: "
-                    f"{table_name}.{column_name}"
+                    f"MARKET_DATA_EXACT_IDENTITY_SCHEMA_DRIFT: {table_name}.{column_name}"
                 )
             collation = match.group("quoted") or match.group("bare")
             if collation is not None and collation.upper() != "BINARY":
@@ -205,8 +200,7 @@ def upgrade() -> None:
             _assert_sqlite_binary_collation(bind)
         else:
             raise RuntimeError(
-                "MARKET_DATA_EXACT_IDENTITY_DIALECT_UNSUPPORTED: "
-                f"{bind.dialect.name}"
+                f"MARKET_DATA_EXACT_IDENTITY_DIALECT_UNSUPPORTED: {bind.dialect.name}"
             )
 
 

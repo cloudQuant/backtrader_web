@@ -61,13 +61,19 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         result = asyncio.run(_run(limit=args.limit, apply=bool(args.apply)))
     except (MarketDataPublicationError, TypeError, ValueError) as exc:
-        code = exc.code if isinstance(exc, MarketDataPublicationError) else "PUBLICATION_RECOVERY_ARGUMENT_INVALID"
+        code = (
+            exc.code
+            if isinstance(exc, MarketDataPublicationError)
+            else "PUBLICATION_RECOVERY_ARGUMENT_INVALID"
+        )
         print(json.dumps({"status": "error", "code": code}, sort_keys=True))
         return 2
     except Exception:
         # Driver exception text can carry connection details, so do not print
         # a traceback or arbitrary exception text into operator-facing JSON.
-        print(json.dumps({"status": "error", "code": "PUBLICATION_RECOVERY_FAILED"}, sort_keys=True))
+        print(
+            json.dumps({"status": "error", "code": "PUBLICATION_RECOVERY_FAILED"}, sort_keys=True)
+        )
         return 1
     print(json.dumps({"status": "ok", **result}, sort_keys=True))
     return 0

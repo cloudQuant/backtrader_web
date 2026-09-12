@@ -97,8 +97,7 @@ _NEW_ACTIONS = (
 )
 
 _LEGACY_ACTION_CHECK = (
-    "action IN ('CLAIM_STARTED', 'CLAIM_REJECTED', 'CLAIM_UNKNOWN', "
-    "'LEASE_EXPIRED_RECONCILING')"
+    "action IN ('CLAIM_STARTED', 'CLAIM_REJECTED', 'CLAIM_UNKNOWN', 'LEASE_EXPIRED_RECONCILING')"
 )
 _EXPANDED_ACTION_CHECK = (
     "action IN ('CLAIM_STARTED', 'CLAIM_REJECTED', 'CLAIM_UNKNOWN', "
@@ -306,10 +305,7 @@ def _assert_finalize_downgrade_empty(bind: Any) -> None:
     action_values = ", ".join(f"'{action}'" for action in _NEW_ACTIONS)
     statements = (
         sa.text(f"SELECT 1 FROM {_BINDING_TABLE} LIMIT 1"),
-        sa.text(
-            f"SELECT 1 FROM {_ACCESS_AUDIT_TABLE} "
-            f"WHERE action IN ({action_values}) LIMIT 1"
-        ),
+        sa.text(f"SELECT 1 FROM {_ACCESS_AUDIT_TABLE} WHERE action IN ({action_values}) LIMIT 1"),
         sa.text(f"SELECT 1 FROM {_GATE_TABLE} LIMIT 1"),
     )
     if context.is_offline_mode():
@@ -388,9 +384,7 @@ def _create_binding_schema(bind: Any) -> None:
         inspector = sa.inspect(bind)
         table_exists = inspector.has_table(_BINDING_TABLE)
         if table_exists:
-            observed_columns = {
-                str(item["name"]) for item in inspector.get_columns(_BINDING_TABLE)
-            }
+            observed_columns = {str(item["name"]) for item in inspector.get_columns(_BINDING_TABLE)}
             observed_uniques = {
                 str(item["name"])
                 for item in inspector.get_unique_constraints(_BINDING_TABLE)
@@ -551,10 +545,7 @@ def _mysql_trigger_names(bind: Any, table: str) -> set[str]:
         "SELECT TRIGGER_NAME FROM information_schema.TRIGGERS "
         "WHERE TRIGGER_SCHEMA = DATABASE() AND EVENT_OBJECT_TABLE = :table_name"
     )
-    return {
-        str(row[0])
-        for row in bind.execute(statement, {"table_name": table})
-    }
+    return {str(row[0]) for row in bind.execute(statement, {"table_name": table})}
 
 
 def _drop_immutability_guards(

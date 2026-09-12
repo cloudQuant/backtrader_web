@@ -56,9 +56,7 @@ _RENAMES: Mapping[str, Mapping[str, tuple[str, str]]] = {
 }
 _POSTGRES_IDENTIFIER_LIMIT = 63
 _LEGACY_NAME_ALIASES: Mapping[str, tuple[str, ...]] = {
-    legacy_name: tuple(
-        dict.fromkeys((legacy_name, legacy_name[:_POSTGRES_IDENTIFIER_LIMIT]))
-    )
+    legacy_name: tuple(dict.fromkeys((legacy_name, legacy_name[:_POSTGRES_IDENTIFIER_LIMIT])))
     for table_renames in _RENAMES.values()
     for legacy_name in table_renames
 }
@@ -242,8 +240,7 @@ def upgrade() -> None:
         for table_name in _RENAMES:
             if not sa.inspect(bind).has_table(table_name):
                 raise RuntimeError(
-                    "MARKET_DATA_CONSTRAINT_NAME_PORTABILITY_SCHEMA_UNREADY: "
-                    f"{table_name} missing"
+                    f"MARKET_DATA_CONSTRAINT_NAME_PORTABILITY_SCHEMA_UNREADY: {table_name} missing"
                 )
             if bind.dialect.name == "sqlite":
                 _reconcile_sqlite_table(bind, table_name)

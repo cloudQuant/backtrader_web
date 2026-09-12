@@ -54,9 +54,7 @@ def _normalized_check_expression(expression: object) -> str:
 def _publication_columns(bind: sa.Connection) -> dict[str, dict[str, object]]:
     inspector = sa.inspect(bind)
     if not inspector.has_table(_PUBLICATIONS_TABLE):
-        raise RuntimeError(
-            "MARKET_DATA_VISIBILITY_ANCHOR_SCHEMA_UNREADY: md_publications missing"
-        )
+        raise RuntimeError("MARKET_DATA_VISIBILITY_ANCHOR_SCHEMA_UNREADY: md_publications missing")
     return {str(column["name"]): column for column in inspector.get_columns(_PUBLICATIONS_TABLE)}
 
 
@@ -75,13 +73,9 @@ def _ensure_visibility_sequence_column(bind: sa.Connection) -> None:
             sa.Column("visibility_sequence", sa.BigInteger(), nullable=True),
         )
         return
-    if (
-        existing["type"]._type_affinity is not sa.Integer
-        or not bool(existing.get("nullable"))
-    ):
+    if existing["type"]._type_affinity is not sa.Integer or not bool(existing.get("nullable")):
         raise RuntimeError(
-            "MARKET_DATA_VISIBILITY_ANCHOR_SCHEMA_DRIFT: "
-            "md_publications.visibility_sequence"
+            "MARKET_DATA_VISIBILITY_ANCHOR_SCHEMA_DRIFT: md_publications.visibility_sequence"
         )
 
 
@@ -115,9 +109,7 @@ def _backfill_sealed_visibility_sequences(bind: sa.Connection) -> tuple[int, obj
     existing_sequences = [row["visibility_sequence"] for row in rows]
     if any(sequence is not None for sequence in existing_sequences):
         if any(sequence is None for sequence in existing_sequences):
-            raise RuntimeError(
-                "MARKET_DATA_VISIBILITY_SEQUENCE_MIXED_BACKFILL_UNSAFE"
-            )
+            raise RuntimeError("MARKET_DATA_VISIBILITY_SEQUENCE_MIXED_BACKFILL_UNSAFE")
         normalized = [int(sequence) for sequence in existing_sequences]
         if any(sequence < 1 for sequence in normalized) or len(set(normalized)) != len(normalized):
             raise RuntimeError("MARKET_DATA_VISIBILITY_SEQUENCE_EXISTING_INVALID")
@@ -165,10 +157,7 @@ def _ensure_publication_checks(bind: sa.Connection) -> None:
         if actual is None:
             missing[name] = expression
         elif actual != expected:
-            raise RuntimeError(
-                "MARKET_DATA_VISIBILITY_ANCHOR_SCHEMA_DRIFT: "
-                f"{name}={actual!r}"
-            )
+            raise RuntimeError(f"MARKET_DATA_VISIBILITY_ANCHOR_SCHEMA_DRIFT: {name}={actual!r}")
     if missing:
         # SQLite requires a reflected batch rebuild for named CHECKs.
         with op.batch_alter_table(_PUBLICATIONS_TABLE) as batch:
@@ -203,15 +192,13 @@ def _ensure_index(
     if name in indexes:
         if indexes[name] != expected:
             raise RuntimeError(
-                "MARKET_DATA_VISIBILITY_ANCHOR_SCHEMA_DRIFT: "
-                f"{name}={indexes[name]!r}"
+                f"MARKET_DATA_VISIBILITY_ANCHOR_SCHEMA_DRIFT: {name}={indexes[name]!r}"
             )
         return
     if unique and name in uniques:
         if uniques[name] != columns:
             raise RuntimeError(
-                "MARKET_DATA_VISIBILITY_ANCHOR_SCHEMA_DRIFT: "
-                f"{name}={uniques[name]!r}"
+                f"MARKET_DATA_VISIBILITY_ANCHOR_SCHEMA_DRIFT: {name}={uniques[name]!r}"
             )
         return
     op.create_index(name, _PUBLICATIONS_TABLE, list(columns), unique=unique)
@@ -305,7 +292,9 @@ def _ddl_maintenance_fence() -> Iterator[None]:
     try:
         yield
     finally:
-        bind.execute(sa.text("SELECT RELEASE_LOCK(:lock_name)"), {"lock_name": _MYSQL_MIGRATION_LOCK_NAME})
+        bind.execute(
+            sa.text("SELECT RELEASE_LOCK(:lock_name)"), {"lock_name": _MYSQL_MIGRATION_LOCK_NAME}
+        )
 
 
 def _assert_downgrade_safe(bind: sa.Connection) -> None:

@@ -87,7 +87,9 @@ def _request_from_private_contract(
     """Seal the legacy time window onto the fixed server-issued K-line template."""
     if not isinstance(contract, Mapping) or set(contract) != {"version", "request"}:
         raise LegacyKlineBridgeError("KLINE_CONTRACT_UNAVAILABLE")
-    if contract.get("version") != "market-data-v2" or not isinstance(contract.get("request"), Mapping):
+    if contract.get("version") != "market-data-v2" or not isinstance(
+        contract.get("request"), Mapping
+    ):
         raise LegacyKlineBridgeError("KLINE_CONTRACT_UNAVAILABLE")
     payload = dict(contract["request"])
     payload.update(
@@ -108,8 +110,7 @@ def _request_from_private_contract(
         or query.dataset_code != "market.bars"
         or query.data_kind != "bars"
         or query.frequency != request.frequency
-        or query.required_fields
-        != ("change_pct", "close", "high", "low", "open", "volume")
+        or query.required_fields != ("change_pct", "close", "high", "low", "open", "volume")
         or query.adjustment != "qfq"
         or query.price_basis != "close"
         or query.currency != "CNY"

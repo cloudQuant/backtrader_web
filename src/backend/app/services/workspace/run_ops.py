@@ -102,7 +102,9 @@ def _has_valid_ai_research_paper_runtime_anchor(
     if not is_server_owned_ai_research_paper_runtime(unit):
         return True
     settings = getattr(unit, "unit_settings", None)
-    anchor = settings.get(AI_RESEARCH_PAPER_RUNTIME_ANCHOR_FIELD) if isinstance(settings, dict) else None
+    anchor = (
+        settings.get(AI_RESEARCH_PAPER_RUNTIME_ANCHOR_FIELD) if isinstance(settings, dict) else None
+    )
     return verify_ai_research_paper_runtime_anchor_for_unit(
         anchor,
         user_id=user_id,
@@ -724,9 +726,8 @@ class WorkspaceRunOpsMixin:
             if not units:
                 return []
 
-            if (
-                not allow_server_owned_ai_research_live_handoff_start
-                and any(is_server_owned_ai_research_live_handoff_unit(unit) for unit in units)
+            if not allow_server_owned_ai_research_live_handoff_start and any(
+                is_server_owned_ai_research_live_handoff_unit(unit) for unit in units
             ):
                 # A prepared live handoff is intentionally not an ordinary
                 # workspace run target.  The research service owns its
@@ -767,7 +768,9 @@ class WorkspaceRunOpsMixin:
                         return results
                     units = [unit for unit in units if id(unit) not in untrusted_unit_ids]
 
-                bound_units = [unit for unit in units if _requires_research_market_data_binding(unit)]
+                bound_units = [
+                    unit for unit in units if _requires_research_market_data_binding(unit)
+                ]
                 if bound_units:
                     bound_unit_ids = {id(unit) for unit in bound_units}
                     for unit in bound_units:
@@ -947,12 +950,10 @@ class WorkspaceRunOpsMixin:
 
                                 market_data_binding = None
                                 if current_binding_required:
-                                    market_data_binding = (
-                                        await workspace_unit_runtime.resolve_required_market_data_binding(
-                                            current_unit,
-                                            user_id,
-                                            db=binding_session,
-                                        )
+                                    market_data_binding = await workspace_unit_runtime.resolve_required_market_data_binding(
+                                        current_unit,
+                                        user_id,
+                                        db=binding_session,
                                     )
                                     if market_data_binding is None:
                                         raise workspace_unit_runtime.MarketDataBindingRuntimeError(
@@ -990,11 +991,13 @@ class WorkspaceRunOpsMixin:
                                     # has returned; preserving ``cancelling``
                                     # as cancelled avoids a stale failure
                                     # reopening the row incorrectly.
-                                    restored = await self._complete_research_runtime_materialization(
-                                        workspace_id,
-                                        str(unit.id),
-                                        lease_token,
-                                        None,
+                                    restored = (
+                                        await self._complete_research_runtime_materialization(
+                                            workspace_id,
+                                            str(unit.id),
+                                            lease_token,
+                                            None,
+                                        )
                                     )
                                     if not restored:
                                         await self._finish_research_unit_run_lease(
@@ -1188,20 +1191,15 @@ class WorkspaceRunOpsMixin:
                 )
                 db_result = await session.execute(q)
                 units = list(db_result.scalars().all())
-                if (
-                    not (
-                        allow_server_owned_ai_research_stop
-                        or allow_server_owned_ai_research_live_handoff_stop
-                    )
-                    and any(is_server_owned_ai_research_unit(unit) for unit in units)
-                ):
+                if not (
+                    allow_server_owned_ai_research_stop
+                    or allow_server_owned_ai_research_live_handoff_stop
+                ) and any(is_server_owned_ai_research_unit(unit) for unit in units):
                     raise AIStrategyResearchPaperRuntimeStopError()
                 results = await self.trading_service.stop_units(
                     units,
                     user_id,
-                    allow_server_owned_ai_research_stop=(
-                        allow_server_owned_ai_research_stop
-                    ),
+                    allow_server_owned_ai_research_stop=(allow_server_owned_ai_research_stop),
                     allow_server_owned_ai_research_live_handoff_stop=(
                         allow_server_owned_ai_research_live_handoff_stop
                     ),
@@ -1404,8 +1402,7 @@ class WorkspaceRunOpsMixin:
                             changed = True
                 if (
                     not is_bound_unit
-                    and
-                    run_status == "completed"
+                    and run_status == "completed"
                     and last_task_id
                     and (bar_count == 0 or not metrics_snapshot.get("total_trades"))
                 ):
@@ -1481,7 +1478,9 @@ class WorkspaceRunOpsMixin:
                 raw_last_task_id = str(u_obj.last_task_id or "").strip()
                 pending_lease = _is_unit_run_lease_token(raw_last_task_id)
                 status_task = (
-                    task_by_id.get(raw_last_task_id) if raw_last_task_id and not pending_lease else None
+                    task_by_id.get(raw_last_task_id)
+                    if raw_last_task_id and not pending_lease
+                    else None
                 )
                 error_message = (
                     str(status_task.error_message)
@@ -1500,7 +1499,9 @@ class WorkspaceRunOpsMixin:
                     UnitStatusResponse(
                         id=str(u_obj.id),
                         run_status=public_run_status,
-                        last_task_id=raw_last_task_id if raw_last_task_id and not pending_lease else None,
+                        last_task_id=raw_last_task_id
+                        if raw_last_task_id and not pending_lease
+                        else None,
                         error_message=error_message,
                         metrics_snapshot=cast(dict[str, Any], u_obj.metrics_snapshot or {}),
                         run_progress=run_progress,
@@ -1615,7 +1616,9 @@ class WorkspaceRunOpsMixin:
 
             async with async_session_maker() as s:
                 current_unit = await self._get_unit(s, workspace_id, unit_id)
-                if current_unit is not None and _requires_research_market_data_binding(current_unit):
+                if current_unit is not None and _requires_research_market_data_binding(
+                    current_unit
+                ):
                     # The scheduled service finalizer owns the exact
                     # task-id/state transition after its coroutine (and any
                     # subprocess) has actually exited.  A polling observer

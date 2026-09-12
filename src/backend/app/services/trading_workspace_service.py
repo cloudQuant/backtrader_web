@@ -2043,8 +2043,13 @@ class TradingWorkspaceService:
                     )
                     if observation is not None:
                         settings = _safe_dict(getattr(unit, "unit_settings", None))
-                        if settings.get(AI_RESEARCH_PAPER_RUNTIME_METRICS_OBSERVATION_FIELD) != observation:
-                            settings[AI_RESEARCH_PAPER_RUNTIME_METRICS_OBSERVATION_FIELD] = observation
+                        if (
+                            settings.get(AI_RESEARCH_PAPER_RUNTIME_METRICS_OBSERVATION_FIELD)
+                            != observation
+                        ):
+                            settings[AI_RESEARCH_PAPER_RUNTIME_METRICS_OBSERVATION_FIELD] = (
+                                observation
+                            )
                             unit.unit_settings = settings
                             changed = True
 
@@ -2164,9 +2169,7 @@ class TradingWorkspaceService:
                         if isinstance(unit.unit_settings, dict)
                         else {}
                     )
-                    paper_runtime_anchor = unit_settings.get(
-                        AI_RESEARCH_PAPER_RUNTIME_ANCHOR_FIELD
-                    )
+                    paper_runtime_anchor = unit_settings.get(AI_RESEARCH_PAPER_RUNTIME_ANCHOR_FIELD)
                     if not verify_ai_research_paper_runtime_anchor_for_unit(
                         paper_runtime_anchor,
                         user_id=user_id,
@@ -2230,7 +2233,8 @@ class TradingWorkspaceService:
                     )
                     if (
                         refreshed_anchor is None
-                        or refreshed_anchor.get("runtime_snapshot_digest") != expected_runtime_digest
+                        or refreshed_anchor.get("runtime_snapshot_digest")
+                        != expected_runtime_digest
                     ):
                         raise ValueError("AI_RESEARCH_PAPER_RUNTIME_MATERIALIZATION_MISMATCH")
                     unit.unit_settings = {
@@ -2271,18 +2275,18 @@ class TradingWorkspaceService:
                         "runtime_dir": str(runtime_dir),
                     }
                     if server_attested_paper_runtime and server_attested_paper_runtime_digest:
-                        add_instance_kwargs[
-                            "server_attested_paper_runtime_digest"
-                        ] = server_attested_paper_runtime_digest
+                        add_instance_kwargs["server_attested_paper_runtime_digest"] = (
+                            server_attested_paper_runtime_digest
+                        )
                     # Keep the new server-only live-handoff capability opt-in
                     # for manager implementations.  Paper and ordinary
                     # workspace starts must retain compatibility with the
                     # existing manager contract; a real activation always
                     # supplies a non-empty one-shot token below.
                     if live_handoff_activation_token:
-                        add_instance_kwargs[
-                            "server_attested_live_handoff_activation_token"
-                        ] = live_handoff_activation_token
+                        add_instance_kwargs["server_attested_live_handoff_activation_token"] = (
+                            live_handoff_activation_token
+                        )
                     created = await asyncio.to_thread(
                         manager.add_instance,
                         str(unit.strategy_id),
@@ -2424,8 +2428,7 @@ class TradingWorkspaceService:
         # metrics.  The review-failure workflow has an explicit server-only
         # capability and is the sole caller allowed to stop these units.
         if not (
-            allow_server_owned_ai_research_stop
-            or allow_server_owned_ai_research_live_handoff_stop
+            allow_server_owned_ai_research_stop or allow_server_owned_ai_research_live_handoff_stop
         ):
             from app.services.workspace.units import AIStrategyResearchPaperRuntimeStopError
 

@@ -109,9 +109,11 @@ def parse_legacy_kline_request(
             if requested_start.day != 1 or requested_end != _last_day_of_month(requested_end):
                 raise LegacyKlineInputError(LegacyKlineInputError.code)
             normalized_start, normalized_end = requested_start, requested_end
-            month_count = (normalized_end.year - normalized_start.year) * 12 + (
-                normalized_end.month - normalized_start.month
-            ) + 1
+            month_count = (
+                (normalized_end.year - normalized_start.year) * 12
+                + (normalized_end.month - normalized_start.month)
+                + 1
+            )
             if month_count > 120:
                 raise LegacyKlineInputError(LegacyKlineInputError.code)
 
@@ -208,9 +210,7 @@ def project_legacy_kline_execution(
     if tuple(sorted(actual_event_times)) != expected_event_times:
         raise LegacyKlineBridgeError("KLINE_RESPONSE_EVENT_MISMATCH")
 
-    observations_by_event = {
-        _as_utc(item.event_at): item for item in execution.observations
-    }
+    observations_by_event = {_as_utc(item.event_at): item for item in execution.observations}
     dates: list[str] = []
     ohlc: list[list[float]] = []
     volumes: list[int] = []

@@ -52,7 +52,9 @@ def upgrade() -> None:
         _timestamp("expires_at"),
         _timestamp("created_at"),
         sa.PrimaryKeyConstraint("id"),
-        sa.UniqueConstraint("profile_id", "version", name="uq_ai_research_capability_profile_version"),
+        sa.UniqueConstraint(
+            "profile_id", "version", name="uq_ai_research_capability_profile_version"
+        ),
     )
     op.create_index(
         "ix_ai_research_capability_profile_expiry",
@@ -63,7 +65,12 @@ def upgrade() -> None:
     op.create_table(
         "ai_research_hypothesis_versions",
         _id(),
-        sa.Column("user_id", sa.String(length=36), sa.ForeignKey("users.id", ondelete="RESTRICT"), nullable=False),
+        sa.Column(
+            "user_id",
+            sa.String(length=36),
+            sa.ForeignKey("users.id", ondelete="RESTRICT"),
+            nullable=False,
+        ),
         sa.Column("hypothesis_id", sa.String(length=36), nullable=False),
         sa.Column("workspace_id", sa.String(length=36), nullable=True),
         sa.Column("version_no", sa.Integer(), nullable=False),
@@ -95,17 +102,40 @@ def upgrade() -> None:
             name="ck_ai_research_hypothesis_status",
         ),
         sa.PrimaryKeyConstraint("id"),
-        sa.UniqueConstraint("user_id", "hypothesis_id", "version_no", name="uq_ai_research_hypothesis_version"),
+        sa.UniqueConstraint(
+            "user_id", "hypothesis_id", "version_no", name="uq_ai_research_hypothesis_version"
+        ),
     )
-    op.create_index("ix_ai_research_hypothesis_owner_status", "ai_research_hypothesis_versions", ["user_id", "status", "created_at"])
-    op.create_index("ix_ai_research_hypothesis_versions_hypothesis_id", "ai_research_hypothesis_versions", ["hypothesis_id"])
-    op.create_index("ix_ai_research_hypothesis_versions_workspace_id", "ai_research_hypothesis_versions", ["workspace_id"])
-    op.create_index("ix_ai_research_hypothesis_versions_content_hash", "ai_research_hypothesis_versions", ["content_hash"])
+    op.create_index(
+        "ix_ai_research_hypothesis_owner_status",
+        "ai_research_hypothesis_versions",
+        ["user_id", "status", "created_at"],
+    )
+    op.create_index(
+        "ix_ai_research_hypothesis_versions_hypothesis_id",
+        "ai_research_hypothesis_versions",
+        ["hypothesis_id"],
+    )
+    op.create_index(
+        "ix_ai_research_hypothesis_versions_workspace_id",
+        "ai_research_hypothesis_versions",
+        ["workspace_id"],
+    )
+    op.create_index(
+        "ix_ai_research_hypothesis_versions_content_hash",
+        "ai_research_hypothesis_versions",
+        ["content_hash"],
+    )
 
     op.create_table(
         "ai_research_experiment_epochs",
         _id(),
-        sa.Column("user_id", sa.String(length=36), sa.ForeignKey("users.id", ondelete="RESTRICT"), nullable=False),
+        sa.Column(
+            "user_id",
+            sa.String(length=36),
+            sa.ForeignKey("users.id", ondelete="RESTRICT"),
+            nullable=False,
+        ),
         sa.Column(
             "hypothesis_version_id",
             sa.String(length=36),
@@ -127,17 +157,33 @@ def upgrade() -> None:
         _timestamp("opened_at"),
         _timestamp("disclosed_at", nullable=True),
         _timestamp("closed_at", nullable=True),
-        sa.CheckConstraint("status IN ('OPEN', 'SELECTED', 'DISCLOSED', 'CLOSED')", name="ck_ai_research_epoch_status"),
+        sa.CheckConstraint(
+            "status IN ('OPEN', 'SELECTED', 'DISCLOSED', 'CLOSED')",
+            name="ck_ai_research_epoch_status",
+        ),
         sa.PrimaryKeyConstraint("id"),
-        sa.UniqueConstraint("selected_candidate_id", name="uq_ai_research_epoch_selected_candidate"),
+        sa.UniqueConstraint(
+            "selected_candidate_id", name="uq_ai_research_epoch_selected_candidate"
+        ),
     )
-    op.create_index("ix_ai_research_epoch_owner_status", "ai_research_experiment_epochs", ["user_id", "status", "opened_at"])
-    op.create_index("ix_ai_research_epoch_family", "ai_research_experiment_epochs", ["user_id", "family_hash"])
+    op.create_index(
+        "ix_ai_research_epoch_owner_status",
+        "ai_research_experiment_epochs",
+        ["user_id", "status", "opened_at"],
+    )
+    op.create_index(
+        "ix_ai_research_epoch_family", "ai_research_experiment_epochs", ["user_id", "family_hash"]
+    )
 
     op.create_table(
         "ai_research_dataset_snapshots",
         _id(),
-        sa.Column("user_id", sa.String(length=36), sa.ForeignKey("users.id", ondelete="RESTRICT"), nullable=False),
+        sa.Column(
+            "user_id",
+            sa.String(length=36),
+            sa.ForeignKey("users.id", ondelete="RESTRICT"),
+            nullable=False,
+        ),
         sa.Column("dataset_policy_version", sa.String(length=128), nullable=False),
         sa.Column("partition_kind", sa.String(length=32), nullable=False),
         sa.Column("instrument_manifest", sa.JSON(), nullable=False),
@@ -155,13 +201,24 @@ def upgrade() -> None:
         ),
         sa.PrimaryKeyConstraint("id"),
     )
-    op.create_index("ix_ai_research_dataset_owner_partition", "ai_research_dataset_snapshots", ["user_id", "partition_kind", "created_at"])
-    op.create_index("ix_ai_research_dataset_content_hash", "ai_research_dataset_snapshots", ["content_hash"])
+    op.create_index(
+        "ix_ai_research_dataset_owner_partition",
+        "ai_research_dataset_snapshots",
+        ["user_id", "partition_kind", "created_at"],
+    )
+    op.create_index(
+        "ix_ai_research_dataset_content_hash", "ai_research_dataset_snapshots", ["content_hash"]
+    )
 
     op.create_table(
         "ai_research_runs",
         _id(),
-        sa.Column("user_id", sa.String(length=36), sa.ForeignKey("users.id", ondelete="RESTRICT"), nullable=False),
+        sa.Column(
+            "user_id",
+            sa.String(length=36),
+            sa.ForeignKey("users.id", ondelete="RESTRICT"),
+            nullable=False,
+        ),
         sa.Column("workspace_id", sa.String(length=36), nullable=True),
         sa.Column(
             "hypothesis_version_id",
@@ -199,15 +256,27 @@ def upgrade() -> None:
         ),
         sa.PrimaryKeyConstraint("id"),
     )
-    op.create_index("ix_ai_research_run_owner_status", "ai_research_runs", ["user_id", "status", "created_at"])
+    op.create_index(
+        "ix_ai_research_run_owner_status", "ai_research_runs", ["user_id", "status", "created_at"]
+    )
     op.create_index("ix_ai_research_runs_workspace_id", "ai_research_runs", ["workspace_id"])
     op.create_index("ix_ai_research_runs_trace_id", "ai_research_runs", ["trace_id"])
 
     op.create_table(
         "ai_research_tasks",
         _id(),
-        sa.Column("user_id", sa.String(length=36), sa.ForeignKey("users.id", ondelete="RESTRICT"), nullable=False),
-        sa.Column("run_id", sa.String(length=36), sa.ForeignKey("ai_research_runs.id", ondelete="RESTRICT"), nullable=False),
+        sa.Column(
+            "user_id",
+            sa.String(length=36),
+            sa.ForeignKey("users.id", ondelete="RESTRICT"),
+            nullable=False,
+        ),
+        sa.Column(
+            "run_id",
+            sa.String(length=36),
+            sa.ForeignKey("ai_research_runs.id", ondelete="RESTRICT"),
+            nullable=False,
+        ),
         sa.Column("status", sa.String(length=16), nullable=False),
         sa.Column("stage_cursor", sa.String(length=64), nullable=False),
         sa.Column("request_json", sa.JSON(), nullable=False),
@@ -215,7 +284,12 @@ def upgrade() -> None:
         sa.Column("idempotency_request_hash", sa.String(length=64), nullable=False),
         sa.Column("error_code", sa.String(length=128), nullable=True),
         sa.Column("trace_id", sa.String(length=128), nullable=True),
-        sa.Column("retry_of_task_id", sa.String(length=36), sa.ForeignKey("ai_research_tasks.id", ondelete="RESTRICT"), nullable=True),
+        sa.Column(
+            "retry_of_task_id",
+            sa.String(length=36),
+            sa.ForeignKey("ai_research_tasks.id", ondelete="RESTRICT"),
+            nullable=True,
+        ),
         _timestamp("cancel_requested_at", nullable=True),
         sa.Column("lease_token", sa.String(length=64), nullable=True),
         _timestamp("lease_expires_at", nullable=True),
@@ -238,8 +312,14 @@ def upgrade() -> None:
         sa.UniqueConstraint("user_id", "idempotency_key", name="uq_ai_research_task_idempotency"),
     )
     op.create_index("ix_ai_research_tasks_run_id", "ai_research_tasks", ["run_id"])
-    op.create_index("ix_ai_research_task_owner_status", "ai_research_tasks", ["user_id", "status", "created_at"])
-    op.create_index("ix_ai_research_task_claim", "ai_research_tasks", ["status", "lease_expires_at", "created_at"])
+    op.create_index(
+        "ix_ai_research_task_owner_status", "ai_research_tasks", ["user_id", "status", "created_at"]
+    )
+    op.create_index(
+        "ix_ai_research_task_claim",
+        "ai_research_tasks",
+        ["status", "lease_expires_at", "created_at"],
+    )
     op.create_index("ix_ai_research_tasks_trace_id", "ai_research_tasks", ["trace_id"])
 
     op.create_table(
@@ -257,45 +337,124 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("content_hash", "kind", name="uq_ai_research_artifact_content_kind"),
     )
-    op.create_index("ix_ai_research_artifact_producer", "ai_research_artifacts", ["producer_identity", "created_at"])
+    op.create_index(
+        "ix_ai_research_artifact_producer",
+        "ai_research_artifacts",
+        ["producer_identity", "created_at"],
+    )
 
     op.create_table(
         "ai_research_candidates",
         _id(),
-        sa.Column("user_id", sa.String(length=36), sa.ForeignKey("users.id", ondelete="RESTRICT"), nullable=False),
-        sa.Column("run_id", sa.String(length=36), sa.ForeignKey("ai_research_runs.id", ondelete="RESTRICT"), nullable=False),
-        sa.Column("experiment_epoch_id", sa.String(length=36), sa.ForeignKey("ai_research_experiment_epochs.id", ondelete="RESTRICT"), nullable=False),
-        sa.Column("source_version_id", sa.String(length=36), sa.ForeignKey("ai_strategy_research_versions.id", ondelete="RESTRICT"), nullable=True),
-        sa.Column("dataset_snapshot_id", sa.String(length=36), sa.ForeignKey("ai_research_dataset_snapshots.id", ondelete="RESTRICT"), nullable=False),
-        sa.Column("code_artifact_id", sa.String(length=36), sa.ForeignKey("ai_research_artifacts.id", ondelete="RESTRICT"), nullable=False),
-        sa.Column("dependency_artifact_id", sa.String(length=36), sa.ForeignKey("ai_research_artifacts.id", ondelete="RESTRICT"), nullable=False),
+        sa.Column(
+            "user_id",
+            sa.String(length=36),
+            sa.ForeignKey("users.id", ondelete="RESTRICT"),
+            nullable=False,
+        ),
+        sa.Column(
+            "run_id",
+            sa.String(length=36),
+            sa.ForeignKey("ai_research_runs.id", ondelete="RESTRICT"),
+            nullable=False,
+        ),
+        sa.Column(
+            "experiment_epoch_id",
+            sa.String(length=36),
+            sa.ForeignKey("ai_research_experiment_epochs.id", ondelete="RESTRICT"),
+            nullable=False,
+        ),
+        sa.Column(
+            "source_version_id",
+            sa.String(length=36),
+            sa.ForeignKey("ai_strategy_research_versions.id", ondelete="RESTRICT"),
+            nullable=True,
+        ),
+        sa.Column(
+            "dataset_snapshot_id",
+            sa.String(length=36),
+            sa.ForeignKey("ai_research_dataset_snapshots.id", ondelete="RESTRICT"),
+            nullable=False,
+        ),
+        sa.Column(
+            "code_artifact_id",
+            sa.String(length=36),
+            sa.ForeignKey("ai_research_artifacts.id", ondelete="RESTRICT"),
+            nullable=False,
+        ),
+        sa.Column(
+            "dependency_artifact_id",
+            sa.String(length=36),
+            sa.ForeignKey("ai_research_artifacts.id", ondelete="RESTRICT"),
+            nullable=False,
+        ),
         sa.Column("candidate_hash", sa.String(length=64), nullable=False),
         sa.Column("environment_hash", sa.String(length=64), nullable=False),
         sa.Column("cost_model_hash", sa.String(length=64), nullable=False),
         sa.Column("params", sa.JSON(), nullable=False),
-        sa.Column("freeze_status", sa.String(length=16), nullable=False, server_default=sa.text("'MUTABLE'")),
+        sa.Column(
+            "freeze_status",
+            sa.String(length=16),
+            nullable=False,
+            server_default=sa.text("'MUTABLE'"),
+        ),
         _timestamp("frozen_at", nullable=True),
         sa.Column("frozen_by", sa.String(length=128), nullable=True),
         _timestamp("created_at"),
-        sa.CheckConstraint("freeze_status IN ('MUTABLE', 'FROZEN')", name="ck_ai_research_candidate_freeze"),
+        sa.CheckConstraint(
+            "freeze_status IN ('MUTABLE', 'FROZEN')", name="ck_ai_research_candidate_freeze"
+        ),
         sa.PrimaryKeyConstraint("id"),
     )
-    op.create_index("ix_ai_research_candidate_epoch_status", "ai_research_candidates", ["experiment_epoch_id", "freeze_status"])
-    op.create_index("ix_ai_research_candidate_owner_hash", "ai_research_candidates", ["user_id", "candidate_hash"])
+    op.create_index(
+        "ix_ai_research_candidate_epoch_status",
+        "ai_research_candidates",
+        ["experiment_epoch_id", "freeze_status"],
+    )
+    op.create_index(
+        "ix_ai_research_candidate_owner_hash",
+        "ai_research_candidates",
+        ["user_id", "candidate_hash"],
+    )
 
     op.create_table(
         "ai_research_trials",
         _id(),
-        sa.Column("user_id", sa.String(length=36), sa.ForeignKey("users.id", ondelete="RESTRICT"), nullable=False),
-        sa.Column("run_id", sa.String(length=36), sa.ForeignKey("ai_research_runs.id", ondelete="RESTRICT"), nullable=False),
-        sa.Column("candidate_id", sa.String(length=36), sa.ForeignKey("ai_research_candidates.id", ondelete="RESTRICT"), nullable=True),
-        sa.Column("parent_trial_id", sa.String(length=36), sa.ForeignKey("ai_research_trials.id", ondelete="RESTRICT"), nullable=True),
+        sa.Column(
+            "user_id",
+            sa.String(length=36),
+            sa.ForeignKey("users.id", ondelete="RESTRICT"),
+            nullable=False,
+        ),
+        sa.Column(
+            "run_id",
+            sa.String(length=36),
+            sa.ForeignKey("ai_research_runs.id", ondelete="RESTRICT"),
+            nullable=False,
+        ),
+        sa.Column(
+            "candidate_id",
+            sa.String(length=36),
+            sa.ForeignKey("ai_research_candidates.id", ondelete="RESTRICT"),
+            nullable=True,
+        ),
+        sa.Column(
+            "parent_trial_id",
+            sa.String(length=36),
+            sa.ForeignKey("ai_research_trials.id", ondelete="RESTRICT"),
+            nullable=True,
+        ),
         sa.Column("ordinal", sa.Integer(), nullable=False),
         sa.Column("idempotency_key", sa.String(length=128), nullable=False),
         sa.Column("stage", sa.String(length=64), nullable=False),
         sa.Column("status", sa.String(length=16), nullable=False),
         sa.Column("input_hash", sa.String(length=64), nullable=False),
-        sa.Column("returns_artifact_id", sa.String(length=36), sa.ForeignKey("ai_research_artifacts.id", ondelete="RESTRICT"), nullable=True),
+        sa.Column(
+            "returns_artifact_id",
+            sa.String(length=36),
+            sa.ForeignKey("ai_research_artifacts.id", ondelete="RESTRICT"),
+            nullable=True,
+        ),
         sa.Column("metrics", sa.JSON(), nullable=False),
         sa.Column("observed_market_performance", sa.Boolean(), nullable=False),
         sa.Column("counts_as_market_trial", sa.Boolean(), nullable=False),
@@ -312,13 +471,25 @@ def upgrade() -> None:
         sa.UniqueConstraint("run_id", "ordinal", name="uq_ai_research_trial_ordinal"),
         sa.UniqueConstraint("run_id", "idempotency_key", name="uq_ai_research_trial_idempotency"),
     )
-    op.create_index("ix_ai_research_trial_candidate", "ai_research_trials", ["candidate_id", "created_at"])
+    op.create_index(
+        "ix_ai_research_trial_candidate", "ai_research_trials", ["candidate_id", "created_at"]
+    )
 
     op.create_table(
         "ai_research_model_invocations",
         _id(),
-        sa.Column("run_id", sa.String(length=36), sa.ForeignKey("ai_research_runs.id", ondelete="RESTRICT"), nullable=False),
-        sa.Column("trial_id", sa.String(length=36), sa.ForeignKey("ai_research_trials.id", ondelete="RESTRICT"), nullable=True),
+        sa.Column(
+            "run_id",
+            sa.String(length=36),
+            sa.ForeignKey("ai_research_runs.id", ondelete="RESTRICT"),
+            nullable=False,
+        ),
+        sa.Column(
+            "trial_id",
+            sa.String(length=36),
+            sa.ForeignKey("ai_research_trials.id", ondelete="RESTRICT"),
+            nullable=True,
+        ),
         sa.Column("provider", sa.String(length=128), nullable=False),
         sa.Column("requested_model", sa.String(length=256), nullable=False),
         sa.Column("resolved_model", sa.String(length=256), nullable=False),
@@ -339,12 +510,21 @@ def upgrade() -> None:
         _timestamp("completed_at", nullable=True),
         sa.PrimaryKeyConstraint("id"),
     )
-    op.create_index("ix_ai_research_invocation_run_created", "ai_research_model_invocations", ["run_id", "created_at"])
+    op.create_index(
+        "ix_ai_research_invocation_run_created",
+        "ai_research_model_invocations",
+        ["run_id", "created_at"],
+    )
 
     op.create_table(
         "ai_research_holdout_authorizations",
         _id(),
-        sa.Column("experiment_epoch_id", sa.String(length=36), sa.ForeignKey("ai_research_experiment_epochs.id", ondelete="RESTRICT"), nullable=False),
+        sa.Column(
+            "experiment_epoch_id",
+            sa.String(length=36),
+            sa.ForeignKey("ai_research_experiment_epochs.id", ondelete="RESTRICT"),
+            nullable=False,
+        ),
         sa.Column("candidate_id", sa.String(length=36), nullable=False),
         sa.Column("dataset_snapshot_id", sa.String(length=36), nullable=False),
         sa.Column("policy_version", sa.String(length=128), nullable=False),
@@ -358,11 +538,17 @@ def upgrade() -> None:
         _timestamp("issued_at"),
         _timestamp("consumed_at", nullable=True),
         _timestamp("expires_at", nullable=True),
-        sa.CheckConstraint("status IN ('ISSUED', 'CONSUMED', 'EXPIRED', 'REVOKED')", name="ck_ai_research_holdout_authorization_status"),
+        sa.CheckConstraint(
+            "status IN ('ISSUED', 'CONSUMED', 'EXPIRED', 'REVOKED')",
+            name="ck_ai_research_holdout_authorization_status",
+        ),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("token_hash", name="uq_ai_research_holdout_token_hash"),
         sa.UniqueConstraint(
-            "experiment_epoch_id", "candidate_id", "dataset_snapshot_id", "policy_version",
+            "experiment_epoch_id",
+            "candidate_id",
+            "dataset_snapshot_id",
+            "policy_version",
             name="uq_ai_research_holdout_authorization_binding",
         ),
     )
@@ -370,14 +556,29 @@ def upgrade() -> None:
     op.create_table(
         "ai_research_evaluations",
         _id(),
-        sa.Column("experiment_epoch_id", sa.String(length=36), sa.ForeignKey("ai_research_experiment_epochs.id", ondelete="RESTRICT"), nullable=False),
+        sa.Column(
+            "experiment_epoch_id",
+            sa.String(length=36),
+            sa.ForeignKey("ai_research_experiment_epochs.id", ondelete="RESTRICT"),
+            nullable=False,
+        ),
         sa.Column("candidate_id", sa.String(length=36), nullable=False),
         sa.Column("dataset_snapshot_id", sa.String(length=36), nullable=False),
         sa.Column("evaluation_type", sa.String(length=32), nullable=False),
         sa.Column("evaluator_identity", sa.String(length=128), nullable=False),
         sa.Column("evaluator_version", sa.String(length=128), nullable=False),
-        sa.Column("authorization_id", sa.String(length=36), sa.ForeignKey("ai_research_holdout_authorizations.id", ondelete="RESTRICT"), nullable=True),
-        sa.Column("returns_artifact_id", sa.String(length=36), sa.ForeignKey("ai_research_artifacts.id", ondelete="RESTRICT"), nullable=True),
+        sa.Column(
+            "authorization_id",
+            sa.String(length=36),
+            sa.ForeignKey("ai_research_holdout_authorizations.id", ondelete="RESTRICT"),
+            nullable=True,
+        ),
+        sa.Column(
+            "returns_artifact_id",
+            sa.String(length=36),
+            sa.ForeignKey("ai_research_artifacts.id", ondelete="RESTRICT"),
+            nullable=True,
+        ),
         sa.Column("metrics", sa.JSON(), nullable=False),
         sa.Column("gate_inputs", sa.JSON(), nullable=False),
         sa.Column("policy_version", sa.String(length=128), nullable=False),
@@ -390,7 +591,10 @@ def upgrade() -> None:
         ),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint(
-            "experiment_epoch_id", "dataset_snapshot_id", "policy_version", "evaluation_type",
+            "experiment_epoch_id",
+            "dataset_snapshot_id",
+            "policy_version",
+            "evaluation_type",
             name="uq_ai_research_evaluation_budget",
         ),
     )
@@ -399,7 +603,12 @@ def upgrade() -> None:
         "ai_research_gate_decisions",
         _id(),
         sa.Column("candidate_id", sa.String(length=36), nullable=False),
-        sa.Column("evaluation_id", sa.String(length=36), sa.ForeignKey("ai_research_evaluations.id", ondelete="RESTRICT"), nullable=True),
+        sa.Column(
+            "evaluation_id",
+            sa.String(length=36),
+            sa.ForeignKey("ai_research_evaluations.id", ondelete="RESTRICT"),
+            nullable=True,
+        ),
         sa.Column("gate_code", sa.String(length=128), nullable=False),
         sa.Column("policy_version", sa.String(length=128), nullable=False),
         sa.Column("input_evidence_hash", sa.String(length=64), nullable=False),
@@ -409,13 +618,22 @@ def upgrade() -> None:
         _timestamp("evaluated_at"),
         sa.PrimaryKeyConstraint("id"),
     )
-    op.create_index("ix_ai_research_gate_candidate", "ai_research_gate_decisions", ["candidate_id", "evaluated_at"])
+    op.create_index(
+        "ix_ai_research_gate_candidate",
+        "ai_research_gate_decisions",
+        ["candidate_id", "evaluated_at"],
+    )
 
     op.create_table(
         "ai_research_approval_requests",
         _id(),
         sa.Column("candidate_id", sa.String(length=36), nullable=False),
-        sa.Column("requested_by", sa.String(length=36), sa.ForeignKey("users.id", ondelete="RESTRICT"), nullable=False),
+        sa.Column(
+            "requested_by",
+            sa.String(length=36),
+            sa.ForeignKey("users.id", ondelete="RESTRICT"),
+            nullable=False,
+        ),
         sa.Column("policy_version", sa.String(length=128), nullable=False),
         sa.Column("gate_input_evidence_hash", sa.String(length=64), nullable=False),
         sa.Column("evidence_package_hash", sa.String(length=64), nullable=False),
@@ -442,7 +660,12 @@ def upgrade() -> None:
         _id(),
         sa.Column("candidate_id", sa.String(length=36), nullable=False),
         sa.Column("decision", sa.String(length=32), nullable=False),
-        sa.Column("actor_id", sa.String(length=36), sa.ForeignKey("users.id", ondelete="RESTRICT"), nullable=False),
+        sa.Column(
+            "actor_id",
+            sa.String(length=36),
+            sa.ForeignKey("users.id", ondelete="RESTRICT"),
+            nullable=False,
+        ),
         sa.Column("domain_permissions", sa.JSON(), nullable=False),
         sa.Column("policy_version", sa.String(length=128), nullable=False),
         sa.Column("approval_mode", sa.String(length=32), nullable=False),
@@ -456,9 +679,14 @@ def upgrade() -> None:
         _timestamp("eligible_at", nullable=True),
         _timestamp("decided_at"),
         _timestamp("expires_at", nullable=True),
-        sa.CheckConstraint("decision IN ('APPROVED', 'REJECTED', 'REQUESTED_CHANGES')", name="ck_ai_research_human_decision"),
+        sa.CheckConstraint(
+            "decision IN ('APPROVED', 'REJECTED', 'REQUESTED_CHANGES')",
+            name="ck_ai_research_human_decision",
+        ),
         sa.PrimaryKeyConstraint("id"),
-        sa.UniqueConstraint("candidate_id", "idempotency_key", name="uq_ai_research_human_decision_idempotency"),
+        sa.UniqueConstraint(
+            "candidate_id", "idempotency_key", name="uq_ai_research_human_decision_idempotency"
+        ),
     )
 
     op.create_table(
@@ -469,7 +697,12 @@ def upgrade() -> None:
         sa.Column("reason", sa.Text(), nullable=False),
         sa.Column("risk", sa.Text(), nullable=False),
         sa.Column("compensating_controls", sa.JSON(), nullable=False),
-        sa.Column("actor_id", sa.String(length=36), sa.ForeignKey("users.id", ondelete="RESTRICT"), nullable=False),
+        sa.Column(
+            "actor_id",
+            sa.String(length=36),
+            sa.ForeignKey("users.id", ondelete="RESTRICT"),
+            nullable=False,
+        ),
         sa.Column("scope", sa.JSON(), nullable=False),
         _timestamp("effective_at"),
         _timestamp("expires_at", nullable=True),
@@ -480,15 +713,30 @@ def upgrade() -> None:
     op.create_table(
         "ai_research_stage_attempts",
         _id(),
-        sa.Column("run_id", sa.String(length=36), sa.ForeignKey("ai_research_runs.id", ondelete="RESTRICT"), nullable=False),
-        sa.Column("task_id", sa.String(length=36), sa.ForeignKey("ai_research_tasks.id", ondelete="RESTRICT"), nullable=False),
+        sa.Column(
+            "run_id",
+            sa.String(length=36),
+            sa.ForeignKey("ai_research_runs.id", ondelete="RESTRICT"),
+            nullable=False,
+        ),
+        sa.Column(
+            "task_id",
+            sa.String(length=36),
+            sa.ForeignKey("ai_research_tasks.id", ondelete="RESTRICT"),
+            nullable=False,
+        ),
         sa.Column("stage", sa.String(length=64), nullable=False),
         sa.Column("attempt_no", sa.Integer(), nullable=False),
         sa.Column("idempotency_key", sa.String(length=128), nullable=False),
         sa.Column("status", sa.String(length=16), nullable=False),
         sa.Column("lease_token", sa.String(length=64), nullable=True),
         sa.Column("input_hash", sa.String(length=64), nullable=False),
-        sa.Column("output_artifact_id", sa.String(length=36), sa.ForeignKey("ai_research_artifacts.id", ondelete="RESTRICT"), nullable=True),
+        sa.Column(
+            "output_artifact_id",
+            sa.String(length=36),
+            sa.ForeignKey("ai_research_artifacts.id", ondelete="RESTRICT"),
+            nullable=True,
+        ),
         sa.Column("error_code", sa.String(length=128), nullable=True),
         _timestamp("started_at"),
         _timestamp("completed_at", nullable=True),
@@ -511,16 +759,27 @@ def upgrade() -> None:
         sa.Column("reserved_amount", sa.Integer(), nullable=False, server_default=sa.text("0")),
         sa.Column("settled_amount", sa.Integer(), nullable=False, server_default=sa.text("0")),
         sa.Column("active_reservations", sa.Integer(), nullable=False, server_default=sa.text("0")),
-        sa.Column("status", sa.String(length=32), nullable=False, server_default=sa.text("'ACTIVE'")),
+        sa.Column(
+            "status", sa.String(length=32), nullable=False, server_default=sa.text("'ACTIVE'")
+        ),
         sa.Column("reconcile_reason", sa.Text(), nullable=True),
         sa.Column("version", sa.Integer(), nullable=False, server_default=sa.text("0")),
         sa.Column("next_fencing_token", sa.Integer(), nullable=False, server_default=sa.text("1")),
         _timestamp("updated_at"),
-        sa.CheckConstraint("status IN ('ACTIVE', 'BLOCKED_UNKNOWN')", name="ck_ai_research_quota_bucket_status"),
-        sa.CheckConstraint("reserved_amount >= 0 AND settled_amount >= 0", name="ck_ai_research_quota_amounts"),
+        sa.CheckConstraint(
+            "status IN ('ACTIVE', 'BLOCKED_UNKNOWN')", name="ck_ai_research_quota_bucket_status"
+        ),
+        sa.CheckConstraint(
+            "reserved_amount >= 0 AND settled_amount >= 0", name="ck_ai_research_quota_amounts"
+        ),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint(
-            "scope_type", "scope_id", "policy_version", "resource_type", "window_start", "window_end",
+            "scope_type",
+            "scope_id",
+            "policy_version",
+            "resource_type",
+            "window_start",
+            "window_end",
             name="uq_ai_research_quota_bucket_window",
         ),
     )
@@ -528,15 +787,32 @@ def upgrade() -> None:
     op.create_table(
         "ai_research_quota_reservations",
         _id(),
-        sa.Column("bucket_id", sa.String(length=36), sa.ForeignKey("ai_research_quota_buckets.id", ondelete="RESTRICT"), nullable=False),
-        sa.Column("task_id", sa.String(length=36), sa.ForeignKey("ai_research_tasks.id", ondelete="RESTRICT"), nullable=False),
-        sa.Column("stage_attempt_id", sa.String(length=36), sa.ForeignKey("ai_research_stage_attempts.id", ondelete="RESTRICT"), nullable=True),
+        sa.Column(
+            "bucket_id",
+            sa.String(length=36),
+            sa.ForeignKey("ai_research_quota_buckets.id", ondelete="RESTRICT"),
+            nullable=False,
+        ),
+        sa.Column(
+            "task_id",
+            sa.String(length=36),
+            sa.ForeignKey("ai_research_tasks.id", ondelete="RESTRICT"),
+            nullable=False,
+        ),
+        sa.Column(
+            "stage_attempt_id",
+            sa.String(length=36),
+            sa.ForeignKey("ai_research_stage_attempts.id", ondelete="RESTRICT"),
+            nullable=True,
+        ),
         sa.Column("idempotency_key", sa.String(length=128), nullable=False),
         sa.Column("resource_type", sa.String(length=64), nullable=False),
         sa.Column("reserved_amount", sa.Integer(), nullable=False),
         sa.Column("settled_amount", sa.Integer(), nullable=False, server_default=sa.text("0")),
         sa.Column("unit", sa.String(length=32), nullable=False),
-        sa.Column("status", sa.String(length=32), nullable=False, server_default=sa.text("'RESERVED'")),
+        sa.Column(
+            "status", sa.String(length=32), nullable=False, server_default=sa.text("'RESERVED'")
+        ),
         _timestamp("lease_expires_at", nullable=True),
         sa.Column("fencing_token", sa.Integer(), nullable=False),
         sa.Column("policy_version", sa.String(length=128), nullable=False),
@@ -551,9 +827,14 @@ def upgrade() -> None:
             "status IN ('RESERVED', 'IN_FLIGHT', 'RECONCILING', 'SETTLED', 'RELEASED', 'EXPIRED', 'BLOCKED_UNKNOWN')",
             name="ck_ai_research_quota_reservation_status",
         ),
-        sa.CheckConstraint("reserved_amount >= 0 AND settled_amount >= 0", name="ck_ai_research_quota_reservation_amounts"),
+        sa.CheckConstraint(
+            "reserved_amount >= 0 AND settled_amount >= 0",
+            name="ck_ai_research_quota_reservation_amounts",
+        ),
         sa.PrimaryKeyConstraint("id"),
-        sa.UniqueConstraint("bucket_id", "resource_type", "idempotency_key", name="uq_ai_research_quota_reservation"),
+        sa.UniqueConstraint(
+            "bucket_id", "resource_type", "idempotency_key", name="uq_ai_research_quota_reservation"
+        ),
     )
 
 

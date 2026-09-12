@@ -40,9 +40,7 @@ def upgrade() -> None:
             )
         )
         batch.add_column(sa.Column("lease_expires_at", sa.DateTime(timezone=True), nullable=True))
-        batch.add_column(
-            sa.Column("lease_heartbeat_at", sa.DateTime(timezone=True), nullable=True)
-        )
+        batch.add_column(sa.Column("lease_heartbeat_at", sa.DateTime(timezone=True), nullable=True))
         batch.add_column(
             sa.Column(
                 "attempt_count",
@@ -213,16 +211,20 @@ def downgrade() -> None:
     retained_audit = (
         op.get_bind().execute(sa.text(f"SELECT 1 FROM {_AUDIT_TABLE} LIMIT 1")).scalar()
     )
-    retained_claim = op.get_bind().execute(
-        sa.text(
-            f"SELECT 1 FROM {_COMMAND_TABLE} WHERE status <> 'QUEUED' "
-            "OR authorization_id IS NOT NULL OR evaluation_id IS NOT NULL "
-            "OR lease_owner IS NOT NULL OR lease_token_hash IS NOT NULL "
-            "OR lease_generation <> 0 OR lease_expires_at IS NOT NULL "
-            "OR lease_heartbeat_at IS NOT NULL OR attempt_count <> 0 OR started_at IS NOT NULL "
-            "LIMIT 1"
+    retained_claim = (
+        op.get_bind()
+        .execute(
+            sa.text(
+                f"SELECT 1 FROM {_COMMAND_TABLE} WHERE status <> 'QUEUED' "
+                "OR authorization_id IS NOT NULL OR evaluation_id IS NOT NULL "
+                "OR lease_owner IS NOT NULL OR lease_token_hash IS NOT NULL "
+                "OR lease_generation <> 0 OR lease_expires_at IS NOT NULL "
+                "OR lease_heartbeat_at IS NOT NULL OR attempt_count <> 0 OR started_at IS NOT NULL "
+                "LIMIT 1"
+            )
         )
-    ).scalar()
+        .scalar()
+    )
     if retained_audit is not None or retained_claim is not None:
         raise RuntimeError("HOLDOUT_CLAIM_DOWNGRADE_BLOCKED")
 

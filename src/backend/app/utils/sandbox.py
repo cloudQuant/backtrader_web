@@ -471,7 +471,9 @@ class StrategySandbox:
                 if callable(add_note):
                     add_note(cleanup_message)
                 else:  # pragma: no cover - BaseException.add_note requires Python 3.11+
-                    raise RuntimeError(f"{validation_error}; {cleanup_message}") from validation_error
+                    raise RuntimeError(
+                        f"{validation_error}; {cleanup_message}"
+                    ) from validation_error
             raise validation_error
         if not process_stopped:
             raise RuntimeError("Isolated strategy validator process could not be stopped")

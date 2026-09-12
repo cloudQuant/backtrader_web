@@ -244,9 +244,7 @@ class AutoTradingScheduler:
                             session_name,
                         )
                         try:
-                            await mgr.stop_all(
-                                skip_server_owned_ai_research_paper_runtimes=True
-                            )
+                            await mgr.stop_all(skip_server_owned_ai_research_paper_runtimes=True)
                         except Exception:
                             logger.exception("Auto-trading stop_all failed")
 

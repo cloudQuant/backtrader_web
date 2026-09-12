@@ -235,9 +235,9 @@ class CffexSettlementSourceRegistration:
 # This candidate intentionally has no registered online source. A future
 # accepted change must add one reviewed descriptor and its construction-only
 # factory together; callers cannot supply a descriptor or source instance.
-CFFEX_SETTLEMENT_REVIEWED_SOURCE_REGISTRY: Mapping[
-    str, CffexSettlementSourceRegistration
-] = MappingProxyType({})
+CFFEX_SETTLEMENT_REVIEWED_SOURCE_REGISTRY: Mapping[str, CffexSettlementSourceRegistration] = (
+    MappingProxyType({})
+)
 
 
 class AkShareCffexSettlementSource:
@@ -540,9 +540,7 @@ class CffexSettlementCollector:
                         persisted_fetches
                     )
             except Exception as exc:
-                release_error = CffexSettlementCollectorFetchLeaseReleaseError(
-                    persisted_fetches
-                )
+                release_error = CffexSettlementCollectorFetchLeaseReleaseError(persisted_fetches)
                 release_error.__cause__ = exc
             if primary_failure is None and release_error is not None:
                 raise release_error
@@ -558,7 +556,9 @@ def _reviewed_source_registration(source_descriptor_id: str) -> CffexSettlementS
     return registration
 
 
-def _build_reviewed_source(registration: CffexSettlementSourceRegistration) -> CffexSettlementSource:
+def _build_reviewed_source(
+    registration: CffexSettlementSourceRegistration,
+) -> CffexSettlementSource:
     """Construct the static reviewed adapter only after the collection lease exists."""
     try:
         source = registration.source_factory()
@@ -903,10 +903,13 @@ def _assert_transport_evidence(
         raise CffexSettlementCollectorError("CFFEX_SETTLEMENT_SOURCE_TRANSPORT_EVIDENCE_INVALID")
     if value.get("certificate_policy") != source_descriptor.certificate_policy:
         raise CffexSettlementCollectorError("CFFEX_SETTLEMENT_SOURCE_TRANSPORT_EVIDENCE_INVALID")
-    if _require_lower_sha256(
-        value.get("peer_certificate_sha256"),
-        code="CFFEX_SETTLEMENT_SOURCE_TRANSPORT_EVIDENCE_INVALID",
-    ) != source_descriptor.peer_certificate_sha256:
+    if (
+        _require_lower_sha256(
+            value.get("peer_certificate_sha256"),
+            code="CFFEX_SETTLEMENT_SOURCE_TRANSPORT_EVIDENCE_INVALID",
+        )
+        != source_descriptor.peer_certificate_sha256
+    ):
         raise CffexSettlementCollectorError("CFFEX_SETTLEMENT_SOURCE_TRANSPORT_EVIDENCE_INVALID")
 
 

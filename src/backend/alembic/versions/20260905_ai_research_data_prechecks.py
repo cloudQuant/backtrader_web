@@ -79,7 +79,9 @@ def upgrade() -> None:
     )
     with op.batch_alter_table("ai_research_runs") as batch_op:
         batch_op.add_column(sa.Column("data_precheck_id", sa.String(length=36), nullable=True))
-    op.create_index("ix_ai_research_runs_data_precheck_id", "ai_research_runs", ["data_precheck_id"])
+    op.create_index(
+        "ix_ai_research_runs_data_precheck_id", "ai_research_runs", ["data_precheck_id"]
+    )
 
 
 def downgrade() -> None:
@@ -89,5 +91,7 @@ def downgrade() -> None:
     with op.batch_alter_table("ai_research_runs") as batch_op:
         batch_op.drop_column("data_precheck_id")
     op.drop_index("ix_ai_research_data_precheck_input", table_name="ai_research_data_prechecks")
-    op.drop_index("ix_ai_research_data_precheck_owner_expiry", table_name="ai_research_data_prechecks")
+    op.drop_index(
+        "ix_ai_research_data_precheck_owner_expiry", table_name="ai_research_data_prechecks"
+    )
     op.drop_table("ai_research_data_prechecks")

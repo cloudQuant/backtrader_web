@@ -74,16 +74,14 @@ _AKSHARE_REVIEWED_CONTRACTS: Mapping[tuple[str, str], ProviderContract] = Mappin
         for contract in AKSHARE_PROVIDER_CONTRACT_REGISTRY.contracts
     }
 )
-_AKSHARE_REVIEWED_CONTRACT_IDENTITIES: Mapping[tuple[str, str], tuple[str, str]] = (
-    MappingProxyType(
-        {
-            key: (
-                contract.contract_id,
-                contract.descriptor_sha256,
-            )
-            for key, contract in _AKSHARE_REVIEWED_CONTRACTS.items()
-        }
-    )
+_AKSHARE_REVIEWED_CONTRACT_IDENTITIES: Mapping[tuple[str, str], tuple[str, str]] = MappingProxyType(
+    {
+        key: (
+            contract.contract_id,
+            contract.descriptor_sha256,
+        )
+        for key, contract in _AKSHARE_REVIEWED_CONTRACTS.items()
+    }
 )
 
 
@@ -93,9 +91,9 @@ def _assert_reviewed_contract_integrity(contract: ProviderContract) -> None:
         key = (contract.provider, contract.route_id)
         expected_contract = _AKSHARE_REVIEWED_CONTRACTS.get(key)
         expected_identity = _AKSHARE_REVIEWED_CONTRACT_IDENTITIES.get(key)
-        if (
-            contract is not expected_contract
-            or expected_identity != (contract.contract_id, contract.descriptor_sha256)
+        if contract is not expected_contract or expected_identity != (
+            contract.contract_id,
+            contract.descriptor_sha256,
         ):
             raise ProviderContractError("PROVIDER_CONTRACT_DESCRIPTOR_MISMATCH")
         contract.assert_descriptor_integrity()
@@ -117,6 +115,7 @@ def _reviewed_contract_for_request(request: MarketDataProviderRequest) -> Provid
     _assert_reviewed_contract_integrity(contract)
     contract.assert_request_matches(request)
     return contract
+
 
 # The response normalizer obtains its reviewed aliases from the immutable
 # ProviderContract.  Keep this module-level alias for the schedule-only wide
@@ -233,7 +232,9 @@ class AkShareRoute:
             raise ValueError("supported_fund_identity_kinds require a fund route")
         if not isinstance(self.route_ids, frozenset):
             raise TypeError("AkShare route_ids must be a frozenset")
-        if any(not isinstance(route_id, str) or not route_id.strip() for route_id in self.route_ids):
+        if any(
+            not isinstance(route_id, str) or not route_id.strip() for route_id in self.route_ids
+        ):
             raise ValueError("AkShare route_ids must contain non-blank strings")
         object.__setattr__(
             self,
@@ -241,7 +242,9 @@ class AkShareRoute:
             frozenset(route_id.strip() for route_id in self.route_ids),
         )
         if (self.family_id is None) != (self.family_contract_version is None):
-            raise ValueError("AkShare family routes require both family_id and family_contract_version")
+            raise ValueError(
+                "AkShare family routes require both family_id and family_contract_version"
+            )
         if self.route_ids and self.family_id is None:
             raise ValueError("AkShare source-policy routes require an exact family pair")
         if self.family_id is not None:
@@ -1372,7 +1375,9 @@ class _AkShareSubprocessRunner:
                 close_fds=True,
             )
         except OSError as exc:
-            raise AkShareProviderError("AKSHARE_RUNNER_UNAVAILABLE", detail=_error_detail(exc)) from exc
+            raise AkShareProviderError(
+                "AKSHARE_RUNNER_UNAVAILABLE", detail=_error_detail(exc)
+            ) from exc
 
         if process.stdin is None or process.stdout is None or process.stderr is None:
             cleanup_task = asyncio.create_task(
@@ -1735,9 +1740,7 @@ class AkShareMarketDataProvider:
         # adding another exact route for the same asset/data-kind dimensions
         # cannot silently select a semantically different endpoint.
         if request.route_id is not None:
-            candidates = [
-                route for route in candidates if request.route_id in route.route_ids
-            ]
+            candidates = [route for route in candidates if request.route_id in route.route_ids]
             if not candidates:
                 raise AkShareProviderError("AKSHARE_ROUTE_UNSUPPORTED")
         if len(candidates) != 1:
@@ -1840,8 +1843,7 @@ class AkShareMarketDataProvider:
             duplicate_route_ids = seen_route_ids & route.route_ids
             if duplicate_route_ids:
                 raise ValueError(
-                    "duplicate AkShare source-policy route ID: "
-                    f"{sorted(duplicate_route_ids)!r}"
+                    f"duplicate AkShare source-policy route ID: {sorted(duplicate_route_ids)!r}"
                 )
             seen_route_ids.update(route.route_ids)
             for frequency in route.frequencies:
@@ -2159,7 +2161,6 @@ def _validate_runner_response(
     except (TypeError, ValueError) as exc:
         raise AkShareProviderError("AKSHARE_RUNNER_INVALID_RESPONSE") from exc
     return _coerce_response_rows(rows)
-
 
 
 def _routes_overlap(left: AkShareRoute, right: AkShareRoute) -> bool:

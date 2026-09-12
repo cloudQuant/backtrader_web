@@ -34,9 +34,24 @@ def upgrade() -> None:
     op.create_table(
         "ai_research_forward_observation_epochs",
         _id(),
-        sa.Column("user_id", sa.String(length=36), sa.ForeignKey("users.id", ondelete="RESTRICT"), nullable=False),
-        sa.Column("run_id", sa.String(length=36), sa.ForeignKey("ai_research_runs.id", ondelete="RESTRICT"), nullable=False),
-        sa.Column("candidate_id", sa.String(length=36), sa.ForeignKey("ai_research_candidates.id", ondelete="RESTRICT"), nullable=False),
+        sa.Column(
+            "user_id",
+            sa.String(length=36),
+            sa.ForeignKey("users.id", ondelete="RESTRICT"),
+            nullable=False,
+        ),
+        sa.Column(
+            "run_id",
+            sa.String(length=36),
+            sa.ForeignKey("ai_research_runs.id", ondelete="RESTRICT"),
+            nullable=False,
+        ),
+        sa.Column(
+            "candidate_id",
+            sa.String(length=36),
+            sa.ForeignKey("ai_research_candidates.id", ondelete="RESTRICT"),
+            nullable=False,
+        ),
         sa.Column("policy_version", sa.String(length=128), nullable=False),
         sa.Column("policy", sa.JSON(), nullable=False),
         sa.Column("policy_hash", sa.String(length=64), nullable=False),
@@ -65,7 +80,12 @@ def upgrade() -> None:
     op.create_table(
         "ai_research_forward_observation_snapshots",
         _id(),
-        sa.Column("user_id", sa.String(length=36), sa.ForeignKey("users.id", ondelete="RESTRICT"), nullable=False),
+        sa.Column(
+            "user_id",
+            sa.String(length=36),
+            sa.ForeignKey("users.id", ondelete="RESTRICT"),
+            nullable=False,
+        ),
         sa.Column(
             "observation_epoch_id",
             sa.String(length=36),
@@ -83,7 +103,12 @@ def upgrade() -> None:
         _timestamp("ingested_at"),
         _timestamp("as_of_at"),
         _timestamp("candidate_frozen_at"),
-        sa.Column("quality_status", sa.String(length=16), nullable=False, server_default=sa.text("'UNKNOWN'")),
+        sa.Column(
+            "quality_status",
+            sa.String(length=16),
+            nullable=False,
+            server_default=sa.text("'UNKNOWN'"),
+        ),
         sa.Column("quality_evidence", sa.JSON(), nullable=False),
         sa.Column("content_hash", sa.String(length=64), nullable=False),
         _timestamp("created_at"),

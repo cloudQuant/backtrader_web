@@ -361,9 +361,10 @@ async def apply_best_params(
         # Optimization task rows carry the strategy and owner but no unit or
         # workspace foreign key.  The unit's persisted task pointer is the
         # binding authority; never apply another same-user task's parameters.
-        if str(unit.last_optimization_task_id or "").strip() != str(
-            req.optimization_task_id or ""
-        ).strip():
+        if (
+            str(unit.last_optimization_task_id or "").strip()
+            != str(req.optimization_task_id or "").strip()
+        ):
             return {"error": "OPTIMIZATION_TASK_UNIT_MISMATCH"}
 
         mgr = get_optimization_execution_manager()

@@ -153,7 +153,9 @@ async def start_instance(
         latest_inst["error"] = None
         latest_inst["started_at"] = None
         clear_server_runtime_launch_observation(latest_inst)
-        normalize_instance_metadata(latest_inst, instance_id=instance_id, now=pending_now, touch=True)
+        normalize_instance_metadata(
+            latest_inst, instance_id=instance_id, now=pending_now, touch=True
+        )
         latest[instance_id] = latest_inst
         save_instances(latest)
         inst = latest_inst
@@ -224,7 +226,9 @@ async def start_instance(
                 failed["error"] = str(exc)
                 failed["stopped_at"] = failed_now
                 clear_server_runtime_launch_observation(failed)
-                normalize_instance_metadata(failed, instance_id=instance_id, now=failed_now, touch=True)
+                normalize_instance_metadata(
+                    failed, instance_id=instance_id, now=failed_now, touch=True
+                )
                 latest[instance_id] = failed
                 save_instances(latest)
         raise

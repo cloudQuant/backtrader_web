@@ -847,8 +847,7 @@ def _contains_market_data_binding_values(value: Any) -> bool:
     """Return whether a recovered snapshot carries any task-scoped binding."""
     if isinstance(value, dict):
         return any(
-            _is_market_data_binding_key(key)
-            or _contains_market_data_binding_values(item)
+            _is_market_data_binding_key(key) or _contains_market_data_binding_values(item)
             for key, item in value.items()
         )
     if isinstance(value, (list, tuple)):
@@ -1122,9 +1121,11 @@ def _find_trusted_task_snapshot_in_workspace(
     if not isinstance(ai_research, dict):
         return None
     raw_tasks = ai_research.get("tasks")
-    candidates = [*raw_tasks, ai_research.get("last_task")] if isinstance(raw_tasks, list) else [
-        ai_research.get("last_task")
-    ]
+    candidates = (
+        [*raw_tasks, ai_research.get("last_task")]
+        if isinstance(raw_tasks, list)
+        else [ai_research.get("last_task")]
+    )
     trusted: list[AIStrategyResearchTaskResponse] = []
     for raw in candidates:
         if not isinstance(raw, dict) or str(raw.get("task_id") or "").strip() != target:

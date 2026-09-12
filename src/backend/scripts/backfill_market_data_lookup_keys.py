@@ -91,7 +91,9 @@ def main() -> int:
     try:
         return asyncio.run(_run(_arguments()))
     except ValueError:
-        print(json.dumps({"status": "error", "code": "MARKET_DATA_LOOKUP_BACKFILL_ARGUMENT_INVALID"}))
+        print(
+            json.dumps({"status": "error", "code": "MARKET_DATA_LOOKUP_BACKFILL_ARGUMENT_INVALID"})
+        )
         return 2
     except Exception:
         # SQLAlchemy errors may contain a connection string. This operator

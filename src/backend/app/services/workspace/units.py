@@ -271,9 +271,7 @@ async def assert_ai_research_paper_runtime_start_allowed(
     if bool(getattr(unit, "lock_trading", False)):
         raise AIStrategyResearchPaperRuntimeStartError("AI_RESEARCH_PAPER_RUNTIME_LOCK_TRADING")
     if str(getattr(unit, "trading_mode", "") or "").strip().casefold() != "paper":
-        raise AIStrategyResearchPaperRuntimeStartError(
-            "AI_RESEARCH_PAPER_RUNTIME_MODE_INVALID"
-        )
+        raise AIStrategyResearchPaperRuntimeStartError("AI_RESEARCH_PAPER_RUNTIME_MODE_INVALID")
 
     from app.services.ai_research_provenance import (
         AI_RESEARCH_PAPER_RUNTIME_ANCHOR_FIELD,
@@ -281,7 +279,9 @@ async def assert_ai_research_paper_runtime_start_allowed(
     )
 
     settings = getattr(unit, "unit_settings", None)
-    anchor = settings.get(AI_RESEARCH_PAPER_RUNTIME_ANCHOR_FIELD) if isinstance(settings, dict) else None
+    anchor = (
+        settings.get(AI_RESEARCH_PAPER_RUNTIME_ANCHOR_FIELD) if isinstance(settings, dict) else None
+    )
     if not verify_ai_research_paper_runtime_anchor_for_unit(
         anchor,
         user_id=str(workspace.user_id),
@@ -296,7 +296,9 @@ async def assert_ai_research_paper_runtime_start_allowed(
         raise AIStrategyResearchPaperRuntimeStartError(
             "AI_RESEARCH_PAPER_RUNTIME_PROVENANCE_INVALID"
         )
-    runtime_snapshot_digest = anchor.get("runtime_snapshot_digest") if isinstance(anchor, dict) else None
+    runtime_snapshot_digest = (
+        anchor.get("runtime_snapshot_digest") if isinstance(anchor, dict) else None
+    )
     if not isinstance(runtime_snapshot_digest, str) or len(runtime_snapshot_digest) != 64:
         raise AIStrategyResearchPaperRuntimeStartError(
             "AI_RESEARCH_PAPER_RUNTIME_PROVENANCE_INVALID"
@@ -424,14 +426,9 @@ async def assert_ai_research_live_handoff_runtime_start_allowed(
     package_handoff = package.handoff if isinstance(package.handoff, dict) else {}
     prepared_handoff = package_handoff.get("live_trading_prepare")
     source_risk_gate = (
-        prepared_handoff.get("live_risk_gate")
-        if isinstance(prepared_handoff, dict)
-        else None
+        prepared_handoff.get("live_risk_gate") if isinstance(prepared_handoff, dict) else None
     )
-    if (
-        isinstance(source_risk_gate, dict)
-        and source_risk_gate.get("passed") is not True
-    ):
+    if isinstance(source_risk_gate, dict) and source_risk_gate.get("passed") is not True:
         raise AIStrategyResearchLiveHandoffRuntimeStartError(
             "AI_RESEARCH_LIVE_HANDOFF_RISK_GATE_INVALID"
         )
@@ -615,8 +612,7 @@ def _requires_market_data_binding(data_config: object) -> bool:
 def _contains_market_data_binding_payload(data_config: object) -> bool:
     """Identify any browser-supplied attempt to create a sealed binding unit."""
     return isinstance(data_config, dict) and any(
-        str(key).casefold().startswith(_MARKET_DATA_BINDING_KEY_PREFIX)
-        for key in data_config
+        str(key).casefold().startswith(_MARKET_DATA_BINDING_KEY_PREFIX) for key in data_config
     )
 
 
@@ -1212,13 +1208,17 @@ async def bulk_delete_units(workspace_id: str, user_id: str, unit_ids: list[str]
             return 0
 
         candidates = (
-            await session.execute(
-                select(StrategyUnit).where(
-                    StrategyUnit.workspace_id == workspace_id,
-                    StrategyUnit.id.in_(unit_ids),
+            (
+                await session.execute(
+                    select(StrategyUnit).where(
+                        StrategyUnit.workspace_id == workspace_id,
+                        StrategyUnit.id.in_(unit_ids),
+                    )
                 )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         if any(is_server_owned_ai_research_unit(unit) for unit in candidates):
             raise AIStrategyResearchUnitMutationError(
                 "AI_RESEARCH_UNIT_SERVER_OWNED_DELETE_FORBIDDEN"

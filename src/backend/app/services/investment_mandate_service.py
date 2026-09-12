@@ -627,7 +627,9 @@ class InvestmentMandateService:
             return (
                 isinstance(actual, list)
                 and len(actual) == len(expected)
-                and all(cls._value_matches(item, expected[index]) for index, item in enumerate(actual))
+                and all(
+                    cls._value_matches(item, expected[index]) for index, item in enumerate(actual)
+                )
             )
         if isinstance(expected, dict):
             return isinstance(actual, dict) and cls._constraint_record_matches(actual, expected)

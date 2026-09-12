@@ -1256,10 +1256,7 @@ class LiveTradingManager:
                     raise AIStrategyResearchLiveHandoffRuntimeStartError(
                         "AI_RESEARCH_LIVE_HANDOFF_SERVER_ACTIVATION_REQUIRED"
                     )
-                if (
-                    pending_live_handoff_token is None
-                    and supplied_live_handoff_token
-                ):
+                if pending_live_handoff_token is None and supplied_live_handoff_token:
                     raise AIStrategyResearchLiveHandoffRuntimeStartError(
                         "AI_RESEARCH_LIVE_HANDOFF_SERVER_ACTIVATION_REQUIRED"
                     )
@@ -1581,7 +1578,9 @@ class LiveTradingManager:
                         "result": "stopped",
                     }
                 )
-        return cast(dict[str, StopResult], {"success": success, "failed": failed, "details": details})
+        return cast(
+            dict[str, StopResult], {"success": success, "failed": failed, "details": details}
+        )
 
     # ---- Internal Methods ----
 

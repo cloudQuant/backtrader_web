@@ -40,9 +40,7 @@ AI_RESEARCH_PAPER_RUNTIME_METRICS_OBSERVATION_SCHEMA_VERSION = (
 _PROVENANCE_DOMAIN = b"ai-research-continuation-provenance-v1"
 _PAPER_RUNTIME_ANCHOR_DOMAIN = b"ai-research-paper-runtime-anchor-v1"
 _LIVE_HANDOFF_UNIT_ANCHOR_DOMAIN = b"ai-research-live-handoff-unit-anchor-v1"
-_PAPER_RUNTIME_METRICS_OBSERVATION_DOMAIN = (
-    b"ai-research-paper-runtime-metrics-observation-v1"
-)
+_PAPER_RUNTIME_METRICS_OBSERVATION_DOMAIN = b"ai-research-paper-runtime-metrics-observation-v1"
 _STRATEGY_SNAPSHOT_DOMAIN = b"ai-research-server-strategy-snapshot-v1"
 _STRATEGY_SNAPSHOT_MARKER_PATTERN = re.compile(
     r"\s*<!-- ai-research-server-snapshot:([A-Za-z0-9_-]+)\.([0-9a-f]{64}) -->"
@@ -289,7 +287,9 @@ def verify_ai_research_paper_runtime_anchor(
     if envelope is None or key is None:
         return False
     expected_signature = _canonical_hmac(key, envelope)
-    return expected_signature is not None and hmac.compare_digest(supplied_signature, expected_signature)
+    return expected_signature is not None and hmac.compare_digest(
+        supplied_signature, expected_signature
+    )
 
 
 def verify_ai_research_paper_runtime_anchor_for_unit(
@@ -799,10 +799,9 @@ def _live_handoff_unit_anchor_envelope(
     unit_id = _required_text(live_unit_id)
     research_run_id = _required_text(run_id)
     source_signature = _required_text(source_run_signature)
-    if (
-        not all((owner, research_workspace, live_workspace, unit_id, research_run_id, source_signature))
-        or not _is_sha256_digest(source_signature)
-    ):
+    if not all(
+        (owner, research_workspace, live_workspace, unit_id, research_run_id, source_signature)
+    ) or not _is_sha256_digest(source_signature):
         return None
     payload = _unit_payload_for_live_handoff_anchor(unit)
     if (

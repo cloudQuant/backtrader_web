@@ -31,14 +31,13 @@ def upgrade() -> None:
     """Add and backfill the immutable digest for the opaque storage reference."""
 
     with op.batch_alter_table("ai_research_dataset_snapshots") as batch_op:
-        batch_op.add_column(sa.Column("storage_reference_hash", sa.String(length=64), nullable=True))
+        batch_op.add_column(
+            sa.Column("storage_reference_hash", sa.String(length=64), nullable=True)
+        )
 
     bind = op.get_bind()
     rows = bind.execute(
-        sa.text(
-            "SELECT id, partition_kind, storage_uri "
-            "FROM ai_research_dataset_snapshots"
-        )
+        sa.text("SELECT id, partition_kind, storage_uri FROM ai_research_dataset_snapshots")
     ).mappings()
     for row in rows:
         storage_uri = row["storage_uri"]
@@ -77,9 +76,9 @@ def downgrade() -> None:
 def _storage_reference_hash(partition_kind: str, storage_uri: str) -> str:
     payload = {"partition_kind": partition_kind, "storage_uri": storage_uri}
     return sha256(
-        json.dumps(payload, ensure_ascii=False, allow_nan=False, separators=(",", ":"), sort_keys=True).encode(
-            "utf-8"
-        )
+        json.dumps(
+            payload, ensure_ascii=False, allow_nan=False, separators=(",", ":"), sort_keys=True
+        ).encode("utf-8")
     ).hexdigest()
 
 

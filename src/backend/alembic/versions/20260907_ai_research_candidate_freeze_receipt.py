@@ -28,12 +28,16 @@ _HOLDOUT_EPOCH_UNIQUE = "uq_ai_research_holdout_authorization_epoch"
 def upgrade() -> None:
     """Create the append-only strict candidate-freeze identity authority."""
 
-    duplicate_epoch = op.get_bind().execute(
-        sa.text(
-            f"SELECT experiment_epoch_id FROM {_HOLDOUT_TABLE} "
-            "GROUP BY experiment_epoch_id HAVING COUNT(*) > 1 LIMIT 1"
+    duplicate_epoch = (
+        op.get_bind()
+        .execute(
+            sa.text(
+                f"SELECT experiment_epoch_id FROM {_HOLDOUT_TABLE} "
+                "GROUP BY experiment_epoch_id HAVING COUNT(*) > 1 LIMIT 1"
+            )
         )
-    ).scalar()
+        .scalar()
+    )
     if duplicate_epoch is not None:
         raise RuntimeError("HOLDOUT_AUTHORIZATION_EPOCH_DUPLICATES")
     _upgrade_holdout_epoch_unique()

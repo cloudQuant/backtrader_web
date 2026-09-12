@@ -1247,9 +1247,7 @@ async def market_data_research_bridge_is_effective(
         getattr(state, "reason_code", None) == "CAPABILITY_LEDGER_UNAVAILABLE"
         for state in capabilities.response.capability_states
     ):
-        raise MarketDataResearchBindingError(
-            "MARKET_DATA_BINDING_CAPABILITY_CONTEXT_UNAVAILABLE"
-        )
+        raise MarketDataResearchBindingError("MARKET_DATA_BINDING_CAPABILITY_CONTEXT_UNAVAILABLE")
     return bool(
         capabilities.response.query_v2_enabled
         and capabilities.response.research_backtest_bridge_enabled
@@ -1660,7 +1658,9 @@ def _require_strict_research_bars_family(*, asset_type: str, timeframe: str) -> 
             raise MarketDataResearchBindingError(
                 "MARKET_DATA_BINDING_STRICT_BARS_FAMILY_UNCONFIGURED"
             ) from exc
-        raise MarketDataResearchBindingError("MARKET_DATA_BINDING_STRICT_BARS_FAMILY_INVALID") from exc
+        raise MarketDataResearchBindingError(
+            "MARKET_DATA_BINDING_STRICT_BARS_FAMILY_INVALID"
+        ) from exc
     if contract.data_kind != "bars":
         raise MarketDataResearchBindingError("MARKET_DATA_BINDING_STRICT_BARS_FAMILY_INVALID")
     if timeframe not in contract.frequencies:

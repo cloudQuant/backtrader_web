@@ -142,8 +142,7 @@ def _matching_check_name(
             continue
         if actual != expected:
             raise RuntimeError(
-                "MARKET_DATA_SOURCE_RECEIPT_EVIDENCE_SCHEMA_DRIFT: "
-                f"{candidate_name}={actual!r}"
+                f"MARKET_DATA_SOURCE_RECEIPT_EVIDENCE_SCHEMA_DRIFT: {candidate_name}={actual!r}"
             )
         return candidate_name
     return None
@@ -216,11 +215,7 @@ def _request_id_index_or_constraint_names(bind: sa.Connection) -> tuple[set[str]
     must remove the one that actually exists before dropping its column.
     """
     inspector = sa.inspect(bind)
-    indexes = {
-        str(index["name"])
-        for index in inspector.get_indexes(_TABLE)
-        if index.get("name")
-    }
+    indexes = {str(index["name"]) for index in inspector.get_indexes(_TABLE) if index.get("name")}
     uniques = {
         str(constraint["name"])
         for constraint in inspector.get_unique_constraints(_TABLE)

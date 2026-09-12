@@ -119,10 +119,7 @@ def _normalized_expression(expression: object) -> str:
 
 def _require_table(bind: sa.Connection, table_name: str) -> None:
     if not sa.inspect(bind).has_table(table_name):
-        raise RuntimeError(
-            "MARKET_DATA_SOURCE_GOVERNANCE_SCHEMA_UNREADY: "
-            f"{table_name} missing"
-        )
+        raise RuntimeError(f"MARKET_DATA_SOURCE_GOVERNANCE_SCHEMA_UNREADY: {table_name} missing")
 
 
 def _column_definitions(bind: sa.Connection, table_name: str) -> dict[str, dict[str, object]]:
@@ -144,8 +141,7 @@ def _assert_existing_column_compatible(
         or not bool(definition.get("nullable"))
     ):
         raise RuntimeError(
-            "MARKET_DATA_SOURCE_GOVERNANCE_SCHEMA_DRIFT: "
-            f"{table_name}.{column_name}"
+            f"MARKET_DATA_SOURCE_GOVERNANCE_SCHEMA_DRIFT: {table_name}.{column_name}"
         )
 
 
@@ -187,8 +183,7 @@ def _matching_check_name(
             continue
         if actual != expected:
             raise RuntimeError(
-                "MARKET_DATA_SOURCE_GOVERNANCE_SCHEMA_DRIFT: "
-                f"{candidate_name}={actual!r}"
+                f"MARKET_DATA_SOURCE_GOVERNANCE_SCHEMA_DRIFT: {candidate_name}={actual!r}"
             )
         return candidate_name
     return None
@@ -240,8 +235,7 @@ def _ensure_calendar_source_index(bind: sa.Connection) -> None:
         return
     if actual != expected:
         raise RuntimeError(
-            "MARKET_DATA_SOURCE_GOVERNANCE_SCHEMA_DRIFT: "
-            f"{_CALENDAR_SOURCE_INDEX}={actual!r}"
+            f"MARKET_DATA_SOURCE_GOVERNANCE_SCHEMA_DRIFT: {_CALENDAR_SOURCE_INDEX}={actual!r}"
         )
 
 

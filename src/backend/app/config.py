@@ -135,9 +135,7 @@ class Settings(BaseSettings):
     )
     MARKET_DATA_RESEARCH_ARTIFACT_ROOT: str = Field(
         default=str((_REPO_ROOT / "data" / "market_data_research").resolve()),
-        description=(
-            "Server-owned root for immutable market-data research/backtest artifacts"
-        ),
+        description=("Server-owned root for immutable market-data research/backtest artifacts"),
     )
     MARKET_DATA_RESEARCH_ARTIFACT_SIGNING_KEY: str = Field(
         default="",
@@ -1067,8 +1065,7 @@ class Settings(BaseSettings):
         """Validate production-only secret and admin-password guards."""
         if self.MARKET_DATA_QUERY_V2_ENABLED and not self.MARKET_DATA_CURSOR_SIGNING_KEY:
             raise ValueError(
-                "MARKET_DATA_CURSOR_SIGNING_KEY is required when "
-                "MARKET_DATA_QUERY_V2_ENABLED=true"
+                "MARKET_DATA_CURSOR_SIGNING_KEY is required when MARKET_DATA_QUERY_V2_ENABLED=true"
             )
         if self.MARKET_DATA_RESEARCH_BACKTEST_BRIDGE_ENABLED:
             if not self.MARKET_DATA_QUERY_V2_ENABLED:

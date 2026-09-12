@@ -186,10 +186,14 @@ async def delete_workspace(workspace_id: str, user_id: str) -> bool:
         if ws is None:
             return False
         units = (
-            await session.execute(
-                select(StrategyUnit).where(StrategyUnit.workspace_id == workspace_id)
+            (
+                await session.execute(
+                    select(StrategyUnit).where(StrategyUnit.workspace_id == workspace_id)
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         if any(is_server_owned_ai_research_unit(unit) for unit in units):
             raise AIStrategyResearchUnitMutationError(
                 "AI_RESEARCH_UNIT_SERVER_OWNED_DELETE_FORBIDDEN"

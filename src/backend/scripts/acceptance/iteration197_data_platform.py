@@ -66,9 +66,7 @@ RESULT_SCHEMA_VERSION = "iteration197-data-platform-acceptance-result-v2"
 # It must not be conflated with the separate local-first package whose IDs are
 # named ``AC-197-001`` etc.  The namespaced formal ID is stable in artifacts.
 ACCEPTANCE_SPEC_ID = "iteration197-unified-data-platform-openbb-matrix-v1"
-ACCEPTANCE_SPEC_PATH = (
-    "docs/iterations/迭代197-统一数据中台与OpenBB本地优先集成/ACCEPTANCE.md"
-)
+ACCEPTANCE_SPEC_PATH = "docs/iterations/迭代197-统一数据中台与OpenBB本地优先集成/ACCEPTANCE.md"
 CASE_MAPPING_VERSION = "iteration197-unified-matrix-id-v4-offline-g1-coverage"
 ENVIRONMENT_SCHEMA_VERSION = "iteration197-acceptance-environment-v1"
 SOURCE_MANIFEST_SCHEMA_VERSION = "iteration197-approved-source-manifest-v2"
@@ -108,7 +106,9 @@ _GIT_OBJECT_ID_RE = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")
 _APPROVAL_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{2,127}$")
 _IDENTIFIER_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$")
 _MAX_MANIFEST_BYTES = 1_048_576
-_SENSITIVE_PATH_PART_RE = re.compile(r"(?:^|[._-])(env|secret|credential|token|password|private|key)(?:$|[._-])", re.I)
+_SENSITIVE_PATH_PART_RE = re.compile(
+    r"(?:^|[._-])(env|secret|credential|token|password|private|key)(?:$|[._-])", re.I
+)
 
 # The candidate is sealed to this exact single migration tip. The mandatory
 # ancestry below gives an actionable failure when a checkout has an incomplete
@@ -138,8 +138,7 @@ DEFAULT_SCOPE_MANIFEST_RELATIVE = Path(
     "iteration197-market-data-scope-manifest-20260909.json"
 )
 DEFAULT_ITER196_BASELINE_RELATIVE = Path(
-    "docs/iterations/迭代197-本地优先市场数据中台/"
-    "iter196-market-data-baseline-20260909.json"
+    "docs/iterations/迭代197-本地优先市场数据中台/iter196-market-data-baseline-20260909.json"
 )
 # The Iteration 196 freeze receipt names this merge as the immutable boundary
 # that Iteration 197 is allowed to inherit.  Its second parent must therefore
@@ -876,7 +875,11 @@ _CASE_GATE_ROWS: tuple[tuple[str, frozenset[str], frozenset[str]], ...] = (
     ("AC-12", frozenset({"G1", "G2"}), frozenset({MODE_OFFLINE, MODE_INTEGRATION})),
     ("AC-13", frozenset({"G1", "G2"}), frozenset({MODE_OFFLINE, MODE_INTEGRATION})),
     ("AC-14", frozenset({"G1", "G2"}), frozenset({MODE_OFFLINE, MODE_INTEGRATION})),
-    ("AC-15", frozenset({"G1", "G2", "G3"}), frozenset({MODE_OFFLINE, MODE_INTEGRATION, MODE_LIVE})),
+    (
+        "AC-15",
+        frozenset({"G1", "G2", "G3"}),
+        frozenset({MODE_OFFLINE, MODE_INTEGRATION, MODE_LIVE}),
+    ),
     ("AC-16", frozenset({"G1", "G3"}), frozenset({MODE_OFFLINE, MODE_LIVE})),
     ("AC-17", frozenset({"G1", "G3"}), frozenset({MODE_OFFLINE, MODE_LIVE})),
     ("AC-18", frozenset({"G1", "G2"}), frozenset({MODE_OFFLINE, MODE_INTEGRATION})),
@@ -896,11 +899,19 @@ _CASE_GATE_ROWS: tuple[tuple[str, frozenset[str], frozenset[str]], ...] = (
     ("AC-32", frozenset({"G1", "G2"}), frozenset({MODE_OFFLINE, MODE_INTEGRATION})),
     ("AC-33", frozenset({"G2", "G3"}), frozenset({MODE_INTEGRATION, MODE_LIVE})),
     ("AC-34", frozenset({"G2", "G3"}), frozenset({MODE_INTEGRATION, MODE_LIVE})),
-    ("AC-35", frozenset({"G1", "G2", "G3"}), frozenset({MODE_OFFLINE, MODE_INTEGRATION, MODE_LIVE})),
+    (
+        "AC-35",
+        frozenset({"G1", "G2", "G3"}),
+        frozenset({MODE_OFFLINE, MODE_INTEGRATION, MODE_LIVE}),
+    ),
     ("AC-36", frozenset({"G1", "G3"}), frozenset({MODE_OFFLINE, MODE_LIVE})),
     ("AC-37", frozenset({"G1", "G3"}), frozenset({MODE_OFFLINE, MODE_LIVE})),
     ("AC-38", frozenset({"G2", "G3"}), frozenset({MODE_INTEGRATION, MODE_LIVE})),
-    ("AC-39", frozenset({"G1", "G2", "G3"}), frozenset({MODE_OFFLINE, MODE_INTEGRATION, MODE_LIVE})),
+    (
+        "AC-39",
+        frozenset({"G1", "G2", "G3"}),
+        frozenset({MODE_OFFLINE, MODE_INTEGRATION, MODE_LIVE}),
+    ),
     ("AC-40", frozenset({"G1", "G2"}), frozenset({MODE_OFFLINE, MODE_INTEGRATION})),
     ("AC-41", frozenset({"G2", "G4"}), frozenset({MODE_INTEGRATION, MODE_RECOVERY})),
     ("AC-42", frozenset({"G2", "G4"}), frozenset({MODE_INTEGRATION, MODE_RECOVERY})),
@@ -908,7 +919,11 @@ _CASE_GATE_ROWS: tuple[tuple[str, frozenset[str], frozenset[str]], ...] = (
     ("AC-44", frozenset({"G4"}), frozenset({MODE_RECOVERY})),
     ("AC-45", frozenset({"G4"}), frozenset({MODE_RECOVERY})),
     ("AC-46", frozenset({"G4"}), frozenset({MODE_PERFORMANCE})),
-    ("AC-47", frozenset({"G2", "G4"}), frozenset({MODE_INTEGRATION, MODE_RECOVERY, MODE_PERFORMANCE})),
+    (
+        "AC-47",
+        frozenset({"G2", "G4"}),
+        frozenset({MODE_INTEGRATION, MODE_RECOVERY, MODE_PERFORMANCE}),
+    ),
     ("AC-48", frozenset({"G4"}), frozenset({MODE_RECOVERY})),
 )
 _CASES = tuple(AcceptanceCase(case_id, gates, modes) for case_id, gates, modes in _CASE_GATE_ROWS)
@@ -975,9 +990,9 @@ def _utc_now() -> str:
 
 
 def _canonical_json_bytes(value: object) -> bytes:
-    return json.dumps(value, ensure_ascii=False, allow_nan=False, sort_keys=True, separators=(",", ":")).encode(
-        "utf-8"
-    )
+    return json.dumps(
+        value, ensure_ascii=False, allow_nan=False, sort_keys=True, separators=(",", ":")
+    ).encode("utf-8")
 
 
 def _sha256(value: bytes) -> str:
@@ -1130,7 +1145,10 @@ def _collect_scope_evidence(project_root: Path, manifest_path: Path) -> ScopeEvi
                 or not _IDENTIFIER_RE.fullmatch(data_kind)
                 or not isinstance(frequencies, list)
                 or not frequencies
-                or not all(isinstance(value, str) and _IDENTIFIER_RE.fullmatch(value) for value in frequencies)
+                or not all(
+                    isinstance(value, str) and _IDENTIFIER_RE.fullmatch(value)
+                    for value in frequencies
+                )
                 or (source_policy_id is not None and not isinstance(source_policy_id, str))
             ):
                 return ScopeEvidence(valid=False, code="SCOPE_MANIFEST_INVALID")
@@ -1475,7 +1493,10 @@ def _validate_source_manifest_entry(
         "request_provider",
         "provider_endpoint",
     )
-    if any(not isinstance(value.get(field), str) or not _IDENTIFIER_RE.fullmatch(value[field]) for field in required_text):
+    if any(
+        not isinstance(value.get(field), str) or not _IDENTIFIER_RE.fullmatch(value[field])
+        for field in required_text
+    ):
         return None
     expected_provider_ids = _string_list(value.get("expected_result_provider_ids"))
     asset_types = _string_list(value.get("asset_types"))
@@ -1555,8 +1576,7 @@ def _live_source_gate(
         return False, "ACCEPTANCE_SOURCE_MANIFEST_INVALID", {}
     families_by_id = {family.family_id: family for family in scope_evidence.families}
     validated = [
-        _validate_source_manifest_entry(source, families_by_id=families_by_id)
-        for source in sources
+        _validate_source_manifest_entry(source, families_by_id=families_by_id) for source in sources
     ]
     if any(source is None for source in validated):
         return False, "ACCEPTANCE_SOURCE_MANIFEST_INVALID", {}
@@ -1588,7 +1608,7 @@ def _live_source_gate(
     return True, "ACCEPTANCE_SOURCE_MANIFEST_APPROVED", evidence
 
 
-_OFFLINE_NETWORK_GUARD = r'''# Generated only for one Iteration 197 offline child process.
+_OFFLINE_NETWORK_GUARD = r"""# Generated only for one Iteration 197 offline child process.
 import os as _os
 if _os.environ.get("ITER197_OFFLINE_NETWORK_DISABLED") == "1":
     import socket as _socket
@@ -1640,7 +1660,7 @@ if _os.environ.get("ITER197_OFFLINE_NETWORK_DISABLED") == "1":
     _socket.gethostbyname = _denied_gethostbyname
     _socket.gethostbyname_ex = _denied_gethostbyname_ex
     _socket.getnameinfo = _denied_getnameinfo
-'''
+"""
 
 
 @contextmanager
@@ -1857,8 +1877,10 @@ def _case_result(
     gate = GATE_BY_MODE[slice_.mode]
     remaining = tuple(sorted(slice_.case.required_gates - {gate}))
     satisfied = (gate,) if status == STATUS_PASS else ()
-    overall_status = STATUS_PASS if status == STATUS_PASS and not remaining else (
-        STATUS_NOT_RUN if status == STATUS_PASS else status
+    overall_status = (
+        STATUS_PASS
+        if status == STATUS_PASS and not remaining
+        else (STATUS_NOT_RUN if status == STATUS_PASS else status)
     )
     payload: dict[str, object] = {
         "case_id": slice_.case.case_id,
@@ -1935,7 +1957,11 @@ def _parse_dirty_allowlist(values: Iterable[str]) -> tuple[tuple[str, ...], tupl
         except TypeError:
             errors.append("CANDIDATE_DIRTY_ALLOWLIST_INVALID")
             continue
-        if path.is_absolute() or not path.parts or any(part in {"", ".", ".."} for part in path.parts):
+        if (
+            path.is_absolute()
+            or not path.parts
+            or any(part in {"", ".", ".."} for part in path.parts)
+        ):
             errors.append("CANDIDATE_DIRTY_ALLOWLIST_INVALID")
             continue
         value = path.as_posix()
@@ -1952,7 +1978,11 @@ def _is_sensitive_relative_path(path: str) -> bool:
 
 
 def _public_dirty_path(path: str) -> str:
-    return f"REDACTED:{_sha256(path.encode('utf-8'))[:16]}" if _is_sensitive_relative_path(path) else path
+    return (
+        f"REDACTED:{_sha256(path.encode('utf-8'))[:16]}"
+        if _is_sensitive_relative_path(path)
+        else path
+    )
 
 
 def _path_sha256(path: Path, *, sensitive: bool) -> str | None:
@@ -1966,7 +1996,9 @@ def _path_sha256(path: Path, *, sensitive: bool) -> str | None:
         return None
 
 
-def _git_command(project_root: Path, arguments: Sequence[str]) -> subprocess.CompletedProcess[bytes] | None:
+def _git_command(
+    project_root: Path, arguments: Sequence[str]
+) -> subprocess.CompletedProcess[bytes] | None:
     try:
         return subprocess.run(
             ["git", "-C", str(project_root), *arguments],
@@ -1979,7 +2011,9 @@ def _git_command(project_root: Path, arguments: Sequence[str]) -> subprocess.Com
 
 
 def _dirty_records(project_root: Path) -> tuple[tuple[str, str], ...] | None:
-    completed = _git_command(project_root, ("status", "--porcelain=v1", "-z", "--untracked-files=all"))
+    completed = _git_command(
+        project_root, ("status", "--porcelain=v1", "-z", "--untracked-files=all")
+    )
     if completed is None or completed.returncode != 0:
         return None
     records = completed.stdout.split(b"\0")
@@ -2025,7 +2059,9 @@ def _case_map_sha256() -> str:
                 ],
                 "offline_targets": {
                     f"{case_id}:{asset_type}": list(targets)
-                    for (case_id, asset_type), targets in sorted(_OFFLINE_TESTS_BY_CASE_ASSET.items())
+                    for (case_id, asset_type), targets in sorted(
+                        _OFFLINE_TESTS_BY_CASE_ASSET.items()
+                    )
                 },
             }
         )
@@ -2103,7 +2139,11 @@ def _collect_candidate_evidence(
                 "content_sha256": _path_sha256(project_root / path, sensitive=sensitive),
             }
         )
-    code = "CANDIDATE_CLEAN_OR_ALLOWLISTED" if not unallowlisted else "CANDIDATE_DIRTY_ALLOWLIST_REQUIRED"
+    code = (
+        "CANDIDATE_CLEAN_OR_ALLOWLISTED"
+        if not unallowlisted
+        else "CANDIDATE_DIRTY_ALLOWLIST_REQUIRED"
+    )
     return CandidateEvidence(
         valid=not unallowlisted,
         code=code,
@@ -2127,10 +2167,7 @@ def _summarize_exit(cases: Sequence[Mapping[str, object]], selection_errors: Seq
     # consumers.  A G1 fixture may pass while required G2/G3/G4 gates remain;
     # the process status must follow the complete formal case so CI cannot
     # accidentally treat that local slice as release acceptance.
-    overall_statuses = {
-        case.get("overall_case_status", case.get("status"))
-        for case in cases
-    }
+    overall_statuses = {case.get("overall_case_status", case.get("status")) for case in cases}
     effective_statuses = slice_statuses | overall_statuses
     if STATUS_FAIL in effective_statuses:
         return EXIT_FAIL
@@ -2224,9 +2261,7 @@ def run_acceptance(
         else project_root / DEFAULT_SCOPE_MANIFEST_RELATIVE
     )
     raw_case_values = args.cases or ()
-    case_values = (
-        (raw_case_values,) if isinstance(raw_case_values, str) else tuple(raw_case_values)
-    )
+    case_values = (raw_case_values,) if isinstance(raw_case_values, str) else tuple(raw_case_values)
     requested_case_ids, unknown_case_ids, case_errors = _normalize_case_selection(case_values)
     asset_types, asset_errors = _normalize_asset_selection(args.asset_types)
     reporting_assets = asset_types if asset_types else ASSET_TYPES
@@ -2403,7 +2438,9 @@ def run_acceptance(
     scope_evidence = _collect_scope_evidence(project_root, manifest_path)
     alembic_evidence = _collect_alembic_evidence(backend_root)
     if not scope_evidence.valid:
-        cases = _static_case_results(slices=selected_slices, status=STATUS_FAIL, code=scope_evidence.code)
+        cases = _static_case_results(
+            slices=selected_slices, status=STATUS_FAIL, code=scope_evidence.code
+        )
         return _build_result(
             mode=mode,
             dry_run=False,
@@ -2420,7 +2457,9 @@ def run_acceptance(
             iter196_baseline_evidence=iter196_baseline_evidence,
         )
     if not alembic_evidence.valid:
-        cases = _static_case_results(slices=selected_slices, status=STATUS_FAIL, code=alembic_evidence.code)
+        cases = _static_case_results(
+            slices=selected_slices, status=STATUS_FAIL, code=alembic_evidence.code
+        )
         return _build_result(
             mode=mode,
             dry_run=False,
@@ -2451,7 +2490,9 @@ def run_acceptance(
             **source_evidence,
         }
         if not source_allowed:
-            cases = _static_case_results(slices=selected_slices, status=STATUS_BLOCKED, code=source_code)
+            cases = _static_case_results(
+                slices=selected_slices, status=STATUS_BLOCKED, code=source_code
+            )
             return _build_result(
                 mode=mode,
                 dry_run=False,

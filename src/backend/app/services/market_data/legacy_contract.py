@@ -407,9 +407,9 @@ class LegacyMarketDataQueryContractResolver:
         create an alias collision for a current request.
         """
         effective_at = datetime.now(timezone.utc)
-        stored_exchange_symbol = MdInstrumentIdentityRevision.identity_json[
-            "details"
-        ]["exchange_symbol"].as_string()
+        stored_exchange_symbol = MdInstrumentIdentityRevision.identity_json["details"][
+            "exchange_symbol"
+        ].as_string()
         candidate_canonical_ids = list(
             (
                 await self._db.execute(
