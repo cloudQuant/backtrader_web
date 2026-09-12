@@ -58,13 +58,17 @@ class TestDataAPI:
             )
         )
         evaluation = SimpleNamespace(response=SimpleNamespace(query_v2_enabled=True))
-        monkeypatch.setitem(app.dependency_overrides, get_authorized_market_data_access, lambda: access)
+        monkeypatch.setitem(
+            app.dependency_overrides, get_authorized_market_data_access, lambda: access
+        )
         monkeypatch.setitem(
             app.dependency_overrides,
             get_market_data_capability_evaluation,
             lambda: evaluation,
         )
-        monkeypatch.setitem(app.dependency_overrides, get_market_data_query_service, lambda: object())
+        monkeypatch.setitem(
+            app.dependency_overrides, get_market_data_query_service, lambda: object()
+        )
         monkeypatch.setitem(
             app.dependency_overrides,
             data_base.get_legacy_market_data_query_contract_resolver,

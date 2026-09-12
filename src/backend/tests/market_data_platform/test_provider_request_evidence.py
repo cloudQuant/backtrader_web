@@ -79,11 +79,14 @@ def test_request_fingerprint_covers_route_and_every_outbound_dto_dimension() -> 
     assert kline.provider_request_fingerprint_sha256 != request.provider_request_fingerprint_sha256
     assert kline.dto_payload["family_id"] == "stock.kline_legacy"
     assert kline.dto_payload["family_contract_version"] == "market-data-kline-v1"
-    assert replace(
-        kline,
-        family_id="stock.realtime",
-        family_contract_version="market-data-family-v1",
-    ).provider_request_fingerprint_sha256 != kline.provider_request_fingerprint_sha256
+    assert (
+        replace(
+            kline,
+            family_id="stock.realtime",
+            family_contract_version="market-data-family-v1",
+        ).provider_request_fingerprint_sha256
+        != kline.provider_request_fingerprint_sha256
+    )
     assert replace(
         request, provider_endpoint="equity.price.historical"
     ).provider_request_fingerprint_sha256 != (request.provider_request_fingerprint_sha256)

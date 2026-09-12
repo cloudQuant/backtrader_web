@@ -69,8 +69,8 @@ def governed_kline_dependencies() -> tuple[_Db, _Service, _ContractResolver]:
     app.dependency_overrides[get_authorized_market_data_access] = lambda: access
     app.dependency_overrides[get_market_data_capability_evaluation] = lambda: evaluation
     app.dependency_overrides[get_market_data_query_service] = lambda: service
-    app.dependency_overrides[data_base.get_legacy_market_data_query_contract_resolver] = (
-        lambda: contracts
+    app.dependency_overrides[data_base.get_legacy_market_data_query_contract_resolver] = lambda: (
+        contracts
     )
     try:
         yield db, service, contracts

@@ -42,7 +42,14 @@ def _args(
     dirty_allowlist: list[str] | None = None,
     dry_run: bool = False,
 ) -> object:
-    argv = ["--mode", mode, "--output", str(tmp_path / "evidence"), "--project-root", str(PROJECT_ROOT)]
+    argv = [
+        "--mode",
+        mode,
+        "--output",
+        str(tmp_path / "evidence"),
+        "--project-root",
+        str(PROJECT_ROOT),
+    ]
     if scope_manifest is not None:
         argv.extend(["--scope-manifest", str(scope_manifest)])
     for case in cases or []:
@@ -175,7 +182,9 @@ def _approved_source_manifest(
 
 def test_registry_covers_all_named_acceptance_cases_and_formal_matrix_ids() -> None:
     """Every documented matrix ID must resolve one-to-one without omission."""
-    assert [case.case_id for case in runner._CASES] == [f"AC-{number:02d}" for number in range(1, 49)]
+    assert [case.case_id for case in runner._CASES] == [
+        f"AC-{number:02d}" for number in range(1, 49)
+    ]
     assert [case.formal_case_id for case in runner._CASES] == [
         f"AC-197-MATRIX-{number:03d}" for number in range(1, 49)
     ]
@@ -296,7 +305,9 @@ def _iter196_git_command(
     def git_command(root: Path, arguments: Sequence[str]) -> subprocess.CompletedProcess[bytes]:
         assert root == project_root
         if arguments == ("rev-parse", "--verify", f"{baseline_ref}^{{commit}}"):
-            return subprocess.CompletedProcess([], 0, stdout=f"{baseline_ref}\n".encode(), stderr=b"")
+            return subprocess.CompletedProcess(
+                [], 0, stdout=f"{baseline_ref}\n".encode(), stderr=b""
+            )
         if arguments == (
             "rev-parse",
             "--verify",
@@ -506,7 +517,9 @@ def test_formal_case_selection_emits_one_result_per_case_asset_gate_slice(tmp_pa
         ("AC-197-MATRIX-001", "stock", "AC-01:stock:G1", "G1"),
     ]
     assert all(case["code"] == "ACCEPTANCE_DRY_RUN" for case in result["cases"])
-    assert all(case["case_mapping_version"] == runner.CASE_MAPPING_VERSION for case in result["cases"])
+    assert all(
+        case["case_mapping_version"] == runner.CASE_MAPPING_VERSION for case in result["cases"]
+    )
 
 
 def test_offline_dry_run_emits_not_run_slices_and_never_invokes_a_case_command(
@@ -600,7 +613,14 @@ def test_offline_case_uses_child_socket_audit_and_required_junit_evidence(
         }
     ]
     command = captured["command"]
-    assert command[:6] == (runner.sys.executable, "-m", "pytest", "-q", "-p", "pytest_asyncio.plugin")
+    assert command[:6] == (
+        runner.sys.executable,
+        "-m",
+        "pytest",
+        "-q",
+        "-p",
+        "pytest_asyncio.plugin",
+    )
     assert (
         "tests/market_data_platform/test_local_first_persistence.py::"
         "test_local_first_persists_once_then_reuses_complete_older_revision_without_network"
@@ -698,7 +718,9 @@ def test_ac36_offline_is_not_run_without_research_or_b2_fixture_evidence(
     assert all(case["overall_case_status"] == "NOT_RUN" for case in result["cases"])
     assert all(case["code"] == "OFFLINE_ASSET_CASE_DRIVER_UNAVAILABLE" for case in result["cases"])
     assert all(case["evidence"] == [] for case in result["cases"])
-    assert not any(case_id == "AC-36" for case_id, _asset_type in runner._OFFLINE_TESTS_BY_CASE_ASSET)
+    assert not any(
+        case_id == "AC-36" for case_id, _asset_type in runner._OFFLINE_TESTS_BY_CASE_ASSET
+    )
 
 
 def test_offline_network_guard_blocks_tcp_and_writes_an_audit_record() -> None:
@@ -862,7 +884,9 @@ def test_non_dry_run_stops_before_scope_or_command_when_dirty_paths_are_unallowl
 
     result = runner.run_acceptance(
         _args(tmp_path, mode="offline", cases=["AC-01"], asset_types=["stock"]),
-        command_runner=lambda *args, **kwargs: pytest.fail("dirty candidate must stop before pytest"),
+        command_runner=lambda *args, **kwargs: pytest.fail(
+            "dirty candidate must stop before pytest"
+        ),
     )
 
     assert result["exit_code"] == runner.EXIT_INCOMPLETE
@@ -1025,7 +1049,9 @@ def test_live_source_manifest_must_cover_the_exact_case_asset_slice(
     config_path = tmp_path / "live-config.json"
     source_path = tmp_path / "approved-sources.json"
     _approved_config(config_path, "live")
-    _approved_source_manifest(source_path, valid_scope_manifest, asset_type="stock", case_ids=["AC-15"])
+    _approved_source_manifest(
+        source_path, valid_scope_manifest, asset_type="stock", case_ids=["AC-15"]
+    )
 
     result = runner.run_acceptance(
         _args(
@@ -1059,7 +1085,9 @@ def test_live_valid_approval_never_becomes_pass_without_a_reviewed_case_driver(
     config_path = tmp_path / "live-config.json"
     source_path = tmp_path / "approved-sources.json"
     _approved_config(config_path, "live")
-    _approved_source_manifest(source_path, valid_scope_manifest, asset_type="stock", case_ids=["AC-02"])
+    _approved_source_manifest(
+        source_path, valid_scope_manifest, asset_type="stock", case_ids=["AC-02"]
+    )
     command_calls: list[object] = []
     result = runner.run_acceptance(
         _args(
@@ -1094,7 +1122,13 @@ def test_scope_drift_is_a_fail_not_a_provider_fallback(
     bad_scope = tmp_path / "bad-scope.json"
     bad_scope.write_text("{}", encoding="utf-8")
     result = runner.run_acceptance(
-        _args(tmp_path, mode="offline", scope_manifest=bad_scope, cases=["AC-01"], asset_types=["stock"]),
+        _args(
+            tmp_path,
+            mode="offline",
+            scope_manifest=bad_scope,
+            cases=["AC-01"],
+            asset_types=["stock"],
+        ),
         command_runner=lambda *args, **kwargs: pytest.fail("scope drift must stop first"),
     )
 

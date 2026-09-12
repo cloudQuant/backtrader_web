@@ -15274,9 +15274,7 @@ async def test_market_data_binding_factory_fails_closed_when_ledger_state_is_una
             response=SimpleNamespace(
                 query_v2_enabled=False,
                 research_backtest_bridge_enabled=False,
-                capability_states=(
-                    SimpleNamespace(reason_code="CAPABILITY_LEDGER_UNAVAILABLE"),
-                ),
+                capability_states=(SimpleNamespace(reason_code="CAPABILITY_LEDGER_UNAVAILABLE"),),
             )
         )
 

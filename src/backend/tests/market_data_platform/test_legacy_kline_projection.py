@@ -296,9 +296,30 @@ def test_projection_rejects_unrepresentable_legacy_json_numbers(value: str) -> N
 @pytest.mark.parametrize(
     ("period", "start_date", "end_date", "frequency", "expected_start", "expected_end"),
     [
-        ("daily", "2026-01-01", "2026-01-02", "1d", "2025-12-31T16:00:00+00:00", "2026-01-02T16:00:00+00:00"),
-        ("weekly", "2025-12-29", "2026-01-04", "1w", "2025-12-28T16:00:00+00:00", "2026-01-04T16:00:00+00:00"),
-        ("monthly", "2026-01-01", "2026-02-28", "1mo", "2025-12-31T16:00:00+00:00", "2026-02-28T16:00:00+00:00"),
+        (
+            "daily",
+            "2026-01-01",
+            "2026-01-02",
+            "1d",
+            "2025-12-31T16:00:00+00:00",
+            "2026-01-02T16:00:00+00:00",
+        ),
+        (
+            "weekly",
+            "2025-12-29",
+            "2026-01-04",
+            "1w",
+            "2025-12-28T16:00:00+00:00",
+            "2026-01-04T16:00:00+00:00",
+        ),
+        (
+            "monthly",
+            "2026-01-01",
+            "2026-02-28",
+            "1mo",
+            "2025-12-31T16:00:00+00:00",
+            "2026-02-28T16:00:00+00:00",
+        ),
     ],
 )
 def test_request_parser_accepts_only_exact_shanghai_calendar_windows(
@@ -705,7 +726,9 @@ async def test_bridge_rejects_final_reread_with_a_cross_wired_context() -> None:
             final,
             context=replace(
                 final.context,
-                query=final.context.query.model_copy(update={"source_policy_id": "other-policy-v1"}),
+                query=final.context.query.model_copy(
+                    update={"source_policy_id": "other-policy-v1"}
+                ),
             ),
         )
 
@@ -751,7 +774,9 @@ async def test_bridge_requires_final_reread_to_keep_the_first_frozen_metadata_ve
         changed_identity = replace(
             final.context.identity,
             metadata_version="stock-v2",
-            identity=final.context.identity.identity.model_copy(update={"metadata_version": "stock-v2"}),
+            identity=final.context.identity.identity.model_copy(
+                update={"metadata_version": "stock-v2"}
+            ),
         )
         changed_coverage_identity = replace(
             final.context.coverage_identity,

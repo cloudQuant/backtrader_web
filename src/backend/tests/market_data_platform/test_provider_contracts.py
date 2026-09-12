@@ -244,7 +244,9 @@ async def test_adapter_ignores_digest_spoofed_private_registry_before_provider_i
 
 
 @pytest.mark.asyncio
-async def test_adapter_rejects_postconstruction_reviewed_contract_mutation_before_provider_io() -> None:
+async def test_adapter_rejects_postconstruction_reviewed_contract_mutation_before_provider_io() -> (
+    None
+):
     """The selected reviewed object must still match its import-time descriptor digest."""
     runner_calls: list[str] = []
 

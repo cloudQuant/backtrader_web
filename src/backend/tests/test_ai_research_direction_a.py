@@ -77,10 +77,13 @@ async def test_investment_mandate_accepts_only_canonical_market_data_asset_types
     )
 
     assert mandate.market_data_asset_type == asset_type
-    assert InvestmentMandateCreate(
-        raw_prompt="不声明数据族的兼容请求",
-        market_data_asset_type="",
-    ).market_data_asset_type is None
+    assert (
+        InvestmentMandateCreate(
+            raw_prompt="不声明数据族的兼容请求",
+            market_data_asset_type="",
+        ).market_data_asset_type
+        is None
+    )
 
 
 async def test_investment_mandate_rejects_a_tampered_direct_research_request(monkeypatch):
@@ -146,9 +149,7 @@ async def test_investment_mandate_rejects_a_tampered_direct_research_request(mon
     # The chosen data family remains auditable on the mandate, while an
     # Iter196 fallback request has no fresh bridge marker to compare yet.
     assert (
-        await service.ensure_for_request(
-            "user-1", request.model_copy(update={"data_config": {}})
-        )
+        await service.ensure_for_request("user-1", request.model_copy(update={"data_config": {}}))
     ).id == mandate.id
 
     for tampered in (
@@ -397,9 +398,7 @@ async def test_investment_mandate_auto_basis_digest_ignores_client_prompt_previe
         "quality_gates": service._quality_gates_from_request(request),
     }
 
-    first = service.parse_mandate(
-        InvestmentMandateCreate(raw_prompt="前端自动预览 A", **shared)
-    )
+    first = service.parse_mandate(InvestmentMandateCreate(raw_prompt="前端自动预览 A", **shared))
     forged = service.parse_mandate(
         InvestmentMandateCreate(raw_prompt="攻击者替换的任意预览 B", **shared)
     )
@@ -407,9 +406,10 @@ async def test_investment_mandate_auto_basis_digest_ignores_client_prompt_previe
     expected_digest = service._auto_basis_digest_for_request(request)
     assert first["structured_goal"]["auto_basis_digest"] == expected_digest
     assert forged["structured_goal"]["auto_basis_digest"] == expected_digest
-    assert first["structured_goal"]["auto_basis_digest"] == forged["structured_goal"][
-        "auto_basis_digest"
-    ]
+    assert (
+        first["structured_goal"]["auto_basis_digest"]
+        == forged["structured_goal"]["auto_basis_digest"]
+    )
 
 
 async def test_investment_mandate_auto_creation_persists_server_canonical_preview(auth_user):

@@ -83,9 +83,7 @@ async def _assert_replay_denied_without_publication(context, publication):
 
 @pytest.mark.asyncio
 async def test_replay_rejects_current_run_capability_evidence_drift(auth_user):
-    context, _, publication = await _completed_publication(
-        auth_user, "replay-capability-drift"
-    )
+    context, _, publication = await _completed_publication(auth_user, "replay-capability-drift")
     async with database.async_session_maker() as session:
         run = await session.get(ResearchRun, context["discovery_context"].run_id)
         run.capability_evidence_hash = "a" * 64
@@ -96,9 +94,7 @@ async def test_replay_rejects_current_run_capability_evidence_drift(auth_user):
 
 @pytest.mark.asyncio
 async def test_replay_rejects_current_candidate_hash_drift(auth_user):
-    context, _, publication = await _completed_publication(
-        auth_user, "replay-candidate-hash-drift"
-    )
+    context, _, publication = await _completed_publication(auth_user, "replay-candidate-hash-drift")
     async with database.async_session_maker() as session:
         candidate = await session.get(ResearchCandidate, context["candidate_id"])
         candidate.candidate_hash = "d" * 64

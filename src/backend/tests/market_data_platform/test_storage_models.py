@@ -3019,9 +3019,7 @@ def test_visibility_allocator_singleton_has_no_mysql_autoincrement() -> None:
     from app.models.market_data_platform import MdVisibilitySequenceAllocator
 
     table = MdVisibilitySequenceAllocator.__table__
-    compiled = str(
-        sa.schema.CreateTable(table).compile(dialect=mysql_dialect.dialect())
-    )
+    compiled = str(sa.schema.CreateTable(table).compile(dialect=mysql_dialect.dialect()))
     assert "AUTO_INCREMENT" not in compiled
     assert "ck_md_visibility_sequence_allocator_singleton" in compiled
     assert "ck_md_visibility_sequence_allocator_next_positive" in compiled

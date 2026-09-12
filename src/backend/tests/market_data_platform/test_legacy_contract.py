@@ -514,12 +514,8 @@ async def test_private_kline_bridge_resolves_only_an_exact_frozen_exchange_token
     assert contract is not None
     assert contract["request"]["identity"] == {"canonical_id": canonical_id}
     assert contract["request"]["family_id"] == "stock.kline_legacy"
-    assert (
-        await resolver.resolve_kline_legacy(symbol=legacy_token.lower(), period="daily") is None
-    )
-    assert (
-        await resolver.resolve_kline_legacy(symbol=f"{symbol}.OTHER", period="daily") is None
-    )
+    assert await resolver.resolve_kline_legacy(symbol=legacy_token.lower(), period="daily") is None
+    assert await resolver.resolve_kline_legacy(symbol=f"{symbol}.OTHER", period="daily") is None
 
 
 @pytest.mark.asyncio

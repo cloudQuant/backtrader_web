@@ -835,7 +835,9 @@ async def test_cancellation_after_second_publication_reports_two_durable_prefixe
             cancellation_wait_started.set()
             return await original_await_after_cancellation(persistence_task)
 
-        monkeypatch.setattr(store, "persist_provider_result", persist_then_block_before_second_return)
+        monkeypatch.setattr(
+            store, "persist_provider_result", persist_then_block_before_second_return
+        )
         monkeypatch.setattr(
             collector_module,
             "_await_persistence_after_cancellation",
@@ -1270,7 +1272,9 @@ async def test_store_cancellation_then_failed_release_keeps_every_durable_prefix
             release_cancellation_wait_started.set()
             return await original_await_release(release_task)
 
-        monkeypatch.setattr(store, "persist_provider_result", persist_then_block_before_second_return)
+        monkeypatch.setattr(
+            store, "persist_provider_result", persist_then_block_before_second_return
+        )
         monkeypatch.setattr(store, "fetch_lease_manager", lambda: lease_manager)
         monkeypatch.setattr(lease_manager, "release", return_false_after_second_cancellation)
         monkeypatch.setattr(

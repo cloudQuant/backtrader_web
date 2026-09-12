@@ -677,9 +677,10 @@ async def test_akshare_provider_rejects_nav_requests_without_an_etf_listing_iden
     fund_identity_kind: str | None,
 ) -> None:
     """The dedicated ETF NAV endpoint must reject every nearby fund product before I/O."""
-    provider = _test_provider(_fake_runner_from_callable_resolver(lambda _: pytest.fail(
-            "invalid identity must not resolve a source callable"
-        ))
+    provider = _test_provider(
+        _fake_runner_from_callable_resolver(
+            lambda _: pytest.fail("invalid identity must not resolve a source callable")
+        )
     )
 
     with pytest.raises(AkShareProviderError) as rejected:
@@ -706,7 +707,8 @@ async def test_akshare_provider_rejects_nav_requests_without_an_etf_listing_iden
 @pytest.mark.asyncio
 async def test_akshare_provider_rejects_an_unbound_request_before_endpoint_selection() -> None:
     """A retained caller cannot use endpoint resemblance after policy routes are family-bound."""
-    provider = _test_provider(_fake_runner_from_callable_resolver(lambda _: pytest.fail("unbound request must not fetch"))
+    provider = _test_provider(
+        _fake_runner_from_callable_resolver(lambda _: pytest.fail("unbound request must not fetch"))
     )
 
     with pytest.raises(AkShareProviderError) as rejected:
@@ -737,7 +739,10 @@ async def test_akshare_provider_rejects_an_unbound_request_before_endpoint_selec
 @pytest.mark.asyncio
 async def test_akshare_provider_rejects_a_source_policy_route_id_for_another_product() -> None:
     """A broad reference-series data kind cannot bypass the exact route binding."""
-    provider = _test_provider(_fake_runner_from_callable_resolver(lambda _: pytest.fail("mismatched route IDs must not fetch"))
+    provider = _test_provider(
+        _fake_runner_from_callable_resolver(
+            lambda _: pytest.fail("mismatched route IDs must not fetch")
+        )
     )
 
     with pytest.raises(AkShareProviderError) as rejected:
@@ -869,7 +874,10 @@ async def test_akshare_provider_selects_cffex_option_history_from_an_exact_contr
 @pytest.mark.asyncio
 async def test_akshare_provider_rejects_an_unapproved_market_before_calling_the_source() -> None:
     """A provider route cannot overwrite a US identity with China-market source data."""
-    provider = _test_provider(_fake_runner_from_callable_resolver(lambda _: pytest.fail("unsupported markets must not invoke AkShare"))
+    provider = _test_provider(
+        _fake_runner_from_callable_resolver(
+            lambda _: pytest.fail("unsupported markets must not invoke AkShare")
+        )
     )
 
     with pytest.raises(AkShareProviderError) as unsupported_market:
@@ -881,7 +889,10 @@ async def test_akshare_provider_rejects_an_unapproved_market_before_calling_the_
 @pytest.mark.asyncio
 async def test_akshare_provider_rejects_a_symbol_that_contradicts_its_market() -> None:
     """The China stock route validates the exchange implied by its source symbol."""
-    provider = _test_provider(_fake_runner_from_callable_resolver(lambda _: pytest.fail("invalid exchange symbols must not invoke AkShare"))
+    provider = _test_provider(
+        _fake_runner_from_callable_resolver(
+            lambda _: pytest.fail("invalid exchange symbols must not invoke AkShare")
+        )
     )
 
     with pytest.raises(AkShareProviderError) as mismatch:
@@ -903,7 +914,10 @@ async def test_akshare_provider_rejects_request_bound_routes_with_an_invalid_ven
     provider_request: MarketDataProviderRequest,
 ) -> None:
     """No-returned-symbol routes use explicit AkShare venue maps before a fetch."""
-    provider = _test_provider(_fake_runner_from_callable_resolver(lambda _: pytest.fail("invalid venue mappings must not invoke AkShare"))
+    provider = _test_provider(
+        _fake_runner_from_callable_resolver(
+            lambda _: pytest.fail("invalid venue mappings must not invoke AkShare")
+        )
     )
 
     with pytest.raises(AkShareProviderError) as mismatch:
@@ -951,7 +965,10 @@ async def test_akshare_provider_rejects_unmapped_query_semantics(
     expected_code: str,
 ) -> None:
     """Unsupported semantic dimensions fail before any source call can occur."""
-    provider = _test_provider(_fake_runner_from_callable_resolver(lambda _: pytest.fail("unsupported semantics must not invoke AkShare"))
+    provider = _test_provider(
+        _fake_runner_from_callable_resolver(
+            lambda _: pytest.fail("unsupported semantics must not invoke AkShare")
+        )
     )
 
     with pytest.raises(AkShareProviderError) as unsupported:
@@ -963,7 +980,10 @@ async def test_akshare_provider_rejects_unmapped_query_semantics(
 @pytest.mark.asyncio
 async def test_akshare_provider_requires_a_policy_for_request_bound_identity_routes() -> None:
     """Routes that omit a returned symbol require an explicit source-policy decision."""
-    provider = _test_provider(_fake_runner_from_callable_resolver(lambda _: pytest.fail("missing source policy must not invoke AkShare"))
+    provider = _test_provider(
+        _fake_runner_from_callable_resolver(
+            lambda _: pytest.fail("missing source policy must not invoke AkShare")
+        )
     )
 
     with pytest.raises(AkShareProviderError) as missing_policy:
@@ -1056,7 +1076,8 @@ async def test_akshare_provider_times_out_bounded_worker_calls() -> None:
             raise
         return {}
 
-    provider = _test_provider(slow_runner,
+    provider = _test_provider(
+        slow_runner,
         timeout_seconds=0.02,
         max_concurrency=1,
     )
@@ -1082,7 +1103,8 @@ async def test_akshare_provider_times_out_while_all_worker_slots_are_held() -> N
             raise
         return {}
 
-    provider = _test_provider(slow_runner,
+    provider = _test_provider(
+        slow_runner,
         timeout_seconds=0.02,
         max_concurrency=1,
     )
@@ -1108,7 +1130,8 @@ async def test_akshare_provider_rejects_oversized_dataframe_before_materializing
         def to_dict(self, *, orient: str) -> list[dict[str, Any]]:
             pytest.fail(f"to_dict must not run for an oversized response: {orient}")
 
-    provider = _test_provider(_fake_runner_from_callable_resolver(lambda _: lambda **_: OversizedDataframe())
+    provider = _test_provider(
+        _fake_runner_from_callable_resolver(lambda _: lambda **_: OversizedDataframe())
     )
 
     with pytest.raises(AkShareProviderError) as oversized:
@@ -1159,7 +1182,10 @@ async def test_akshare_provider_fails_closed_for_unapproved_routes_or_sources(
     expected_code: str,
 ) -> None:
     """The adapter never guesses an endpoint or silently switches providers."""
-    provider = _test_provider(_fake_runner_from_callable_resolver(lambda _: pytest.fail("a disallowed route must not be invoked"))
+    provider = _test_provider(
+        _fake_runner_from_callable_resolver(
+            lambda _: pytest.fail("a disallowed route must not be invoked")
+        )
     )
 
     with pytest.raises(AkShareProviderError) as rejected:

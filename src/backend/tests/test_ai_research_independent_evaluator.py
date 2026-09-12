@@ -148,9 +148,7 @@ async def test_resume_evaluation_recovers_finish_crash_without_duplicate_gate_de
             evaluator_identity="ai_research_evaluator",
         ),
     )
-    repeated = await IndependentEvaluator(
-        dataset_registry=stranded["datasets"]
-    ).resume_evaluation(
+    repeated = await IndependentEvaluator(dataset_registry=stranded["datasets"]).resume_evaluation(
         evaluation_id=evaluation.id,
         policy=_promotion_policy(),
         evaluator_identity="ai_research_evaluator",
@@ -208,9 +206,7 @@ async def test_resume_evaluation_rejects_coordinated_terminal_hash_tampering(
         await session.commit()
 
     with pytest.raises(ValueError, match="^PROMOTION_RESULT_INVALID$"):
-        await IndependentEvaluator(
-            dataset_registry=stranded["datasets"]
-        ).resume_evaluation(
+        await IndependentEvaluator(dataset_registry=stranded["datasets"]).resume_evaluation(
             evaluation_id=evaluation.id,
             policy=_promotion_policy(),
             evaluator_identity="ai_research_evaluator",
@@ -302,9 +298,7 @@ async def test_resume_evaluation_keeps_running_after_transient_gate_failure(
 
     monkeypatch.setattr(PromotionGateEngine, "evaluate_and_record", raise_timeout)
     with pytest.raises(TimeoutError, match="temporary promotion database timeout"):
-        await IndependentEvaluator(
-            dataset_registry=stranded["datasets"]
-        ).resume_evaluation(
+        await IndependentEvaluator(dataset_registry=stranded["datasets"]).resume_evaluation(
             evaluation_id=evaluation.id,
             policy=_promotion_policy(),
             evaluator_identity="ai_research_evaluator",
@@ -355,9 +349,7 @@ async def test_resume_evaluation_fails_closed_when_final_gate_replay_detects_tam
 
     monkeypatch.setattr(PromotionGateEngine, "evaluate_and_record", evaluate_then_tamper)
     with pytest.raises(ValueError, match="^PROMOTION_RESULT_INVALID$"):
-        await IndependentEvaluator(
-            dataset_registry=stranded["datasets"]
-        ).resume_evaluation(
+        await IndependentEvaluator(dataset_registry=stranded["datasets"]).resume_evaluation(
             evaluation_id=evaluation.id,
             policy=_promotion_policy(),
             evaluator_identity="ai_research_evaluator",

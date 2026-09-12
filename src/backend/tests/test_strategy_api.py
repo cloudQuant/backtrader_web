@@ -430,7 +430,9 @@ class _FakeAIResearchService:
     async def activate_prepared_live_trading_from_run(
         self, user_id, run_id, *, research_workspace_id=None
     ):
-        self.calls.append(("activate_prepared_live_trading_from_run", user_id, research_workspace_id))
+        self.calls.append(
+            ("activate_prepared_live_trading_from_run", user_id, research_workspace_id)
+        )
         payload = deepcopy(_prepare_payload())
         payload.update(
             {
@@ -444,7 +446,9 @@ class _FakeAIResearchService:
     async def deactivate_prepared_live_trading_from_run(
         self, user_id, run_id, *, research_workspace_id=None
     ):
-        self.calls.append(("deactivate_prepared_live_trading_from_run", user_id, research_workspace_id))
+        self.calls.append(
+            ("deactivate_prepared_live_trading_from_run", user_id, research_workspace_id)
+        )
         payload = deepcopy(_prepare_payload())
         payload.update(
             {

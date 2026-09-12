@@ -233,8 +233,7 @@ def test_hongyuan_config_loads_credentials_from_reference_workspace_env_file(
     workspace = WORKSPACES["hongyuan"]
     reference_root = tmp_path / "backtrader"
     credential_file = (
-        reference_root
-        / "examples/007_ctp/live_certification/hongyuan_penetration/.env"
+        reference_root / "examples/007_ctp/live_certification/hongyuan_penetration/.env"
     )
     credential_file.parent.mkdir(parents=True)
     credential_file.write_text(
@@ -265,9 +264,7 @@ def test_hongyuan_config_loads_credentials_from_reference_workspace_env_file(
     finally:
         sys.path.remove(str(workspace))
         for name in [
-            name
-            for name in sys.modules
-            if name == "common" or name.startswith("common.")
+            name for name in sys.modules if name == "common" or name.startswith("common.")
         ]:
             sys.modules.pop(name)
         sys.modules.update(saved_common_modules)
@@ -323,9 +320,7 @@ def test_hongyuan_runner_retries_an_empty_native_startup_crash(
     finally:
         sys.path.remove(str(workspace))
         for name in [
-            name
-            for name in sys.modules
-            if name == "common" or name.startswith("common.")
+            name for name in sys.modules if name == "common" or name.startswith("common.")
         ]:
             sys.modules.pop(name)
         sys.modules.update(saved_common_modules)
@@ -383,9 +378,7 @@ def test_hongyuan_started_store_masks_investor_id_in_console_output(
     finally:
         sys.path.remove(str(workspace))
         for name in [
-            name
-            for name in sys.modules
-            if name == "common" or name.startswith("common.")
+            name for name in sys.modules if name == "common" or name.startswith("common.")
         ]:
             sys.modules.pop(name)
         sys.modules.update(saved_common_modules)
@@ -443,9 +436,7 @@ def test_hongyuan_create_cerebro_injects_store_seed_bars_into_live_feed(
     finally:
         sys.path.remove(str(workspace))
         for name in [
-            name
-            for name in sys.modules
-            if name == "common" or name.startswith("common.")
+            name for name in sys.modules if name == "common" or name.startswith("common.")
         ]:
             sys.modules.pop(name)
         sys.modules.update(saved_common_modules)
@@ -476,14 +467,14 @@ def test_hongyuan_wait_for_live_market_price_uses_the_ctp_quote_cache() -> None:
 
         store = FakeStore()
 
-        assert runtime.wait_for_live_market_price(store, "SHFE.rb2610", timeout_seconds=0.1) == 3501.0
+        assert (
+            runtime.wait_for_live_market_price(store, "SHFE.rb2610", timeout_seconds=0.1) == 3501.0
+        )
         assert store.subscribed == ["SHFE.rb2610"]
     finally:
         sys.path.remove(str(workspace))
         for name in [
-            name
-            for name in sys.modules
-            if name == "common" or name.startswith("common.")
+            name for name in sys.modules if name == "common" or name.startswith("common.")
         ]:
             sys.modules.pop(name)
         sys.modules.update(saved_common_modules)
@@ -525,9 +516,7 @@ def test_hongyuan_remote_validation_only_disables_local_cash_precheck_when_expli
     finally:
         sys.path.remove(str(workspace))
         for name in [
-            name
-            for name in sys.modules
-            if name == "common" or name.startswith("common.")
+            name for name in sys.modules if name == "common" or name.startswith("common.")
         ]:
             sys.modules.pop(name)
         sys.modules.update(saved_common_modules)
@@ -569,9 +558,7 @@ def test_hongyuan_remote_negative_close_probe_bypasses_only_position_precheck(
     finally:
         sys.path.remove(str(workspace))
         for name in [
-            name
-            for name in sys.modules
-            if name == "common" or name.startswith("common.")
+            name for name in sys.modules if name == "common" or name.startswith("common.")
         ]:
             sys.modules.pop(name)
         sys.modules.update(saved_common_modules)
@@ -607,9 +594,7 @@ def test_hongyuan_remote_order_preflight_blocks_zero_available_funds(
                 return {"Available": 1.0}
 
         monkeypatch.setenv(runtime.REMOTE_VALIDATION_ENV, "1")
-        blocked = runtime.build_order_preflight_block(
-            ZeroAvailableFundsStore(), "T01"
-        )
+        blocked = runtime.build_order_preflight_block(ZeroAvailableFundsStore(), "T01")
 
         assert isinstance(blocked, runtime.CertificationBlocked)
         assert not isinstance(blocked, Exception)
@@ -642,9 +627,7 @@ def test_hongyuan_remote_order_preflight_blocks_zero_available_funds(
     finally:
         sys.path.remove(str(workspace))
         for name in [
-            name
-            for name in sys.modules
-            if name == "common" or name.startswith("common.")
+            name for name in sys.modules if name == "common" or name.startswith("common.")
         ]:
             sys.modules.pop(name)
         sys.modules.update(saved_common_modules)
@@ -708,9 +691,7 @@ def test_hongyuan_run_with_timeout_drains_pending_broker_updates(
     finally:
         sys.path.remove(str(workspace))
         for name in [
-            name
-            for name in sys.modules
-            if name == "common" or name.startswith("common.")
+            name for name in sys.modules if name == "common" or name.startswith("common.")
         ]:
             sys.modules.pop(name)
         sys.modules.update(saved_common_modules)
@@ -765,9 +746,7 @@ def test_hongyuan_runtime_records_auth_events_with_surrogate_safe_json(
     finally:
         sys.path.remove(str(workspace))
         for name in [
-            name
-            for name in sys.modules
-            if name == "common" or name.startswith("common.")
+            name for name in sys.modules if name == "common" or name.startswith("common.")
         ]:
             sys.modules.pop(name)
         sys.modules.update(saved_common_modules)
@@ -818,9 +797,7 @@ def test_hongyuan_snapshot_writer_escapes_ctp_surrogate_text(tmp_path: Path) -> 
     finally:
         sys.path.remove(str(workspace))
         for name in [
-            name
-            for name in sys.modules
-            if name == "common" or name.startswith("common.")
+            name for name in sys.modules if name == "common" or name.startswith("common.")
         ]:
             sys.modules.pop(name)
         sys.modules.update(saved_common_modules)
@@ -884,9 +861,7 @@ def test_hongyuan_reconciliation_ignores_unrelated_position_snapshot_fluctuation
     finally:
         sys.path.remove(str(workspace))
         for name in [
-            name
-            for name in sys.modules
-            if name == "common" or name.startswith("common.")
+            name for name in sys.modules if name == "common" or name.startswith("common.")
         ]:
             sys.modules.pop(name)
         sys.modules.update(saved_common_modules)
@@ -961,9 +936,7 @@ def test_hongyuan_ctp_bridge_uses_session_order_ref_and_correlates_response_erro
     finally:
         sys.path.remove(str(workspace))
         for name in [
-            name
-            for name in sys.modules
-            if name == "common" or name.startswith("common.")
+            name for name in sys.modules if name == "common" or name.startswith("common.")
         ]:
             sys.modules.pop(name)
         sys.modules.update(saved_common_modules)
@@ -1023,9 +996,7 @@ def test_hongyuan_ctp_bridge_leaves_unmatched_query_errors_unassociated() -> Non
     finally:
         sys.path.remove(str(workspace))
         for name in [
-            name
-            for name in sys.modules
-            if name == "common" or name.startswith("common.")
+            name for name in sys.modules if name == "common" or name.startswith("common.")
         ]:
             sys.modules.pop(name)
         sys.modules.update(saved_common_modules)
@@ -1097,9 +1068,7 @@ def test_hongyuan_ctp_query_callback_emits_a_safe_normalized_order_row() -> None
     finally:
         sys.path.remove(str(workspace))
         for name in [
-            name
-            for name in sys.modules
-            if name == "common" or name.startswith("common.")
+            name for name in sys.modules if name == "common" or name.startswith("common.")
         ]:
             sys.modules.pop(name)
         sys.modules.update(saved_common_modules)
@@ -1130,9 +1099,11 @@ def test_hongyuan_ctp_query_callback_patches_the_active_spi_module(
         monkeypatch.setattr(
             bridge.importlib,
             "import_module",
-            lambda name: active_module
-            if name == "active_ctp.ctp.client"
-            else (_ for _ in ()).throw(ImportError(name)),
+            lambda name: (
+                active_module
+                if name == "active_ctp.ctp.client"
+                else (_ for _ in ()).throw(ImportError(name))
+            ),
         )
 
         assert bridge.enable_ctp_order_query_callback(SimpleNamespace(_spi=ActiveSpi()))
@@ -1140,9 +1111,7 @@ def test_hongyuan_ctp_query_callback_patches_the_active_spi_module(
     finally:
         sys.path.remove(str(workspace))
         for name in [
-            name
-            for name in sys.modules
-            if name == "common" or name.startswith("common.")
+            name for name in sys.modules if name == "common" or name.startswith("common.")
         ]:
             sys.modules.pop(name)
         sys.modules.update(saved_common_modules)
@@ -1217,9 +1186,7 @@ def test_hongyuan_ctp_query_bridge_waits_for_a_counter_response() -> None:
     finally:
         sys.path.remove(str(workspace))
         for name in [
-            name
-            for name in sys.modules
-            if name == "common" or name.startswith("common.")
+            name for name in sys.modules if name == "common" or name.startswith("common.")
         ]:
             sys.modules.pop(name)
         sys.modules.update(saved_common_modules)
@@ -1287,9 +1254,7 @@ def test_hongyuan_started_store_installs_ctp_callback_bridge(
     finally:
         sys.path.remove(str(workspace))
         for name in [
-            name
-            for name in sys.modules
-            if name == "common" or name.startswith("common.")
+            name for name in sys.modules if name == "common" or name.startswith("common.")
         ]:
             sys.modules.pop(name)
         sys.modules.update(saved_common_modules)
@@ -1322,9 +1287,7 @@ def test_hongyuan_local_submit_ack_is_not_treated_as_counter_acceptance() -> Non
     finally:
         sys.path.remove(str(workspace))
         for name in [
-            name
-            for name in sys.modules
-            if name == "common" or name.startswith("common.")
+            name for name in sys.modules if name == "common" or name.startswith("common.")
         ]:
             sys.modules.pop(name)
         sys.modules.update(saved_common_modules)
@@ -1358,9 +1321,7 @@ def test_hongyuan_helper_collects_runtime_events_from_all_log_streams(tmp_path: 
     finally:
         sys.path.remove(str(workspace))
         for name in [
-            name
-            for name in sys.modules
-            if name == "common" or name.startswith("common.")
+            name for name in sys.modules if name == "common" or name.startswith("common.")
         ]:
             sys.modules.pop(name)
         sys.modules.update(saved_common_modules)
@@ -1397,9 +1358,7 @@ def test_hongyuan_result_writer_escapes_ctp_surrogate_text(tmp_path: Path) -> No
     finally:
         sys.path.remove(str(workspace))
         for name in [
-            name
-            for name in sys.modules
-            if name == "common" or name.startswith("common.")
+            name for name in sys.modules if name == "common" or name.startswith("common.")
         ]:
             sys.modules.pop(name)
         sys.modules.update(saved_common_modules)
@@ -1418,12 +1377,13 @@ def test_hongyuan_c01_validates_auth_without_starting_a_market_data_feed() -> No
 
 def test_hongyuan_t03_waits_for_a_remote_cancel_terminal_status() -> None:
     """T03 must not stop merely because the local CTP client queued a request."""
-    case_source = (WORKSPACES["hongyuan"] / "cases/T03_cancel_order.py").read_text(
-        encoding="utf-8"
-    )
+    case_source = (WORKSPACES["hongyuan"] / "cases/T03_cancel_order.py").read_text(encoding="utf-8")
 
     assert 'if status in ("Canceled", "Rejected", "Completed"):' in case_source
-    assert 'if status in ("Submitted", "Accepted", "Completed", "Canceled", "Rejected"):' not in case_source
+    assert (
+        'if status in ("Submitted", "Accepted", "Completed", "Canceled", "Rejected"):'
+        not in case_source
+    )
 
 
 def test_hongyuan_e01_uses_a_bounded_insufficient_funds_probe() -> None:
@@ -1472,7 +1432,9 @@ def test_hongyuan_error_cases_require_their_specific_counter_error_semantics() -
         "E02": "E02_insufficient_position.py",
     }.items():
         module_path = WORKSPACES["hongyuan"] / "cases" / filename
-        spec = importlib.util.spec_from_file_location(f"ctp_hongyuan_{case_id}_semantics", module_path)
+        spec = importlib.util.spec_from_file_location(
+            f"ctp_hongyuan_{case_id}_semantics", module_path
+        )
         assert spec is not None
         assert spec.loader is not None
         module = importlib.util.module_from_spec(spec)
@@ -1521,7 +1483,7 @@ def test_hongyuan_e01_records_post_run_ctp_callbacks_before_evaluating_result() 
     assert "record_runtime_events" in source
     assert "store.get_notifications()" in source
     assert "helpers.collect_log_event_types(log_dir)" in source
-    assert "for path in sorted(Path(log_dir).glob(\"*.log\"))" in source
+    assert 'for path in sorted(Path(log_dir).glob("*.log"))' in source
     assert "stop_on_exit=False" not in source
 
 
@@ -1539,9 +1501,7 @@ def test_hongyuan_local_rejection_cases_seed_a_deterministic_live_feed(
 
 def test_hongyuan_e02_marks_local_position_rejection_as_blocked_not_remote_failure() -> None:
     """A local safety rejection cannot be presented as a failed CTP callback."""
-    source = next(
-        (WORKSPACES["hongyuan"] / "cases").glob("E02_*.py")
-    ).read_text(encoding="utf-8")
+    source = next((WORKSPACES["hongyuan"] / "cases").glob("E02_*.py")).read_text(encoding="utf-8")
 
     assert "runtime_event_types = record_runtime_events(" in source
     assert "helpers.collect_log_event_types(log_dir)" in source
@@ -1555,10 +1515,6 @@ def test_workspaces_are_discoverable_strategy_templates() -> None:
     live_templates = scan_strategies_folder(StrategyType.live)
 
     assert any(
-        template.id == "simulate/ctp_simnow_certification"
-        for template in simulate_templates
+        template.id == "simulate/ctp_simnow_certification" for template in simulate_templates
     )
-    assert any(
-        template.id == "live/ctp_hongyuan_penetration"
-        for template in live_templates
-    )
+    assert any(template.id == "live/ctp_hongyuan_penetration" for template in live_templates)

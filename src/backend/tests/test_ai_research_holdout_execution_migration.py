@@ -233,7 +233,9 @@ def test_sql_matches_accepts_mysql_clause_parentheses() -> None:
     """
     import importlib.util
 
-    migration_path = _BACKEND_ROOT / "alembic" / "versions" / "20260908_ai_research_holdout_executions.py"
+    migration_path = (
+        _BACKEND_ROOT / "alembic" / "versions" / "20260908_ai_research_holdout_executions.py"
+    )
     spec = importlib.util.spec_from_file_location(
         "iteration196_holdout_migration_module", migration_path
     )

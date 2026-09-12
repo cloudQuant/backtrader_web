@@ -88,9 +88,7 @@ async def test_internal_claim_starts_one_consumed_authorization_and_running_eval
 
     async with database.async_session_maker() as session:
         stored_command = await session.get(ResearchHoldoutEvaluationCommand, command["id"])
-        authorizations = list(
-            (await session.scalars(select(ResearchHoldoutAuthorization))).all()
-        )
+        authorizations = list((await session.scalars(select(ResearchHoldoutAuthorization))).all())
         evaluations = list((await session.scalars(select(ResearchEvaluation))).all())
         epoch = await session.get(
             ResearchExperimentEpoch,
@@ -112,9 +110,7 @@ async def test_internal_claim_starts_one_consumed_authorization_and_running_eval
         )
         audit_columns = {
             column[1]
-            for column in (
-                await session.execute(text(f"PRAGMA table_info({_ACCESS_AUDIT_TABLE})"))
-            )
+            for column in (await session.execute(text(f"PRAGMA table_info({_ACCESS_AUDIT_TABLE})")))
         }
 
     assert stored_command is not None
@@ -236,7 +232,9 @@ async def test_claim_child_write_failure_rolls_back_every_authority_mutation(
         _executemany: bool,
     ) -> None:
         if needle in statement.lower():
-            raise OperationalError(statement, parameters, RuntimeError("forced claim write failure"))
+            raise OperationalError(
+                statement, parameters, RuntimeError("forced claim write failure")
+            )
 
     sync_engine = database.engine.sync_engine
     event.listen(sync_engine, "before_cursor_execute", fail_write)
@@ -414,9 +412,7 @@ async def test_claim_refuses_existing_authority_residue_without_creating_a_secon
             ResearchExperimentEpoch,
             context["candidate"].experiment_epoch_id,
         )
-        authorizations = list(
-            (await session.scalars(select(ResearchHoldoutAuthorization))).all()
-        )
+        authorizations = list((await session.scalars(select(ResearchHoldoutAuthorization))).all())
         evaluations = list((await session.scalars(select(ResearchEvaluation))).all())
     assert stored is not None and stored.status == "QUEUED"
     assert stored.authorization_id is None and stored.evaluation_id is None
@@ -520,10 +516,13 @@ async def test_expired_running_claim_moves_to_reconciling_without_resigning(
     assert stored.lease_generation == 1
     assert stored.lease_expires_at is None
     assert stored.lease_heartbeat_at is None
-    assert await _table_count(
-        _ACCESS_AUDIT_TABLE,
-        where="action = 'LEASE_EXPIRED_RECONCILING' AND result = 'ACCEPTED'",
-    ) == 1
+    assert (
+        await _table_count(
+            _ACCESS_AUDIT_TABLE,
+            where="action = 'LEASE_EXPIRED_RECONCILING' AND result = 'ACCEPTED'",
+        )
+        == 1
+    )
     with pytest.raises(ValueError, match="HOLDOUT_CLAIM_ALREADY_STARTED"):
         await service.claim(command_id=command["id"], runtime=runtime)
     assert await _model_count(ResearchHoldoutAuthorization) == 1
@@ -828,10 +827,13 @@ async def test_recovery_audit_failure_restores_the_complete_active_lease(
         }
     assert actual == expected
     assert actual["status"] == "RUNNING"
-    assert await _table_count(
-        _ACCESS_AUDIT_TABLE,
-        where="action = 'LEASE_EXPIRED_RECONCILING'",
-    ) == 0
+    assert (
+        await _table_count(
+            _ACCESS_AUDIT_TABLE,
+            where="action = 'LEASE_EXPIRED_RECONCILING'",
+        )
+        == 0
+    )
 
 
 @pytest.mark.asyncio
@@ -875,7 +877,9 @@ async def test_expired_lease_static_recovery_does_not_require_live_capability_or
 
 
 @pytest.mark.asyncio
-async def test_expired_lease_recovery_still_requires_bound_runtime_identity(client, auth_user) -> None:
+async def test_expired_lease_recovery_still_requires_bound_runtime_identity(
+    client, auth_user
+) -> None:
     context, _headers, command = await _queued_command(
         client,
         auth_user,
@@ -1035,18 +1039,14 @@ def _claim_schema(sync_connection: Any) -> dict[str, set[str]]:
     inspector = inspect(sync_connection)
     return {
         "tables": set(inspector.get_table_names()),
-        "command_columns": {
-            column["name"] for column in inspector.get_columns(_COMMAND_TABLE)
-        },
+        "command_columns": {column["name"] for column in inspector.get_columns(_COMMAND_TABLE)},
         "command_checks": {
             constraint["name"]
             for constraint in inspector.get_check_constraints(_COMMAND_TABLE)
             if constraint["name"]
         },
         "command_indexes": {
-            index["name"]
-            for index in inspector.get_indexes(_COMMAND_TABLE)
-            if index["name"]
+            index["name"] for index in inspector.get_indexes(_COMMAND_TABLE) if index["name"]
         },
         "evaluation_uniques": {
             constraint["name"]

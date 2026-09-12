@@ -1021,9 +1021,7 @@ async def test_runtime_replay_rejects_injected_crypto_snapshot_family_before_que
                 "asset_type": "stock",
                 "family_id": "crypto.realtime",
                 "data_kind": "bars",
-                "query_fingerprint": _canonical_sha256(
-                    {"test": "injected-crypto-realtime-family"}
-                ),
+                "query_fingerprint": _canonical_sha256({"test": "injected-crypto-realtime-family"}),
             }
         )
         injected_binding_hash = _canonical_sha256(material)

@@ -1838,9 +1838,7 @@ class TestStartInstance:
     """Tests for starting instances."""
 
     @pytest.mark.asyncio
-    async def test_pending_live_handoff_requires_opaque_server_activation_token(
-        self, monkeypatch
-    ):
+    async def test_pending_live_handoff_requires_opaque_server_activation_token(self, monkeypatch):
         """A visible pending handoff cannot be started by a public manager call."""
         instances = {
             "live-handoff-inst": {
@@ -1877,9 +1875,7 @@ class TestStartInstance:
         ):
             manager = LiveTradingManager()
             activation_token = manager.new_live_handoff_runtime_activation_token()
-            manager._pending_attested_live_handoff_instances["live-handoff-inst"] = (
-                activation_token
-            )
+            manager._pending_attested_live_handoff_instances["live-handoff-inst"] = activation_token
 
             with pytest.raises(
                 ValueError,

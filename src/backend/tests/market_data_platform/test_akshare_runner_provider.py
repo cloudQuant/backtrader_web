@@ -98,7 +98,9 @@ def test_runner_endpoint_allowlist_matches_static_provider_contracts() -> None:
     )
 
 
-def _provider(tmp_path: Path, body: str, *, timeout_seconds: float = 1.0) -> AkShareMarketDataProvider:
+def _provider(
+    tmp_path: Path, body: str, *, timeout_seconds: float = 1.0
+) -> AkShareMarketDataProvider:
     environment, workdir = _runner_configuration(tmp_path)
     return AkShareMarketDataProvider(
         command=_runner_command(_runner_script(tmp_path, body)),
@@ -397,9 +399,15 @@ sys.stdin.buffer.read(1)
     ("mutation", "expected_code"),
     (
         ('result["protocol_version"] = "other"', "AKSHARE_RUNNER_PROTOCOL_MISMATCH"),
-        ('result["request"]["provider_symbol"] = "SUBSTITUTED"', "AKSHARE_RUNNER_PROTOCOL_MISMATCH"),
+        (
+            'result["request"]["provider_symbol"] = "SUBSTITUTED"',
+            "AKSHARE_RUNNER_PROTOCOL_MISMATCH",
+        ),
         ('result["execution"]["endpoint"] = "forex_hist_em"', "AKSHARE_RUNNER_PROTOCOL_MISMATCH"),
-        ('result["source_revision"] = "akshare-substituted:stock_zh_a_hist"', "AKSHARE_RUNNER_SOURCE_REVISION_MISMATCH"),
+        (
+            'result["source_revision"] = "akshare-substituted:stock_zh_a_hist"',
+            "AKSHARE_RUNNER_SOURCE_REVISION_MISMATCH",
+        ),
         ('result["response_rows"] = {"not": "a-list"}', "AKSHARE_RUNNER_INVALID_RESPONSE"),
         ('result["unexpected"] = "unreviewed"', "AKSHARE_RUNNER_INVALID_RESPONSE"),
         (
@@ -502,7 +510,9 @@ async def test_isolated_runner_rejects_an_independent_akshare_revision_mismatch(
         "def stock_zh_a_hist(**kwargs):\n    return []\n",
         encoding="utf-8",
     )
-    shipped_runner = Path(__file__).resolve().parents[2] / "scripts" / "akshare_market_data_runner.py"
+    shipped_runner = (
+        Path(__file__).resolve().parents[2] / "scripts" / "akshare_market_data_runner.py"
+    )
     provider = AkShareMarketDataProvider(
         command=_runner_command(shipped_runner),
         runner_environment=environment,
@@ -661,7 +671,9 @@ time.sleep(10)
 
 @pytest.mark.asyncio
 @pytest.mark.skipif(os.name != "posix", reason="requires a POSIX process group")
-async def test_akshare_runner_timeout_kills_and_reaps_descendants_before_return(tmp_path: Path) -> None:
+async def test_akshare_runner_timeout_kills_and_reaps_descendants_before_return(
+    tmp_path: Path,
+) -> None:
     """A timeout does not permit a forked source child to survive the provider call."""
     ready = tmp_path / "child-ready"
     survived = tmp_path / "child-survived"
@@ -823,7 +835,9 @@ time.sleep(10)
     assert not _process_is_alive(int(runner_pid.read_text(encoding="utf-8")))
 
 
-def test_akshare_runner_command_shape_rejects_extra_flags_and_relative_paths(tmp_path: Path) -> None:
+def test_akshare_runner_command_shape_rejects_extra_flags_and_relative_paths(
+    tmp_path: Path,
+) -> None:
     """No shell, module mode, relative script, or extra flag can cross the boundary."""
     script = _runner_script(tmp_path, "")
     python = str(Path(sys.executable).resolve())
