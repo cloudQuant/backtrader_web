@@ -493,13 +493,13 @@ export function useStrategyPage() {
     value: MarketAssetType
     label: string
   }> = [
-    { value: 'stock', label: '股票' },
-    { value: 'futures', label: '期货' },
-    { value: 'bond', label: '债券' },
-    { value: 'fund', label: '基金 / ETF' },
-    { value: 'option', label: '期权' },
-    { value: 'fx', label: '外汇' },
-    { value: 'crypto', label: '加密资产' },
+    { value: 'stock', label: t('strategy.aiResearchAssetTypes.stock') },
+    { value: 'futures', label: t('strategy.aiResearchAssetTypes.futures') },
+    { value: 'bond', label: t('strategy.aiResearchAssetTypes.bond') },
+    { value: 'fund', label: t('strategy.aiResearchAssetTypes.fund') },
+    { value: 'option', label: t('strategy.aiResearchAssetTypes.option') },
+    { value: 'fx', label: t('strategy.aiResearchAssetTypes.fx') },
+    { value: 'crypto', label: t('strategy.aiResearchAssetTypes.crypto') },
   ]
 
   const aiResearchHeroSteps = computed(() => [
@@ -6302,7 +6302,7 @@ export function useStrategyPage() {
     const preparedRecord = liveTradingPreparedRunRecord(record, activated)
     const steps = upsertPipelineStep(preparedRecord.pipeline?.steps ?? [], {
       key: 'live_trading_activation',
-      label: '实盘启动',
+      label: t('strategy.livePipeline.activation'),
       status: 'completed',
     })
     return {
@@ -6329,7 +6329,7 @@ export function useStrategyPage() {
     const deactivatedAt = new Date().toISOString()
     const steps = upsertPipelineStep(record.pipeline?.steps ?? [], {
       key: 'live_trading_deactivation',
-      label: '实盘停机',
+      label: t('strategy.livePipeline.deactivation'),
       status: 'completed',
     })
     return {

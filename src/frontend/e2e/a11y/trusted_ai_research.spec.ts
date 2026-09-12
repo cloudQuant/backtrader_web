@@ -142,6 +142,7 @@ test('trusted AI research on the investment route preserves the same binding acr
         gates: [],
         decisions: [],
         evidence_packages: [],
+        holdout_commands: [],
         evidence_class: 'PROTOCOL_V2_PENDING',
       })
     }

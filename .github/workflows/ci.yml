@@ -98,13 +98,13 @@ jobs:
         run: |
           alembic upgrade head
 
-      - name: Check for unmigrated model changes
-        working-directory: src/backend
-        run: |
-          if ! alembic check; then
-            echo "::error::ORM models have changes not covered by migrations"
-            exit 1
-          fi
+      # ORM ↔ migration consistency is NOT checked here: SQLAlchemy's SQLite
+      # reflection drops FK names/ondelete (notably for the ALTER TABLE ADD
+      # COLUMN ... REFERENCES pattern), so `alembic check` on SQLite reports
+      # false add/remove FK pairs for a correctly migrated database. The
+      # authoritative autogenerate check runs on the real-dialect MySQL 9.4
+      # service in the asset-research-mysql-contract job below, and the
+      # normalised structural drift gate runs in the next step.
 
       # Iteration 175 §8 — fully-fledged drift detection beyond `alembic check`.
       # Compares ORM Base.metadata against the schema produced by upgrading a
@@ -189,6 +189,10 @@ jobs:
       - name: Run Iteration 191 MySQL migration round-trip and direct-relation contract
         run: |
           alembic upgrade head
+          # Real-dialect autogenerate check: MySQL reflects FK names and
+          # ondelete fully, so a clean `alembic check` here proves the ORM
+          # models and the migration chain still agree (SQLite cannot).
+          alembic check
           alembic downgrade 20260801_stock_signal_predictions
           alembic upgrade head
           alembic current

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from sqlalchemy import select
@@ -26,7 +26,7 @@ async def test_governance_deviation_preserves_original_failure_and_is_idempotent
 
     user_id = await _user_id(auth_user)
     run = await _run(user_id)
-    expires_at = datetime(2026, 9, 12, tzinfo=timezone.utc)
+    expires_at = datetime.now(timezone.utc) + timedelta(hours=1)
     policy = GovernanceDeviationPolicy(
         version="governance-v1",
         waivable_targets=frozenset({"NFR-PERF-001"}),
@@ -96,7 +96,7 @@ async def test_governance_deviation_can_be_revoked_by_its_recorded_actor(auth_us
         compensating_controls=("Keep protocol v2 disabled.",),
         scope={"run_id": run.id},
         idempotency_key="performance-deviation-revoke",
-        expires_at=datetime(2026, 9, 12, tzinfo=timezone.utc),
+        expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
     )
 
     revoked = await service.revoke(
@@ -135,8 +135,8 @@ async def test_governance_policy_rejects_non_performance_targets_even_if_allowli
             compensating_controls=("Not applicable.",),
             scope={"run_id": "not-read"},
             idempotency_key="invalid-security-policy",
-            now=datetime(2026, 9, 5, tzinfo=timezone.utc),
-            expires_at=datetime(2026, 9, 12, tzinfo=timezone.utc),
+            now=datetime.now(timezone.utc) - timedelta(hours=1),
+            expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
         )
 
 

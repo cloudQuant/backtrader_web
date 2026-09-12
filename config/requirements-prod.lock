@@ -288,7 +288,7 @@ uvloop==0.22.1
     # via uvicorn
 watchfiles==1.2.0
     # via uvicorn
-weasyprint==69.0
+weasyprint==70.0
     # via ai-for-investor-backend (pyproject.toml)
 webencodings==0.5.1
     # via

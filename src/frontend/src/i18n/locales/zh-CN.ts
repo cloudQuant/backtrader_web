@@ -208,6 +208,19 @@ export default {
 
   // 策略
   strategy: {
+    aiResearchAssetTypes: {
+      stock: '股票',
+      futures: '期货',
+      bond: '债券',
+      fund: '基金 / ETF',
+      option: '期权',
+      fx: '外汇',
+      crypto: '加密资产',
+    },
+    livePipeline: {
+      activation: '实盘启动',
+      deactivation: '实盘停机',
+    },
     title: '策略管理',
     createStrategy: '创建策略',
     editStrategy: '编辑策略',

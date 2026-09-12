@@ -208,6 +208,19 @@ export default {
 
   // Strategy
   strategy: {
+    aiResearchAssetTypes: {
+      stock: 'Stock',
+      futures: 'Futures',
+      bond: 'Bond',
+      fund: 'Fund / ETF',
+      option: 'Option',
+      fx: 'FX',
+      crypto: 'Crypto',
+    },
+    livePipeline: {
+      activation: 'Live activation',
+      deactivation: 'Live deactivation',
+    },
     title: 'Strategy Management',
     createStrategy: 'Create Strategy',
     editStrategy: 'Edit Strategy',

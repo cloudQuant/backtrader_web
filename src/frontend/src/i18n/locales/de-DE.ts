@@ -615,6 +615,19 @@ export default buildLocale({
     logPosTpl: 'Symbol {sym} | Stückzahl {size} | Preis {price} | Wert {value}',
   },
   strategy: {
+    aiResearchAssetTypes: {
+      stock: 'Aktien',
+      futures: 'Futures',
+      bond: 'Anleihen',
+      fund: 'Fonds / ETF',
+      option: 'Optionen',
+      fx: 'Devisen',
+      crypto: 'Krypto-Assets',
+    },
+    livePipeline: {
+      activation: 'Live-Aktivierung',
+      deactivation: 'Live-Deaktivierung',
+    },
     title: 'Strategie-Verwaltung',
     createStrategy: 'Strategie erstellen',
     editStrategy: 'Strategie bearbeiten',

@@ -615,6 +615,19 @@ export default buildLocale({
     logPosTpl: 'Символ {sym} | Размер {size} | Цена {price} | Стоимость {value}',
   },
   strategy: {
+    aiResearchAssetTypes: {
+      stock: 'Акции',
+      futures: 'Фьючерсы',
+      bond: 'Облигации',
+      fund: 'Фонды / ETF',
+      option: 'Опционы',
+      fx: 'Валюты',
+      crypto: 'Криптоактивы',
+    },
+    livePipeline: {
+      activation: 'Запуск в реальную торговлю',
+      deactivation: 'Остановка реальной торговли',
+    },
     title: 'Управление стратегиями',
     createStrategy: 'Создать стратегию',
     editStrategy: 'Редактировать стратегию',

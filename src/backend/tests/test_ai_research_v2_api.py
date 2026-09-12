@@ -585,7 +585,7 @@ async def test_v2_governance_api_records_only_server_allowed_deviation_and_can_r
             "risk": "The target-deployment latency budget is not proven.",
             "compensating_controls": ["token=internal-control-token"],
             "scope": {"run_id": run.id},
-            "expires_at": "2026-09-12T00:00:00Z",
+            "expires_at": (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat(),
         },
     )
 

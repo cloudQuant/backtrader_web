@@ -617,6 +617,19 @@ export default buildLocale({
     logPosTpl: '銘柄 {sym} | 数量 {size} | 価格 {price} | 評価額 {value}',
   },
   strategy: {
+    aiResearchAssetTypes: {
+      stock: '株式',
+      futures: '先物',
+      bond: '債券',
+      fund: 'ファンド / ETF',
+      option: 'オプション',
+      fx: '為替',
+      crypto: '暗号資産',
+    },
+    livePipeline: {
+      activation: 'ライブ起動',
+      deactivation: 'ライブ停止',
+    },
     title: '戦略管理',
     createStrategy: '戦略を作成',
     editStrategy: '戦略を編集',

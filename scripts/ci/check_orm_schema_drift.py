@@ -76,6 +76,7 @@ def _normalise_type(t: object) -> str:
     name = type(t).__name__
     aliases = {
         "BIGINT": "BigInteger",
+        "BLOB": "LargeBinary",  # SQLite reflects LargeBinary columns as BLOB.
         "BOOLEAN": "Boolean",
         "CHAR": "String",
         "DATE": "Date",
@@ -133,23 +134,60 @@ def _compare(expected_md, actual_md) -> list[Diff]:
                     )
                 )
 
-        # Indexes (best-effort — SQLite reflects implicit FK indexes inconsistently)
+        # Indexes (best-effort — SQLite reflects implicit FK indexes inconsistently).
+        # Uniqueness is compared by column set across its three physical shapes
+        # on SQLite: named UniqueConstraints, inline (auto-named) table UNIQUE,
+        # and explicit unique indexes — all three enforce the same uniqueness.
+        # Plain (non-unique) indexes are compared by (name, columns).
+        from sqlalchemy import UniqueConstraint
+
+        def _unique_column_sets(table) -> set[tuple[str, ...]]:
+            return {
+                tuple(sorted(c.name for c in u.columns))
+                for u in table.constraints
+                if isinstance(u, UniqueConstraint)
+            } | {
+                tuple(sorted(c.name for c in i.columns))
+                for i in table.indexes
+                if i.unique
+            }
+
         ei = {
             (i.name, tuple(sorted(c.name for c in i.columns)))
             for i in et.indexes
-            if i.name
+            if i.name and not i.unique
         }
         ai = {
             (i.name, tuple(sorted(c.name for c in i.columns)))
             for i in at.indexes
-            if i.name
+            if i.name and not i.unique
         }
+        eu = _unique_column_sets(et)
+        au = _unique_column_sets(at)
         for missing in sorted(ei - ai):
             diffs.append(
                 Diff("index", f"{tname}.{missing[0]}", str(missing), "missing")
             )
         for extra in sorted(ai - ei):
             diffs.append(Diff("index", f"{tname}.{extra[0]}", "missing", str(extra)))
+        for missing in sorted(eu - au):
+            diffs.append(
+                Diff(
+                    "unique",
+                    f"{tname}.{'+'.join(missing)}",
+                    f"unique({', '.join(missing)})",
+                    "missing",
+                )
+            )
+        for extra in sorted(au - eu):
+            diffs.append(
+                Diff(
+                    "unique",
+                    f"{tname}.{'+'.join(extra)}",
+                    "missing",
+                    f"unique({', '.join(extra)})",
+                )
+            )
 
         # Foreign keys
         ef = {

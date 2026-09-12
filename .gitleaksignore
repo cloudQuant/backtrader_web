@@ -127,3 +127,12 @@ f575cce66256d111666ea6601103377f0adcf6d4:src/backend/tests/test_iteration129_kno
 # Self-fingerprint: the comment block above mentioned the fixture string inline
 # in ddb7d980; reworded later, fingerprint pins the historical occurrence.
 ddb7d980bdba2be9bdec8082a784f877c3631983:.gitleaksignore:generic-api-key:123
+
+# Iteration 197 CI recovery (2026-09-12): reviewed test-fixture values only.
+# - E2E login password for the disposable seeded smoke user.
+9d96667db6af66f664c941372151c42d670a18ff:src/backend/tests/test_ai_strategy_research_service.py:generic-api-key:16571
+e76d127dc9f899d967fabaddb96f6819c726d4ca:src/backend/tests/test_ai_strategy_research_service.py:generic-api-key:16571
+# - Deterministic idempotency-key literal (not a credential) in an a11y fixture.
+3ebe7717a0bfe7ebf1cde2dfc501d6842034c253:src/frontend/e2e/a11y/trusted_ai_research.real.spec.ts:generic-api-key:25
+# - Fixed approval idempotency-key literal in a unit test (not a credential).
+3ebe7717a0bfe7ebf1cde2dfc501d6842034c253:src/frontend/src/__tests__/api/strategyApproval.test.ts:generic-api-key:121

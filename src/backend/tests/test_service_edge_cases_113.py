@@ -46,6 +46,8 @@ async def test_backtest_service_execute_backtest_missing_branches(tmp_path: Path
 
     # Stub out subprocess run + parsing to avoid heavy ops.
     monkeypatch.setattr(svc, "_run_strategy_subprocess", AsyncMock(return_value={"stdout": "x"}))
+    # Atomically claim against the mock instead of the real database.
+    monkeypatch.setattr(svc, "_claim_task_execution_start", AsyncMock(return_value=True))
 
     # Ensure tmp log dir exists so persist copytree branch executes.
     tmp_log_dir = tmp_path / "tmp_logs_persist"
@@ -64,6 +66,7 @@ async def test_backtest_service_execute_backtest_missing_branches(tmp_path: Path
         with patch("app.services.log_parser_service.parse_all_logs", return_value=log_result_ok):
             svc.task_manager.create_result = AsyncMock()
             svc.task_manager.update_task_status = AsyncMock()
+            svc.task_manager.get_task = AsyncMock(return_value=SimpleNamespace(status="pending"))
             with patch("app.services.backtest_service.ws_manager") as mock_ws:
                 mock_ws.send_to_task = AsyncMock()
                 # observe internal calls: tmp_logs cleanup, config overwrite, persist copytree
@@ -131,12 +134,14 @@ async def test_backtest_service_execute_backtest_missing_branches(tmp_path: Path
 
 
 @pytest.mark.asyncio
-async def test_backtest_service_rejects_invalid_strategy_id():
+async def test_backtest_service_rejects_invalid_strategy_id(monkeypatch):
     from app.schemas.backtest import BacktestRequest, TaskStatus
     from app.services.backtest_service import BacktestService
 
     svc = BacktestService()
     svc.task_manager = AsyncMock()
+    svc.task_manager.get_task = AsyncMock(return_value=SimpleNamespace(status="pending"))
+    monkeypatch.setattr(svc, "_claim_task_execution_start", AsyncMock(return_value=True))
 
     req = BacktestRequest(
         strategy_id="../escape",
