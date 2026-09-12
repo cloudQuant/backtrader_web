@@ -149,6 +149,22 @@ jobs:
       ASSET_RESEARCH_MYSQL_SHARED_SCHEMA_CONFIRM: "yes"
       ASSET_RESEARCH_MYSQL_TASK_RUNNER_DISPOSABLE_URL: mysql+aiomysql://root:root@127.0.0.1:3306/codex_iter191_ci
       ASSET_RESEARCH_MYSQL_TASK_RUNNER_DISPOSABLE_CONFIRM: "yes"
+      # The governed MySQL migrations require an explicit writer-drain
+      # confirmation before DDL. This job's service database is a disposable
+      # per-run container with no application writers, so the fences are
+      # always confirmed here.
+      MARKET_DATA_B2_COMPLETENESS_EVIDENCE_MAINTENANCE_FENCE: confirmed
+      MARKET_DATA_CAPABILITY_LEDGER_MAINTENANCE_FENCE: confirmed
+      MARKET_DATA_CONSTRAINT_NAME_PORTABILITY_MAINTENANCE_FENCE: confirmed
+      MARKET_DATA_EXACT_IDENTITY_MAINTENANCE_FENCE: confirmed
+      MARKET_DATA_FETCH_LEASE_MAINTENANCE_FENCE: confirmed
+      MARKET_DATA_PUBLICATION_RELEASE_HOLD_MAINTENANCE_FENCE: confirmed
+      MARKET_DATA_SEMANTIC_RECORD_KEY_MAINTENANCE_FENCE: confirmed
+      MARKET_DATA_SHARED_BINDING_MAINTENANCE_FENCE: confirmed
+      MARKET_DATA_SHARED_SOURCE_PAYLOAD_MAINTENANCE_FENCE: confirmed
+      MARKET_DATA_SOURCE_GOVERNANCE_MAINTENANCE_FENCE: confirmed
+      MARKET_DATA_SOURCE_RECEIPT_EVIDENCE_MAINTENANCE_FENCE: confirmed
+      MARKET_DATA_VISIBILITY_ANCHOR_MAINTENANCE_FENCE: confirmed
 
     steps:
       - name: Checkout code
