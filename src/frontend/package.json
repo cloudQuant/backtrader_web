@@ -24,7 +24,7 @@
     "@monaco-editor/loader": "^1.7.0",
     "axios": "^1.20.0",
     "dayjs": "^1.11.20",
-    "dompurify": "^3.3.3",
+    "dompurify": "^3.4.15",
     "echarts": "^5.4.3",
     "echarts-gl": "^2.0.9",
     "element-plus": "^2.5.0",
