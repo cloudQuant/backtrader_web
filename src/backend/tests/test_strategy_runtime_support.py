@@ -1758,10 +1758,18 @@ class TestWorkspaceUnitRuntime:
             await db.commit()
 
         monkeypatch.setattr(workspace_run_ops, "async_session_maker", async_session_maker)
-        barrier = asyncio.Barrier(2)
+        barrier_count = 0
+        barrier_event = asyncio.Event()
+
+        async def wait_barrier() -> None:
+            nonlocal barrier_count
+            barrier_count += 1
+            if barrier_count == 2:
+                barrier_event.set()
+            await barrier_event.wait()
 
         async def claim_after_barrier() -> tuple[str | None, dict[str, Any] | None]:
-            await asyncio.wait_for(barrier.wait(), timeout=2)
+            await asyncio.wait_for(wait_barrier(), timeout=2)
             return await WorkspaceService()._claim_research_unit_run(workspace_id, unit_id)
 
         first, second = await asyncio.gather(claim_after_barrier(), claim_after_barrier())

@@ -735,9 +735,12 @@ class TestStrategyPreflight:
         ):
             StrategySandbox.validate_strategy_code(VALID_STRATEGY, timeout=1)
 
-        assert any(
-            "could not be stopped" in note for note in getattr(exc_info.value, "__notes__", [])
+        error = exc_info.value
+        note_has_marker = any(
+            "could not be stopped" in note for note in getattr(error, "__notes__", [])
         )
+        # Python <3.11 has no BaseException.add_note; the marker is in the message.
+        assert note_has_marker or "could not be stopped" in str(error)
 
     def test_validation_closes_pipe_when_process_construction_fails(self):
         class FakeEndpoint:

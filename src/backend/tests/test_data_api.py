@@ -189,5 +189,7 @@ class TestDataAPIRoutes:
     async def test_kline_endpoint_remains_registered(self) -> None:
         from app.api.data import router
 
-        routes = [route.path for route in router.routes]
+        routes = [
+            route.path for route in router.routes if isinstance(getattr(route, "path", None), str)
+        ]
         assert "/kline" in routes
