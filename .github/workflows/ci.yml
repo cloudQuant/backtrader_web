@@ -1391,6 +1391,11 @@ jobs:
           echo "$PWD/.venv/bin" >> $GITHUB_PATH
           .venv/bin/python -m pip install --upgrade pip
           .venv/bin/pip install --no-cache-dir -e ".[dev,postgres,backtrader,data,redis]"
+          # tests/conftest.py keeps one in-memory StaticPool engine alive for the
+          # whole session while pytest-asyncio gives every test its own loop.
+          # SQLAlchemy 2.1 binds an asyncio.Lock to the loop of a connection's
+          # first use, so the extras install must stay on the locked 2.0 line.
+          .venv/bin/pip install --no-cache-dir "SQLAlchemy==2.0.49"
 
       - name: Run alembic migrations
         run: alembic upgrade head
