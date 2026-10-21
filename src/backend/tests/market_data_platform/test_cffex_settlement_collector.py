@@ -6,6 +6,7 @@ import asyncio
 import builtins
 import hashlib
 import json
+import sys
 from collections.abc import Callable, Mapping
 from dataclasses import replace
 from datetime import date, datetime, timedelta, timezone
@@ -44,6 +45,11 @@ from app.services.market_data.publication import MarketDataPublicationError
 from app.services.market_data.query_resolution import ResolvedMarketDataQueryContext
 from app.services.market_data.store import MarketDataStore, MarketDataStoreError
 from scripts.collect_iteration197_cffex_settlement import main as collector_command_main
+
+_REQUIRES_CANCELLATION_SUBCLASS = pytest.mark.skipif(
+    sys.version_info < (3, 11),
+    reason="asyncio.Task preserves CancelledError subclasses only from Python 3.11",
+)
 
 UTC = timezone.utc
 TRADING_DATE = date(2026, 9, 8)
@@ -804,6 +810,7 @@ async def test_later_target_write_reports_the_exact_published_prefix(
     assert counts == (1, 1, 1)
 
 
+@_REQUIRES_CANCELLATION_SUBCLASS
 @pytest.mark.asyncio
 async def test_cancellation_after_second_publication_reports_two_durable_prefixes(
     monkeypatch: pytest.MonkeyPatch,
@@ -889,6 +896,7 @@ async def test_cancellation_after_second_publication_reports_two_durable_prefixe
     assert counts == (2, 2, 2)
 
 
+@_REQUIRES_CANCELLATION_SUBCLASS
 @pytest.mark.asyncio
 async def test_cancellation_during_lease_release_reports_the_complete_durable_prefix(
     monkeypatch: pytest.MonkeyPatch,
@@ -961,6 +969,7 @@ async def test_cancellation_during_lease_release_reports_the_complete_durable_pr
     assert counts == (1, 1, 1)
 
 
+@_REQUIRES_CANCELLATION_SUBCLASS
 @pytest.mark.asyncio
 async def test_cancellation_during_failed_lease_release_keeps_the_durable_prefix(
     monkeypatch: pytest.MonkeyPatch,
@@ -1033,6 +1042,7 @@ async def test_cancellation_during_failed_lease_release_keeps_the_durable_prefix
     assert counts == (1, 1, 1)
 
 
+@_REQUIRES_CANCELLATION_SUBCLASS
 @pytest.mark.asyncio
 async def test_cancellation_during_false_lease_release_keeps_the_durable_prefix(
     monkeypatch: pytest.MonkeyPatch,
@@ -1225,6 +1235,7 @@ async def test_generic_lease_release_failure_exposes_the_complete_durable_prefix
     assert counts == (1, 1, 1)
 
 
+@_REQUIRES_CANCELLATION_SUBCLASS
 @pytest.mark.asyncio
 async def test_store_cancellation_then_failed_release_keeps_every_durable_prefix(
     monkeypatch: pytest.MonkeyPatch,

@@ -6,6 +6,7 @@ import asyncio
 import hashlib
 import json
 import socket
+import sys
 from collections.abc import Callable
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
@@ -52,6 +53,11 @@ from app.services.market_data.stock_valuation_collector import (
     StockValuationCollectorPartialPublishError,
 )
 from app.services.market_data.store import MarketDataStore, MarketDataStoreError
+
+_REQUIRES_CANCELLATION_SUBCLASS = pytest.mark.skipif(
+    sys.version_info < (3, 11),
+    reason="asyncio.Task preserves CancelledError subclasses only from Python 3.11",
+)
 
 UTC = timezone.utc
 CAPTURED_AT = datetime(2026, 9, 8, 7, 15, tzinfo=UTC)
@@ -914,6 +920,7 @@ async def test_later_store_failure_exposes_only_the_durable_prefix(
     assert counts == (1, 1, 1)
 
 
+@_REQUIRES_CANCELLATION_SUBCLASS
 @pytest.mark.asyncio
 async def test_cancellation_after_durable_write_returns_the_complete_prefix(
     monkeypatch: pytest.MonkeyPatch,

@@ -790,7 +790,7 @@ class _OpenBBSubprocessRunner:
             receipt, stderr_prefix = await asyncio.wait_for(
                 asyncio.shield(completion_task), timeout=timeout_seconds
             )
-        except TimeoutError as exc:
+        except (TimeoutError, asyncio.TimeoutError) as exc:
             raise OpenBBProviderError("OPENBB_RUNNER_TIMEOUT") from exc
         except asyncio.CancelledError:
             initial_cancellation = True
