@@ -2780,8 +2780,8 @@ def _trigger_definitions(
                 "SELECT trigger.tgname, trigger.tgtype::text || ' ' || procedure.proname || "
                 "' ' || procedure.prosrc, relation_namespace.nspname, current_schema(), "
                 "relation.oid, "
-                "to_regclass(format('%I.%I', current_schema(), :table_name))::oid, "
-                "procedure_namespace.nspname, trigger.tgenabled, trigger.tgqual, "
+                "to_regclass(format('%I.%I', current_schema(), CAST(:table_name AS text)))::oid, "
+                "procedure_namespace.nspname, trigger.tgenabled::text, trigger.tgqual, "
                 "trigger.tgattr::text, pg_get_triggerdef(trigger.oid, true), "
                 "pg_get_functiondef(procedure.oid) FROM pg_trigger AS trigger "
                 "JOIN pg_class AS relation ON relation.oid = trigger.tgrelid "
@@ -2791,9 +2791,9 @@ def _trigger_definitions(
                 "JOIN pg_namespace AS procedure_namespace "
                 "ON procedure_namespace.oid = procedure.pronamespace "
                 "WHERE relation_namespace.nspname = current_schema() "
-                "AND relation.relname = :table_name "
+                "AND relation.relname = CAST(:table_name AS text) "
                 "AND relation.oid = "
-                "to_regclass(format('%I.%I', current_schema(), :table_name))::oid "
+                "to_regclass(format('%I.%I', current_schema(), CAST(:table_name AS text)))::oid "
                 "AND NOT trigger.tgisinternal"
             ),
             {"table_name": table_name},
@@ -2846,7 +2846,7 @@ def _postgresql_function_definition(
         bind.execute(
             sa.text(
                 "SELECT procedure_namespace.nspname, current_schema(), procedure.oid, "
-                "to_regprocedure(format('%I.%I()', current_schema(), :function_name))::oid, "
+                "to_regprocedure(format('%I.%I()', current_schema(), CAST(:function_name AS text)))::oid, "
                 "pg_get_functiondef(procedure.oid), "
                 "(SELECT COUNT(*) FROM pg_trigger AS referencing_trigger "
                 "WHERE referencing_trigger.tgfoid = procedure.oid), "
@@ -2856,18 +2856,18 @@ def _postgresql_function_definition(
                 "ON target_namespace.oid = target_relation.relnamespace "
                 "WHERE target_trigger.tgfoid = procedure.oid "
                 "AND NOT target_trigger.tgisinternal "
-                "AND target_trigger.tgname = :trigger_name "
+                "AND target_trigger.tgname = CAST(:trigger_name AS text) "
                 "AND target_namespace.nspname = current_schema() "
-                "AND target_relation.relname = :table_name "
+                "AND target_relation.relname = CAST(:table_name AS text) "
                 "AND target_relation.oid = "
-                "to_regclass(format('%I.%I', current_schema(), :table_name))::oid) "
+                "to_regclass(format('%I.%I', current_schema(), CAST(:table_name AS text)))::oid) "
                 "FROM pg_proc AS procedure "
                 "JOIN pg_namespace AS procedure_namespace "
                 "ON procedure_namespace.oid = procedure.pronamespace "
                 "WHERE procedure_namespace.nspname = current_schema() "
-                "AND procedure.proname = :function_name AND procedure.pronargs = 0 "
+                "AND procedure.proname = CAST(:function_name AS text) AND procedure.pronargs = 0 "
                 "AND procedure.oid = "
-                "to_regprocedure(format('%I.%I()', current_schema(), :function_name))::oid"
+                "to_regprocedure(format('%I.%I()', current_schema(), CAST(:function_name AS text)))::oid"
             ),
             {
                 "function_name": function_name,
@@ -3516,6 +3516,8 @@ def _normalize_sql(value: str) -> tuple[Any, ...]:
     # not semantics; strip it before tokenizing so the literal comparison
     # stays exact for both dialects.
     source = re.sub(r"_[A-Za-z0-9]+'", "'", value.strip())
+    # PostgreSQL reflects ``trim(x)`` as ``TRIM (BOTH FROM x)``.
+    source = re.sub(r"\bTRIM\s*\(\s*BOTH\s+FROM\s+", "TRIM(", source, flags=re.IGNORECASE)
     tokens = _tokenize_sql(source)
     if tokens is None:
         return ("__INVALID_SQL__", source)

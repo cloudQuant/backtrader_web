@@ -999,8 +999,8 @@ def _trigger_definitions(bind: Any) -> dict[str, str | _PostgresqlGuardDefinitio
         statement = sa.text(
             "SELECT trigger.tgname, trigger.tgtype::text || ' ' || procedure.proname || "
             "' ' || procedure.prosrc, relation_namespace.nspname, current_schema(), "
-            "relation.oid, to_regclass(format('%I.%I', current_schema(), :table_name))::oid, "
-            "procedure_namespace.nspname, trigger.tgenabled, trigger.tgqual, "
+            "relation.oid, to_regclass(format('%I.%I', current_schema(), CAST(:table_name AS text)))::oid, "
+            "procedure_namespace.nspname, trigger.tgenabled::text, trigger.tgqual, "
             "trigger.tgattr::text, pg_get_triggerdef(trigger.oid, true), "
             "pg_get_functiondef(procedure.oid) FROM pg_trigger AS trigger "
             "JOIN pg_class AS relation ON relation.oid = trigger.tgrelid "
@@ -1010,9 +1010,9 @@ def _trigger_definitions(bind: Any) -> dict[str, str | _PostgresqlGuardDefinitio
             "JOIN pg_namespace AS procedure_namespace "
             "ON procedure_namespace.oid = procedure.pronamespace "
             "WHERE relation_namespace.nspname = current_schema() "
-            "AND relation.relname = :table_name "
+            "AND relation.relname = CAST(:table_name AS text) "
             "AND relation.oid = "
-            "to_regclass(format('%I.%I', current_schema(), :table_name))::oid "
+            "to_regclass(format('%I.%I', current_schema(), CAST(:table_name AS text)))::oid "
             "AND NOT trigger.tgisinternal"
         )
         rows = bind.execute(statement, {"table_name": _TABLE})
@@ -1059,7 +1059,7 @@ def _postgresql_function_definition(
 ) -> _PostgresqlFunctionDefinition | None:
     statement = sa.text(
         "SELECT procedure_namespace.nspname, current_schema(), procedure.oid, "
-        "to_regprocedure(format('%I.%I()', current_schema(), :function_name))::oid, "
+        "to_regprocedure(format('%I.%I()', current_schema(), CAST(:function_name AS text)))::oid, "
         "pg_get_functiondef(procedure.oid), "
         "(SELECT COUNT(*) FROM pg_trigger AS referencing_trigger "
         "WHERE referencing_trigger.tgfoid = procedure.oid), "
@@ -1069,18 +1069,18 @@ def _postgresql_function_definition(
         "ON target_namespace.oid = target_relation.relnamespace "
         "WHERE target_trigger.tgfoid = procedure.oid "
         "AND NOT target_trigger.tgisinternal "
-        "AND target_trigger.tgname = :trigger_name "
+        "AND target_trigger.tgname = CAST(:trigger_name AS text) "
         "AND target_namespace.nspname = current_schema() "
-        "AND target_relation.relname = :table_name "
+        "AND target_relation.relname = CAST(:table_name AS text) "
         "AND target_relation.oid = "
-        "to_regclass(format('%I.%I', current_schema(), :table_name))::oid) "
+        "to_regclass(format('%I.%I', current_schema(), CAST(:table_name AS text)))::oid) "
         "FROM pg_proc AS procedure "
         "JOIN pg_namespace AS procedure_namespace "
         "ON procedure_namespace.oid = procedure.pronamespace "
         "WHERE procedure_namespace.nspname = current_schema() "
-        "AND procedure.proname = :function_name AND procedure.pronargs = 0 "
+        "AND procedure.proname = CAST(:function_name AS text) AND procedure.pronargs = 0 "
         "AND procedure.oid = "
-        "to_regprocedure(format('%I.%I()', current_schema(), :function_name))::oid"
+        "to_regprocedure(format('%I.%I()', current_schema(), CAST(:function_name AS text)))::oid"
     )
     rows = list(
         bind.execute(

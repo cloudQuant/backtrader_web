@@ -488,8 +488,12 @@ def _sql_matches(observed: str, expected: str) -> bool:
         # parentheses from both sides preserves the operand/boolean token
         # sequence while a different operand still produces a different one.
         value = value.lower().replace('"', "").replace("`", "")
-        value = re.sub(r"_[a-z0-9]+'", "'", value)
+        value = re.sub(r"_(?:utf8mb4|utf8mb3|utf8|latin1)'", "'", value)
+        value = re.sub(r"::(?:character varying|[a-z_]+)(?:\[\])?", "", value)
         value = re.sub(r"\s+", "", value)
+        # PostgreSQL rewrites IN (...) to = ANY (ARRAY[...]).
+        value = re.sub(r"=any\(*array\[", "in(", value)
+        value = value.replace("])", ")").replace("[", "").replace("]", "")
         return value.replace("(", "").replace(")", "")
 
     return normalize(observed) == normalize(expected)
