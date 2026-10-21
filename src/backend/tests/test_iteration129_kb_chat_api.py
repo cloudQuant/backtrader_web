@@ -491,6 +491,74 @@ class TestIteration129KBChatAPI:
         )
         assert history_resp.status_code == 404
 
+    async def test_public_knowledge_base_is_chat_accessible_to_other_users(
+        self, client: AsyncClient, auth_headers: dict
+    ):
+        other_headers = await _register_and_login(client)
+        public_kb = await client.post(
+            "/api/v1/knowledge-base/",
+            headers=auth_headers,
+            json={"name": "公开会话库", "description": None, "is_public": True},
+        )
+        assert public_kb.status_code == 201, public_kb.text
+        private_kb = await client.post(
+            "/api/v1/knowledge-base/",
+            headers=auth_headers,
+            json={"name": "非公开会话库", "description": None, "is_public": False},
+        )
+        assert private_kb.status_code == 201, private_kb.text
+        public_kb_id = public_kb.json()["id"]
+
+        public_list = await client.get(
+            "/api/v1/kb-chat/conversations",
+            headers=other_headers,
+            params={"knowledge_base_id": public_kb_id},
+        )
+        assert public_list.status_code == 200, public_list.text
+        assert public_list.json()["total"] == 0
+
+        private_list = await client.get(
+            "/api/v1/kb-chat/conversations",
+            headers=other_headers,
+            params={"knowledge_base_id": private_kb.json()["id"]},
+        )
+        assert private_list.status_code == 404
+
+        create_resp = await client.post(
+            "/api/v1/kb-chat/conversations",
+            headers=other_headers,
+            json={"knowledge_base_id": public_kb_id, "title": "公开库会话", "model_id": None},
+        )
+        assert create_resp.status_code == 201, create_resp.text
+
+        doc_resp = await client.post(
+            f"/api/v1/knowledge-base/{public_kb_id}/documents/",
+            headers=auth_headers,
+            json={
+                "title": "公开库文档",
+                "content": "双均线策略在短期均线上穿长期均线时开仓。",
+                "content_type": "markdown",
+                "is_folder": False,
+            },
+        )
+        assert doc_resp.status_code == 201, doc_resp.text
+
+        search_resp = await client.post(
+            "/api/v1/rag/search",
+            headers=other_headers,
+            json={"knowledge_base_id": public_kb_id, "query": "双均线"},
+        )
+        assert search_resp.status_code == 200, search_resp.text
+        assert search_resp.json()["total"] >= 1
+
+        owner_list = await client.get(
+            "/api/v1/kb-chat/conversations",
+            headers=auth_headers,
+            params={"knowledge_base_id": public_kb_id},
+        )
+        assert owner_list.status_code == 200, owner_list.text
+        assert owner_list.json()["total"] == 0
+
     async def test_follow_up_question_uses_conversation_aware_query_rewrite(
         self, client: AsyncClient, auth_headers: dict
     ):
