@@ -1,7 +1,7 @@
 {
   "_comment": "Iteration 183 npm audit ratchet. Update only after reviewing the npm audit JSON for the exact package-lock hash; high/critical counts may not increase.",
-  "lockfile_sha256": "ec0153d515f1fa7642ac1aa5f8d6b2ffacb9b0c3c6281c95d6ccb3547a91f2bd",
+  "lockfile_sha256": "fdd805d399f2bd1e4692e93e50a6e0939a3adfba3c107dbb1e44c36368e39b41",
   "high": 0,
   "critical": 0,
-  "baseline_date": "2026-09-02"
+  "baseline_date": "2026-10-21"
 }
