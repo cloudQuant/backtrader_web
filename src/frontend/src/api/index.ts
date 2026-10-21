@@ -40,7 +40,9 @@ type ApiErrorPayload = {
   [k: string]: unknown
 }
 
-interface ApiClient extends AxiosInstance {
+type ApiClientBase = Omit<AxiosInstance, 'request' | 'get' | 'delete' | 'post' | 'put' | 'patch'>
+
+interface ApiClient extends ApiClientBase {
   request<T = unknown, D = unknown>(config: ApiRequestConfig<D>): Promise<T>
   get<T = unknown, D = unknown>(url: string, config?: ApiRequestConfig<D>): Promise<T>
   delete<T = unknown, D = unknown>(url: string, config?: ApiRequestConfig<D>): Promise<T>

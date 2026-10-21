@@ -26,7 +26,7 @@ from app.services.asset_research.orchestrator import AssetResearchOrchestrator
 from app.services.asset_research.task_runner import AssetResearchTaskRunner
 
 _BACKEND_ROOT = Path(__file__).resolve().parents[2]
-_HEAD = "20260811_asset_research_task_leases"
+_HEAD = "20260911_market_data_b2_completeness_evidence"
 _MYSQL_VERSION = "9.4.0"
 _DATABASE_URL_ENV = "ASSET_RESEARCH_MYSQL_SHARED_SCHEMA_URL"
 _CONFIRM_ENV = "ASSET_RESEARCH_MYSQL_SHARED_SCHEMA_CONFIRM"

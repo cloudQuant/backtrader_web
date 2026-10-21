@@ -1371,7 +1371,10 @@ def _index_matches(
     reflected_type = str(index.get("type") or "").upper()
     if dialect_name in {"mysql", "mariadb"}:
         expected_type = "UNIQUE" if unique else ""
-        if reflected_type != expected_type:
+        # SQLAlchemy 2.1 stopped emitting ``type`` for plain/unique BTREE
+        # indexes, so accept an absent marker while still rejecting foreign
+        # index flavours (FULLTEXT/SPATIAL).
+        if reflected_type not in {expected_type, ""}:
             return False
     elif reflected_type:
         return False

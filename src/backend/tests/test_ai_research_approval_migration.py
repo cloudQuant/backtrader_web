@@ -685,7 +685,6 @@ def test_cross_dialect_unique_constraint_pairing_accepts_real_reflection_shapes(
                 "name": name,
                 "column_names": columns,
                 "unique": True,
-                "type": "UNIQUE",
             }
         ]
         bind = _CatalogBind(
@@ -731,6 +730,7 @@ def test_cross_dialect_unique_constraint_pairing_accepts_real_reflection_shapes(
         ("postgresql", {"duplicates_constraint": None}, {}),
         ("mysql", {}, {"duplicates_index": "uq_other"}),
         ("mysql", {}, {"duplicates_index": None}),
+        ("mysql", {"type": "FULLTEXT"}, {}),
     ],
 )
 def test_cross_dialect_unique_constraint_pairing_fails_closed_on_mismatch(
