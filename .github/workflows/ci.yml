@@ -579,11 +579,15 @@ jobs:
         run: |
           python -m venv .venv
           .venv/bin/python -m pip install --upgrade pip
-          if [ "${{ matrix.python-version }}" = "${{ env.PYTHON_VERSION }}" ]; then
+          if [ "${{ matrix.python-version }}" = "3.10" ]; then
+            # Python 3.10 cannot install the 3.11 lock (akshare/pandas floor).
+            # Pin the test runner to the canonical versions: pytest-asyncio
+            # 1.4 changes loop handling and breaks module-level asyncio locks.
+            .venv/bin/pip install -e ".[dev,backtrader,data,redis]"
+            .venv/bin/pip install "pytest==9.0.3" "pytest-asyncio==1.3.0" "pytest-xdist==3.8.0"
+          else
             .venv/bin/pip install --requirement ../../config/requirements-dev.lock
             .venv/bin/pip install --no-deps -e .
-          else
-            .venv/bin/pip install -e ".[dev,backtrader,data,redis]"
           fi
           .venv/bin/pip install pytest-cov pytest-xdist
 

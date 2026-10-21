@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 import math
 from typing import Any
@@ -15,6 +14,7 @@ from app.services.research.holdout_execution_contract import (
     HoldoutExecutionInspection,
     HoldoutExecutionResult,
 )
+from app.utils.async_timeout import timeout_after
 
 _CONFIG_INVALID = "HOLDOUT_HTTP_EXECUTOR_CONFIG_INVALID"
 _COMMAND_INVALID = "HOLDOUT_HTTP_EXECUTOR_COMMAND_INVALID"
@@ -112,7 +112,7 @@ class HttpSealedHoldoutExecutor:
     ) -> bytes:
         snapshot = command.snapshot
         try:
-            async with asyncio.timeout(self._timeout_seconds):
+            async with timeout_after(self._timeout_seconds):
                 async with httpx.AsyncClient(
                     transport=self._transport,
                     timeout=httpx.Timeout(self._timeout_seconds),

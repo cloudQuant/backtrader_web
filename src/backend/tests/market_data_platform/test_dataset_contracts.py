@@ -884,7 +884,9 @@ async def test_query_bundle_requires_data_read_before_returning_control_plane_me
 
 def test_query_bundle_route_is_registered_alongside_existing_bars_contract_routes() -> None:
     """F1 adds an independent control-plane path and leaves the bars bridge intact."""
-    paths = {route.path for route in app.routes}
+    # app.routes can contain path-less included-router records across FastAPI
+    # versions; the generated OpenAPI paths are the stable public inventory.
+    paths = set(app.openapi().get("paths", {}))
 
     assert "/api/v1/data/market-instruments/query-bundle" in paths
     assert "/api/v1/data/market-instruments/query-contract" in paths

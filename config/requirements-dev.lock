@@ -459,6 +459,8 @@ python-dateutil==2.9.0.post0
     #   freezegun
     #   matplotlib
     #   pandas
+python-docx==1.2.0
+    # via ai-for-investor-backend (pyproject.toml)
 python-dotenv==1.2.2
     # via
     #   pydantic-settings

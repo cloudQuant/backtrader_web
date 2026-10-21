@@ -7,7 +7,6 @@ code locally, or exposes a remote response/error through its public errors.
 
 from __future__ import annotations
 
-import asyncio
 import json
 import math
 from typing import Any
@@ -20,6 +19,7 @@ from app.services.research.discovery_execution_contract import (
     DiscoveryExecutionResult,
 )
 from app.services.research.redaction import redact_sensitive_payload
+from app.utils.async_timeout import timeout_after
 
 _CONFIG_INVALID = "DISCOVERY_HTTP_EXECUTOR_CONFIG_INVALID"
 _COMMAND_INVALID = "DISCOVERY_HTTP_EXECUTOR_COMMAND_INVALID"
@@ -88,7 +88,7 @@ class HttpDiscoverySandboxExecutor:
         try:
             # HTTPX phase timeouts do not impose a deadline on the combined
             # connection + request + response stream.  The outer deadline does.
-            async with asyncio.timeout(self._timeout_seconds):
+            async with timeout_after(self._timeout_seconds):
                 async with httpx.AsyncClient(
                     transport=self._transport,
                     timeout=httpx.Timeout(

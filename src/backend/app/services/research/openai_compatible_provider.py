@@ -6,7 +6,6 @@ chooses another route, silently substitutes a model, or invents missing usage.
 
 from __future__ import annotations
 
-import asyncio
 import json
 import math
 from dataclasses import dataclass, field
@@ -20,6 +19,7 @@ from pydantic import SecretStr
 from app.services.research.llm_gateway import ProviderRequest, ProviderResponse
 from app.services.research.provider_contract import PreparedProviderRequest
 from app.services.research.redaction import redact_sensitive_payload
+from app.utils.async_timeout import timeout_after
 
 
 @dataclass(frozen=True, slots=True)
@@ -114,7 +114,7 @@ class OpenAICompatibleResearchProvider:
         payload = self._validated_prepared_payload(prepared)
         try:
             # HTTPX phase timeouts do not provide a whole-operation deadline.
-            async with asyncio.timeout(self._config.timeout_seconds):
+            async with timeout_after(self._config.timeout_seconds):
                 async with httpx.AsyncClient(
                     transport=self._transport,
                     timeout=self._config.timeout_seconds,

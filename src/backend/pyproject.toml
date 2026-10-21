@@ -57,6 +57,7 @@ dev = [
     "mypy==1.20.2",
     "diff-cover>=9.0.0",
     "openapi-spec-validator>=0.7.1",
+    "python-docx>=1.1.0",
     "bandit>=1.7.0",
     "pip-audit>=2.7.0",
     "purgedcv>=0.1.0",

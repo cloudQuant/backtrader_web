@@ -1308,15 +1308,9 @@ async def test_refresh_queries_do_not_reuse_local_first_singleflight_followers()
 
 def test_legacy_data_routes_remain_registered_alongside_v2_query_route() -> None:
     """Iteration 197 adds a new route and does not replace page-critical legacy paths."""
-    paths: set[str] = set()
-    pending = list(app.routes)
-    while pending:
-        route = pending.pop()
-        path = getattr(route, "path", None)
-        if isinstance(path, str):
-            paths.add(path)
-        # FastAPI 0.156 wraps included routers in path-less records.
-        pending.extend(getattr(route, "routes", ()) or ())
+    # app.routes can contain path-less included-router records across FastAPI
+    # versions; the generated OpenAPI paths are the stable public inventory.
+    paths = set(app.openapi().get("paths", {}))
 
     assert "/api/v1/data/queries" in paths
     assert "/api/v1/data/kline" in paths
