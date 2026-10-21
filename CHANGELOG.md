@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-02
+
 ### Added — Iteration 175 (Quality Hardening & Observability Depth)
 
 - OpenTelemetry business-span coverage for four namespaces (`backtrader.backtest.*`, `backtrader.strategy.*`, `backtrader.ai.*`, `backtrader.live.*`) with 13 phase spans and `bt.*` business attributes; opt-in via `OTEL_ENABLED=true`, true-no-op cold path otherwise.
@@ -27,6 +29,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `scripts/ci/check_bundle_size.sh` enforces entry chunk gzip ≤ 300 KB and login-route non-vendor JS ≤ 4 (blocking).
 - `mypy` strict scope expanded to 3 services subpackages (`optimization`, `log_parser`, `ai_trading`).
 - `iterations/README.md` updated; 173B disposition formalised in `docs/iterations/迭代175-质量加固与可观测性纵深/173B_disposition.md` (T2/T7/T10 all deferred to 176).
+- Modernized the backend analytics integration for Fincore 0.5, preserving manual fallbacks and explicit per-metric provenance where a Fincore operation is not applicable.
+- Hardened PostgreSQL initialization for legacy uppercase enum labels without applying text functions to native enum columns.
+- Retired the legacy workstation release script so it cannot bypass the protected-tag, artifact-only release workflow.
 
 ### Notes — Iteration 175 deferrals
 
@@ -177,6 +182,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 | Version | Date | Key Changes |
 |---------|------|-------------|
+| 0.2.0 | 2026-09-02 | General availability: Iteration 175 hardening, Fincore 0.5 compatibility, and release guardrails |
 | 0.2.0-rc1 | 2026-05-24 | AI trust kernel, engineering debt reduction, performance baselines, Docker release workflow |
 | 1.0.0 | 2026-03-26 | Initial stable release |
 | 0.9.0 | 2026-03-20 | Live trading integration |
@@ -186,7 +192,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 | 0.5.0 | 2026-02-28 | Strategy management |
 | 0.4.0 | 2026-02-20 | Backtest engine |
 | 0.3.0 | 2026-02-15 | Authentication system |
-| 0.2.0 | 2026-02-10 | Database layer |
 | 0.1.0 | 2026-02-01 | Project scaffolding |
 
 ---

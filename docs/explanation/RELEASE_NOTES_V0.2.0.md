@@ -1,19 +1,19 @@
-# AI for Investor v0.2.0 RC1 Release Notes
+# AI for Investor v0.2.0 Release Notes
 
-> Release candidate: `v0.2.0-rc1`
-> Status: candidate build for validation, not the final v0.2.0 production release
-> Date: 2026-05-24
+> Release: `v0.2.0`
+> Status: source release promotion; tag and GitHub Release publication remain a separately authorized protected-tag operation
+> Date: 2026-09-02
 
 ## Release theme
 
-v0.2.0 RC1 packages the first two completed stages of the 166-169 release train:
+v0.2.0 consolidates the completed 166-169 release-train work with the latest Fincore compatibility updates:
 
 - **Iteration 166: AI trust kernel** — make AI-generated and AI-reviewed strategies easier to evaluate.
 - **Iteration 169: engineering sustainability** — reduce large-file risk, extend ratchets, establish performance baselines, and prepare release infrastructure.
 
-Iterations 167 and 168 remain in the v0.2.x release train roadmap. Their AI observability, multi-model routing, VaR/CVaR, factor, attribution, and market-regime work is intentionally not marketed as shipped in this RC.
+Iterations 167 and 168 remain in the v0.2.x release train roadmap. Their AI observability, multi-model routing, VaR/CVaR, factor, attribution, and market-regime work is intentionally not marketed as shipped in v0.2.0.
 
-## Highlights shipped in RC1
+## Highlights shipped in v0.2.0
 
 ### AI strategy trust kernel
 
@@ -45,32 +45,21 @@ Iterations 167 and 168 remain in the v0.2.x release train roadmap. Their AI obse
 
 ### Release infrastructure
 
-- Docker Hub publishing workflow is available in `.github/workflows/docker-publish.yml`.
-- Tagging `v0.2.0-rc1` builds and pushes backend/frontend images when Docker Hub credentials are configured.
-- Published image tags use both release tag and short commit SHA tags.
+- `.github/workflows/docker-publish.yml` validates that a protected version tag points exactly to the current `master` commit, then builds non-published backend and frontend artifacts with retained metadata.
+- The workflow deliberately has no registry credentials and does not push images.
+- `scripts/ops/release.sh` is retired as a mutation-capable local release path; release promotion proceeds through `release/vX.Y.Z` pull requests and the protected-tag workflow.
 
-## Docker image publishing
+### Fincore 0.5 compatibility
 
-Required GitHub secrets:
+- The backend uses Fincore 0.5 domain metrics on Python 3.11+ while retaining explicit manual fallbacks for unsupported metrics and Python 3.10.
+- Returns are normalized at the analytics adapter boundary, and metric provenance remains visible to callers.
+- PostgreSQL startup handles legacy uppercase native-enum labels through enum-value migration rather than applying `LOWER()` to the enum column.
 
-- `DOCKERHUB_USERNAME`
-- `DOCKERHUB_TOKEN`
+## Release artifacts and tagging
 
-Tag-triggered release:
+This promotion does not create a Git tag, publish images, or create a GitHub Release. Those actions must be performed later by an authorized release manager after `master` contains the exact candidate commit.
 
-```bash
-git tag v0.2.0-rc1
-git push origin v0.2.0-rc1
-```
-
-Expected images:
-
-```text
-docker.io/$DOCKERHUB_USERNAME/ai-for-investor-backend:v0.2.0-rc1
-docker.io/$DOCKERHUB_USERNAME/ai-for-investor-frontend:v0.2.0-rc1
-docker.io/$DOCKERHUB_USERNAME/ai-for-investor-backend:sha-<commit>
-docker.io/$DOCKERHUB_USERNAME/ai-for-investor-frontend:sha-<commit>
-```
+The artifact workflow requires a protected `v0.2.0` tag resolving exactly to `master`; it produces local image IDs and release metadata only. It neither logs in to a registry nor claims registry digests.
 
 ## Validation checklist
 
@@ -100,14 +89,14 @@ python scripts/check_doc_links.py
 Docker dry-run build, without pushing:
 
 ```bash
-docker build -f src/backend/Dockerfile -t ai-for-investor-backend:v0.2.0-rc1-dryrun .
-docker build -f src/frontend/Dockerfile -t ai-for-investor-frontend:v0.2.0-rc1-dryrun src/frontend
+docker build -f src/backend/Dockerfile -t ai-for-investor-backend:v0.2.0-dryrun .
+docker build -f src/frontend/Dockerfile -t ai-for-investor-frontend:v0.2.0-dryrun src/frontend
 ```
 
 ## Known boundaries
 
-- RC1 is not the final v0.2.0 production release.
 - API/backtest performance baselines intentionally avoid real strategy subprocess execution.
-- Docker Hub publishing requires repository secrets and only runs on release tags or manual dispatch.
+- This source promotion does not itself create the protected tag or a GitHub Release.
+- The release-artifact workflow is artifact-only; production publication requires separately configured protected release controls.
 - AI observability, multi-model routing, VaR/CVaR, factor analytics, performance attribution, and market regime detection are planned for later v0.2.x iterations.
 - Full local Docker compose smoke testing requires production-grade secrets in environment variables; placeholder repository `.env` values must not be reused for production.
